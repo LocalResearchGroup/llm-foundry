@@ -1,4 +1,4 @@
-This repository is based on MosaicML's [llm-foundry](https://github.com/mosaicml/llm-foundry) under the Apache 2.0 license. We thank MosaicML for their foundational work in large language model training infrastructure.
+This repository is based on MosaicML's [llm-foundry](https://github.com/mosaicml/llm-foundry) under the Apache 2.0 license. We thank MosaicML for their foundational work in large language model training infrastructure!
 
 # LLM Foundry
 
