@@ -103,11 +103,12 @@ extra_deps['tensorboard'] = [
 ]
 
 # Flash 2 group kept for backwards compatibility
-extra_deps['gpu-flash2'] = [
-    'flash-attn==2.6.3',
-]
+# Commenting out entirely as we're installing flash-attn separately
+#extra_deps['gpu-flash2'] = [
+#    'flash-attn==2.6.3',
+#]
 
-extra_deps['gpu'] = copy.deepcopy(extra_deps['gpu-flash2'])
+#extra_deps['gpu'] = copy.deepcopy(extra_deps['gpu-flash2'])
 
 extra_deps['peft'] = [
     'mosaicml[peft]>=0.28.0,<0.29',
