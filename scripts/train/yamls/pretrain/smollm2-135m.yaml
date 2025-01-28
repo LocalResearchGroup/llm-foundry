@@ -15,8 +15,6 @@ model:
   pretrained_model_name_or_path: HuggingFaceTB/SmolLM2-135M
   config_overrides:
     max_position_embeddings: ${variables.max_seq_len}
-  attn_config:
-    attn_impl: flash
   use_flash_attention_2: true  # Moved outside of config_overrides
   pretrained: false
 
