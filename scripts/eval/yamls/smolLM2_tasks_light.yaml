@@ -1,0 +1,27 @@
+icl_tasks:
+
+-
+  label: piqa
+  dataset_uri: eval/local_data/commonsense_reasoning/piqa.jsonl
+  num_fewshot: [0]
+  icl_task_type: multiple_choice
+  continuation_delimiter: "\nAnswer: "
+
+-
+  label: commonsense_qa
+  dataset_uri: eval/local_data/commonsense_reasoning/commonsense_qa.jsonl
+  num_fewshot: [0]
+  icl_task_type: multiple_choice
+
+-
+  label: gsm8k
+  dataset_uri: eval/local_data/symbolic_problem_solving/gsm8k.jsonl
+  num_fewshot: [5]
+  icl_task_type: generation_task_with_answers
+  cot_delimiter: "The answer is "
+  continuation_delimiter: "\n\nA:"
+  question_prelimiter: ""
+  do_normalization: false
+  early_stopping_criteria:
+  - "\n\n"
+  - "Question:"
