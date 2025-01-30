@@ -41,8 +41,8 @@ icl_tasks:
   icl_task_type: multiple_choice
 
 -
-  label: triviaqa_sm_sub
-  dataset_uri: eval/local_data/world_knowledge/triviaqa_sm_sub.jsonl
+  label: triviaqa_sm
+  dataset_uri: eval/local_data/world_knowledge/triviaqa_sm.jsonl
   num_fewshot: [0]
   icl_task_type: generation_task_with_answers
   do_normalization: true
