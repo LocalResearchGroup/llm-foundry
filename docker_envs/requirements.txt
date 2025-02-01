@@ -5,3 +5,4 @@ numpy==2.2.2
 matplotlib==3.10.0
 unsloth>=2025.1.8
 aim==3.27.0
+setuptools==75.8.0
