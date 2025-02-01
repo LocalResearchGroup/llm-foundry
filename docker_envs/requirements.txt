@@ -1,0 +1,7 @@
+cmake==3.31.4
+packaging==24.2
+torch==2.5.1
+numpy==2.2.2
+matplotlib==3.10.0
+unsloth>=2025.1.8
+aim==3.27.0
