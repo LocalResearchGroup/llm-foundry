@@ -21,10 +21,11 @@ COPY requirements.txt /tmp/requirements.txt
 
 # Install Python dependencies including flash-attention
 RUN pip install uv --no-cache-dir
-RUN uv pip install --no-cache-dir --system -r /tmp/requirements.txt
-RUN uv pip install --no-cache-dir --system --no-build-isolation flash-attn==2.6.3
+RUN uv venv --python 3.11
+RUN uv pip install -r /tmp/requirements.txt
+RUN uv pip install flash-attn==2.6.3 --no-build-isolation
 
 # Clone and install llm-foundry
 RUN git clone https://github.com/LocalResearchGroup/llm-foundry.git && \
     cd llm-foundry && \
-    pip install -e ".[gpu]" --no-cache-dir
+    uv pip install -e ".[gpu]"
