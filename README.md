@@ -2,7 +2,7 @@ This repository is based on MosaicML's [llm-foundry](https://github.com/mosaicml
 
 # Installation
 
-llm-foundry uses [uv](https://docs.astral.sh/uv/) to manage dependencies (uv is compatible with Conda environments, see the [GPU](#gpu) section for an example of how to integrate the two). First clone the repository. 
+llm-foundry uses [uv](https://docs.astral.sh/uv/) to manage dependencies (uv is compatible with Conda environments, see the [GPU](#gpu) section for an example of how to integrate the two). First clone the repository.
 
 ```bash
 git clone https://github.com/LocalResearchGroup/llm-foundry.git
@@ -14,6 +14,7 @@ Then depending on your system, run one of the following commands to install the 
 ### CPU
 
 ```bash
+uv python pin 3.12
 uv sync --extra dev --extra cpu
 ```
 
@@ -28,20 +29,23 @@ conda activate llm-foundry
 # To permanently set uv to use the active Conda environment, add this to your ~/.bashrc
 export UV_PROJECT_ENVIRONMENT="$CONDA_PREFIX"
 ```
+
 Or install [system Cuda](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/) (not recommended).
 
 With Cuda installed, then use uv to install the library:
 
 ```bash
+uv python pin 3.12
 uv sync --extra dev --extra gpu
 
 # Install flash attention if you have a Ampere (RTX 30xx series) or newer GPU
 uv sync --extra dev --extra gpu --extra flash
 ```
 
-### MacOS
+### Apple Silicon (macOS)
 
 ```bash
+uv python pin 3.12
 uv sync --extra dev
 ```
 
@@ -60,7 +64,8 @@ conda activate llm-foundry
 if you used uv to create a virtual environment, you can activate it with:
 
 ```bash
-uv venv
+# macOS & Linux
+source .venv/bin/activate
 ```
 
 Original ReadMe below:
