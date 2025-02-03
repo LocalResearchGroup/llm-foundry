@@ -1,6 +1,77 @@
 This repository is based on MosaicML's [llm-foundry](https://github.com/mosaicml/llm-foundry) under the Apache 2.0 license. We thank MosaicML for their foundational work in large language model training infrastructure!
 
-# LLM Foundry
+# Installation
+
+llm-foundry uses [uv](https://docs.astral.sh/uv/) to manage dependencies (uv is compatible with Conda environments, see the [GPU](#gpu) section for an example of how to integrate the two). First clone the repository.
+
+```bash
+git clone https://github.com/LocalResearchGroup/llm-foundry.git
+cd llm-foundry
+```
+
+Then depending on your system, run one of the following commands to install the dependencies.
+
+### CPU
+
+```bash
+uv python pin 3.12
+uv sync --extra dev --extra cpu
+```
+
+### GPU
+
+For Flash Attention support you'll need to install Cuda 12.4. The simplest way is to use [Miniconda](https://docs.anaconda.com/miniconda/install) to install it.
+
+```bash
+conda create -n llm-foundry python=3.12 uv cuda -c nvidia/label/12.4.1 -c conda-forge
+conda activate llm-foundry
+# This sets uv to use the active Conda environment whether using uv or uv pip commands
+# To permanently set uv to use the active Conda environment, add this to your ~/.bashrc
+export UV_PROJECT_ENVIRONMENT="$CONDA_PREFIX"
+```
+
+Or install [system Cuda](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/) (not recommended).
+
+With Cuda installed, then use uv to install the library:
+
+```bash
+uv python pin 3.12
+uv sync --extra dev --extra gpu
+
+# Install flash attention if you have a Ampere (RTX 30xx series) or newer GPU
+uv sync --extra dev --extra gpu --extra flash
+```
+
+### Apple Silicon (macOS)
+
+```bash
+uv python pin 3.12
+uv sync --extra dev
+```
+
+## Refresh
+
+If you used uv to install other projects or are attempting to update llm-foundry to use new dependencies, append `--refresh` to the uv sync command to update the uv cache.
+
+## Using the uv environment
+
+If you installed to the Conda environment, you can activate it with:
+
+```bash
+conda activate llm-foundry
+```
+
+if you used uv to create a virtual environment, you can activate it with:
+
+```bash
+# macOS & Linux
+source .venv/bin/activate
+```
+
+Original ReadMe below:
+
+
+## LLM Foundry
 
 This repository contains code for training, finetuning, evaluating, and deploying LLMs for inference with [Composer](https://github.com/mosaicml/composer) and the [MosaicML platform](https://forms.mosaicml.com/demo?utm_source=github.com&utm_medium=referral&utm_campaign=llm-foundry). Designed to be easy-to-use, efficient _and_ flexible, this codebase enables rapid experimentation with the latest techniques.
 
@@ -16,7 +87,7 @@ You'll find in this repo:
 * `mcli/` - launch any of these workloads using [MCLI](https://docs.mosaicml.com/projects/mcli/en/latest/) and the [MosaicML platform](https://www.mosaicml.com/platform)
 * `TUTORIAL.md` - a deeper dive into the repo, example workflows, and FAQs
 
-# DBRX
+## DBRX
 
 DBRX is a state-of-the-art open source LLM trained by Databricks Mosaic team. It uses the Mixture-of-Experts (MoE) architecture and was trained with optimized versions of [Composer](https://github.com/mosaicml/composer), LLM Foundry, and [MegaBlocks](https://github.com/databricks/megablocks). The model has 132B total parameters and 36B active parameters. We have released two DBRX models:
 
@@ -30,7 +101,7 @@ Our model weights and code are licensed for both researchers and commercial enti
 
 For more information about the DBRX models, see https://github.com/databricks/dbrx.
 
-# MPT
+## MPT
 
 Mosaic Pretrained Transformers (MPT) are GPT-style models with some special features -- Flash Attention for efficiency, ALiBi for context length extrapolation, and stability improvements to mitigate loss spikes. As part of MosaicML's Foundation series, we have open-sourced several MPT models:
 
@@ -49,7 +120,7 @@ Mosaic Pretrained Transformers (MPT) are GPT-style models with some special feat
 
 To try out these models locally, [follow the instructions](https://github.com/mosaicml/llm-foundry/tree/main/scripts/inference#interactive-generation-with-modelgenerate) in `scripts/inference/README.md` to prompt HF models using our [hf_generate.py](https://github.com/mosaicml/llm-foundry/blob/main/scripts/inference/hf_generate.py) or [hf_chat.py](https://github.com/mosaicml/llm-foundry/blob/main/scripts/inference/hf_chat.py) scripts.
 
-# MPT Community
+## MPT Community
 
 We've been overwhelmed by all the amazing work the community has put into MPT! Here we provide a few links to some of them:
 * [ReplitLM](https://github.com/replit/replitLM): `replit-code-v1-3b` is a 2.7B Causal Language Model focused on Code Completion. The model has been trained on a subset of the Stack Dedup v1.2 dataset covering 20 languages such as Java, Python, and C++
@@ -66,7 +137,7 @@ Tutorial videos from the community:
 
 Something missing? Contribute with a PR!
 
-# Latest News
+## Latest News
 * [Blog: Introducing DBRX: A New State-of-the-Art Open LLM](https://www.databricks.com/blog/introducing-dbrx-new-state-art-open-llm)
 * [Blog: LLM Training and Inference with Intel Gaudi2 AI Accelerators](https://www.databricks.com/blog/llm-training-and-inference-intel-gaudi2-ai-accelerators)
 * [Blog: Training LLMs at Scale with AMD MI250 GPUs](https://www.databricks.com/blog/training-llms-scale-amd-mi250-gpus)
@@ -82,7 +153,7 @@ Something missing? Contribute with a PR!
 
 
 
-# Hardware and Software Requirements
+## Hardware and Software Requirements
 This codebase has been tested with PyTorch 2.4 with NVIDIA A100s and H100s.
 This codebase may also work on systems with other devices, such as consumer NVIDIA cards and AMD cards, but we are not actively testing these systems.
 If you have success/failure using LLM Foundry on other systems, please let us know in a Github issue and we will update the support matrix!
@@ -92,7 +163,7 @@ If you have success/failure using LLM Foundry on other systems, please let us kn
 | A100-40GB/80GB | 2.5.1         | 12.4         | :white_check_mark: Supported |
 | H100-80GB      | 2.5.1         | 12.4         | :white_check_mark: Supported |
 
-## MosaicML Docker Images
+### MosaicML Docker Images
 We highly recommend using our prebuilt Docker images. You can find them here: https://hub.docker.com/orgs/mosaicml/repositories.
 
 The `mosaicml/pytorch` images are pinned to specific PyTorch and CUDA versions, and are stable and rarely updated.
@@ -109,7 +180,7 @@ You can select a specific commit hash such as `mosaicml/llm-foundry:2.5.1_cu124-
 | `mosaicml/llm-foundry:2.5.1_cu124_aws-latest`          | 2.5.1         | 12.4 (EFA)        | Yes                                 |
 
 
-# Installation
+## Installation
 
 This assumes you already have PyTorch, CMake, and packaging installed. If not, you can install them with `pip install cmake packaging torch`.
 
@@ -183,7 +254,7 @@ Support for LLM Foundry on Intel Gaudi devices is experimental, please use the b
 For training and inference performance results on Intel Gaudi2 accelerators, see our blog: https://www.databricks.com/blog/llm-training-and-inference-intel-gaudi2-ai-accelerators
 
 
-# Quickstart
+## Quickstart
 
 > **Note**
 > Make sure to go through the installation steps above before trying the quickstart!
@@ -245,11 +316,11 @@ export HF_TOKEN=your-auth-token
 
 and uncomment the line containing `--hf_repo_for_upload ...` in the above call to `inference/convert_composer_to_hf.py`.
 
-# Registry
+## Registry
 
 You can use the registry to customize your workflows without forking the library. Some components of LLM Foundry are registrable, such as models, loggers, and callbacks. This means that you can register new options for these components, and then use them in your yaml config.
 
-## Discovering registrable components
+### Discovering registrable components
 To help find and understand registrable components, you can use the `llmfoundry registry` cli command.
 
 We provide two commands currently:
@@ -260,11 +331,11 @@ Use `--help` on any of these commands for more information.
 
 These commands can also help you understand what each registry is composed of, as each registry contains a docstring that will be printed out. The general concept is that each registry defines an interface, and components registered to that registry must implement that interface. If there is a part of the library that is not currently extendable, but you think it should be, please open an issue!
 
-## How to register
+### How to register
 
 There are a few ways to register a new component:
 
-### Python entrypoints
+#### Python entrypoints
 
 You can specify registered components via a Python entrypoint if you are building your own package with registered components.
 This would be the expected usage if you are building a large extension to LLM Foundry, and going to be overriding many components. Note that things registered via entrypoints will override components registered directly in code.
@@ -294,7 +365,7 @@ my_logger = "foundry_registry.loggers:MyLogger"
 
 If developing new components via entrypoints, it is important to note that Python entrypoints are global to the Python environment. This means that if you have multiple packages that register components with the same key, the last one installed will be the one used. This can be useful for overriding components in LLM Foundry, but can also lead to unexpected behavior if not careful. Additionally, if you change the pyproject.toml, you will need to reinstall the package for the changes to take effect. You can do this quickly by installing with `pip install -e . --no-deps` to avoid reinstalling dependencies.
 
-### Direct call to register
+#### Direct call to register
 
 You can also register a component directly in your code:
 
@@ -309,7 +380,7 @@ class MyLogger(LoggerDestination):
 loggers.register("my_logger", func=MyLogger)
 ```
 
-### Decorators
+#### Decorators
 
 You can also use decorators to register components directly from your code:
 
@@ -345,11 +416,11 @@ code_paths:
 
 One of these would be the expected usage if you are building a small extension to LLM Foundry, only overriding a few components, and thus don't want to create an entire package.
 
-# Learn more about LLM Foundry!
+## Learn more about LLM Foundry!
 
 Check out [TUTORIAL.md](https://github.com/mosaicml/llm-foundry/blob/main/TUTORIAL.md) to keep learning about working with LLM Foundry. The tutorial highlights example workflows, points you to other resources throughout the repo, and answers frequently asked questions!
 
-# Contact Us
+## Contact Us
 
 If you run into any problems with the code, please file Github issues directly to this repo.
 
