@@ -260,6 +260,9 @@ Open a terminal and type:
 ```
 cd /app/llm-foundry
 ```
+
+<mark>Remove this line before merging PR: if the `docs` branch hasn't been merged to `main` yet use `git checkout docs`</mark>
+
 Save the script from the Colab Pro section and upload it to your Paperspace notebook (it will live in the `/notebooks` folder). Run the following line (replace `train_smollm2-135m.sh` with whatever you named your `.sh` file):
 
 ```
