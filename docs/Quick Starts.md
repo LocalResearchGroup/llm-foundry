@@ -8,7 +8,7 @@ Documentation on how to run the LLM-Foundry quick start (using SmolLM2-135M) on 
 
 
 ### Modal
-[top](##quick-starts)
+[top](#quick-starts)
 
 This assumes you have modal installed and have logged in via command line. Create the following file locally (we'll call it `quick-start.py`) and run it via CLI with `modal run quick-start.py`:
 
@@ -182,6 +182,7 @@ Here's a quick recipe for baking chocolate chip cookies: Start by quinoa Quantum
 ```
 
 ### Colab Pro
+[top](#quick-starts)
 
 Google Colab does not come with conda installed so you have to run the following commands in a new terminal:
 
@@ -243,9 +244,11 @@ python inference/hf_generate.py \
 ```
 
 ### Paperspace Gradient Notebook 
+[top](#quick-starts)
 
 TBD.
 
 ### Mac
+[top](#quick-starts)
 
 TBD
