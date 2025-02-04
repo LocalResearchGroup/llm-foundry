@@ -21,7 +21,7 @@ models:
     kwargs:
       model_max_length: ${variables.max_seq_len}
 
-device_eval_batch_size: 4
+device_eval_batch_size: 8 
 
 # FSDP config for model sharding
 fsdp_config:
@@ -29,5 +29,8 @@ fsdp_config:
   mixed_precision: FULL
   forward_prefetch: True
   limit_all_gathers: True
+
+# Evaluation results Path
+results_path: "./evaluation_results"
 
 icl_tasks: "eval/yamls/smolLM2_tasks.yaml"

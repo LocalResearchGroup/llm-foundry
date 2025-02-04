@@ -278,6 +278,9 @@ def evaluate(cfg: DictConfig) -> tuple[list[Trainer], pd.DataFrame]:
         icl_tasks_required=False,
     )
 
+    results_path = eval_config.results_path or os.getcwd()
+    os.makedirs(results_path, exist_ok=True)  # Create directory if needed
+
     model_configs = eval_config.models
     eval_gauntlet_config = eval_config.eval_gauntlet or eval_config.eval_gauntlet_str
 
@@ -427,22 +430,26 @@ def evaluate(cfg: DictConfig) -> tuple[list[Trainer], pd.DataFrame]:
 
         # Save detailed results
         # Save as CSV
-        csv_path = f'results_{model_name_safe}_{timestamp}.csv'
+        csv_filename = f'results_{model_name_safe}_{timestamp}.csv'
+        csv_path = os.path.join(results_path, csv_filename)
         tensor_safe_save(models_df, csv_path, 'csv')
         print(f"Saved detailed results to {csv_path}")
         
         # Save as JSON
-        json_path = f'results_{model_name_safe}_{timestamp}.json'
+        json_filename = f'results_{model_name_safe}_{timestamp}.json'
+        json_path = os.path.join(results_path, json_filename)
         tensor_safe_save(models_df, json_path, 'json')
         print(f"Saved detailed results to {json_path}")
 
         # Save gauntlet results if available
         if eval_gauntlet_df is not None:
-            gauntlet_csv_path = f'gauntlet_results_{model_name_safe}_{timestamp}.csv'
+            gauntlet_csv = f'gauntlet_results_{model_name_safe}_{timestamp}.csv'
+            gauntlet_csv_path = os.path.join(results_path, gauntlet_csv)
             tensor_safe_save(eval_gauntlet_df, gauntlet_csv_path, 'csv')
             print(f"Saved gauntlet results to {gauntlet_csv_path}")
             
-            gauntlet_json_path = f'gauntlet_results_{model_name_safe}_{timestamp}.json'
+            gauntlet_json = f'gauntlet_results_{model_name_safe}_{timestamp}.json'
+            gauntlet_json_path = os.path.join(results_path, gauntlet_json)
             tensor_safe_save(eval_gauntlet_df, gauntlet_json_path, 'json')
             print(f"Saved gauntlet results to {gauntlet_json_path}")
 
