@@ -190,6 +190,8 @@ Restart the session after running `conda init`.
 
 Create a file `train_smollm2-135m.sh` and upload it to the `/content` folder. This demo assumes that you have a `smollm2-135m.yaml` file:
 
+<mark>Remove this line before opening PR: if the `docs` branch hasn't been merged to `main` upload `smollm2-135m.yaml` to `/content` and replace `train/yamls/pretrain/smollm2-135m.yaml` with `/content/smollm2-135m.yaml`</mark>
+
 ```bash
 cd scripts
 
