@@ -16,6 +16,23 @@ class LlamaForCausalLM(nn.Module):
         # Weight tying uses the head weights as the classifier for the token embeddings for both in and out.
         if config.tie_word_embeddings:
             self.lm_head.weight = self.model.embed_tokens.weight
+            
+        self._init_weights()
+
+    def _init_weights(self):
+        """Initialize weights for all layers."""
+        # Initialize embeddings
+        if hasattr(self.model, 'embed_tokens'):
+            nn.init.normal_(self.model.embed_tokens.weight, mean=0.0, std=0.041666666666666664)
+
+        # Initialize linear layers
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                # Xavier/Glorot initialization for weights
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    # Zero initialization for biases
+                    nn.init.zeros_(module.bias)
 
     def forward(
         self,
@@ -30,18 +47,7 @@ class LlamaForCausalLM(nn.Module):
             position_ids=position_ids,
         )
         
-        logits = self.lm_head(hidden_states)
-        
-        # @ Z TODO::
-        # Typically I don't want my forward calculating the loss, but have to check in with lm foundary to see how it's done
-        # loss = None
-        # if labels is not None:
-        #     shift_logits = logits[..., :-1, :].contiguous()
-        #     shift_labels = labels[..., 1:].contiguous()
-        #     loss_fct = nn.CrossEntropyLoss()
-        #     loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-
-        return logits
+        return hidden_states, self.lm_head.weight
 
     @torch.no_grad()
     def generate(
@@ -52,16 +58,18 @@ class LlamaForCausalLM(nn.Module):
     ) -> torch.LongTensor:
         self.eval()
         bsz, seq_len = input_ids.shape
-
+        
         position_ids = repeat(
             torch.arange(seq_len, device=input_ids.device),
             'l -> b l',
             b=bsz
         )
-
+        
         for _ in range(max_new_tokens):
-            logits = self.forward(input_ids, position_ids=position_ids)
-            next_token_logits = logits[:, -1, :]
+            hidden_states, classifier_weights = self.forward(input_ids, position_ids=position_ids)
+            
+            # Get logits by computing hidden_states @ classifier_weights.T
+            next_token_logits = hidden_states[:, -1] @ classifier_weights.T
             
             if temperature == 0:
                 next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
@@ -73,5 +81,5 @@ class LlamaForCausalLM(nn.Module):
             input_ids = torch.cat([input_ids, next_token], dim=1)
             new_position_ids = position_ids[:, -1:] + 1
             position_ids = torch.cat([position_ids, new_position_ids], dim=1)
-            
+        
         return input_ids
