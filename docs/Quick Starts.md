@@ -1,8 +1,14 @@
 ## Quick Starts
-Documentation on how to run the LLM-Foundry quick start (using SmolLM2-135M) on different platforms.
+Documentation on how to run the LLM-Foundry quick start (using SmolLM2-135M) on different platforms:
+
+- [Modal](#modal)
+- [Colab Pro](#colab-pro)
+- [Paperspace Gradient Notebook](#paperspace-gradient-notebook)
+- [Mac](#mac)
 
 
 ### Modal
+[top](##quick-starts)
 
 This assumes you have modal installed and have logged in via command line. Create the following file locally (we'll call it `quick-start.py`) and run it via CLI with `modal run quick-start.py`:
 
