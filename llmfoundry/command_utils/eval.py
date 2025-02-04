@@ -1,6 +1,7 @@
 # Copyright 2022 MosaicML LLM Foundry authors
 # SPDX-License-Identifier: Apache-2.0
 
+import datetime
 import logging
 import os
 import time
@@ -236,6 +237,33 @@ def allow_toplevel_keys(cfg: dict[str, Any]) -> dict[str, Any]:
 
     return cfg
 
+def tensor_safe_save(df: pd.DataFrame, path: str, save_format: str = 'csv'):
+    """
+    Safely save DataFrame containing tensor values to CSV or JSON.
+    
+    Args:
+        df: DataFrame to save
+        path: Path to save file to
+        save_format: Either 'csv' or 'json'
+    """
+    # Create a copy to avoid modifying original DataFrame
+    save_df = df.copy()
+    
+    # Convert any tensor values to float
+    for column in save_df.columns:
+        if save_df[column].dtype == 'object':
+            save_df[column] = save_df[column].apply(
+                lambda x: float(x) if hasattr(x, 'item') else x
+            )
+    
+    try:
+        if save_format == 'csv':
+            save_df.to_csv(path, index=False)
+        else:  # json
+            save_df.to_json(path, orient='records', indent=2)
+        print(f"Successfully saved results to {path}")
+    except Exception as e:
+        print(f"Warning: Failed to save to {path}. Error: {str(e)}")
 
 def evaluate(cfg: DictConfig) -> tuple[list[Trainer], pd.DataFrame]:
     # Run user provided code if specified
@@ -249,6 +277,9 @@ def evaluate(cfg: DictConfig) -> tuple[list[Trainer], pd.DataFrame]:
         transforms=[allow_toplevel_keys],
         icl_tasks_required=False,
     )
+
+    results_path = eval_config.results_path or os.getcwd()
+    os.makedirs(results_path, exist_ok=True)  # Create directory if needed
 
     model_configs = eval_config.models
     eval_gauntlet_config = eval_config.eval_gauntlet or eval_config.eval_gauntlet_str
@@ -392,6 +423,35 @@ def evaluate(cfg: DictConfig) -> tuple[list[Trainer], pd.DataFrame]:
         print(f'Printing complete results for all models')
         assert models_df is not None
         print(models_df.to_markdown(index=False))
+
+        # Save results to files
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_name_safe = model_cfg['model_name'].replace('/', '_')
+
+        # Save detailed results
+        # Save as CSV
+        csv_filename = f'results_{model_name_safe}_{timestamp}.csv'
+        csv_path = os.path.join(results_path, csv_filename)
+        tensor_safe_save(models_df, csv_path, 'csv')
+        print(f"Saved detailed results to {csv_path}")
+        
+        # Save as JSON
+        json_filename = f'results_{model_name_safe}_{timestamp}.json'
+        json_path = os.path.join(results_path, json_filename)
+        tensor_safe_save(models_df, json_path, 'json')
+        print(f"Saved detailed results to {json_path}")
+
+        # Save gauntlet results if available
+        if eval_gauntlet_df is not None:
+            gauntlet_csv = f'gauntlet_results_{model_name_safe}_{timestamp}.csv'
+            gauntlet_csv_path = os.path.join(results_path, gauntlet_csv)
+            tensor_safe_save(eval_gauntlet_df, gauntlet_csv_path, 'csv')
+            print(f"Saved gauntlet results to {gauntlet_csv_path}")
+            
+            gauntlet_json = f'gauntlet_results_{model_name_safe}_{timestamp}.json'
+            gauntlet_json_path = os.path.join(results_path, gauntlet_json)
+            tensor_safe_save(eval_gauntlet_df, gauntlet_json_path, 'json')
+            print(f"Saved gauntlet results to {gauntlet_json_path}")
 
         trainer.close()
 

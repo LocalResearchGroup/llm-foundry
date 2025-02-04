@@ -57,6 +57,7 @@ class EvalConfig:
 
     # Eval Config optional parameters:
     code_paths: Optional[list[str]] = None
+    results_path: Optional[str] = None # results save path
 
     # Eval hyperparameters
     eval_gauntlet: Optional[dict[str, Any]] = None
