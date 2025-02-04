@@ -193,7 +193,7 @@ source ~/miniconda3/bin/activate
 conda init
 ```
 
-Restart the session after running `conda init`. 
+Restart the session after running `conda init` and follow the installation instructions in the [main README](https://github.com/LocalResearchGroup/llm-foundry?tab=readme-ov-file#installation).
 
 Create a file `train_smollm2-135m.sh` and upload it to the `/content` folder. This demo assumes that you have a `smollm2-135m.yaml` file:
 
