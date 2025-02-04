@@ -8,6 +8,8 @@ This assumes you have modal installed and have logged in via command line. Creat
 
 <mark>Remove this line before opening PR: if the `docs` branch hasn't been merged to `main` yet use `"git clone -b docs https://github.com/LocalResearchGroup/llm-foundry.git && "`</mark>
 
+Note that the batch size arguments can be adjusted based on which GPU you use (L4, A10 or A100).
+
 ```python
 from modal import Image, App
 
@@ -231,8 +233,6 @@ python inference/hf_generate.py \
     "The answer to life, the universe, and happiness is" \
     "Here's a quick recipe for baking chocolate chip cookies: Start by"
 ```
-
-Note that the batch size arguments can be adjusted based on which GPU you use (L4 or A100).
 
 ### Paperspace Gradient Notebook 
 
