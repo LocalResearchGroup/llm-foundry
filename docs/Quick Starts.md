@@ -273,4 +273,28 @@ You should see the output logs as described in the Modal section.
 ### Mac
 [top](#quick-starts)
 
-TBD
+The following command is confirmed to work with M1:
+
+```
+composer train/train.py \
+  train/yamls/pretrain/mpt-125m.yaml \
+  variables.data_local=my-copy-c4 \
+  train_loader.dataset.split=train_small \
+  eval_loader.dataset.split=val_small \
+  max_duration=10ba \
+  eval_interval=0 \
+  save_folder=mpt-125m \
+  model.attn_config.attn_impl=torch \
+  model.loss_fn=torch_crossentropy \
+  precision=FP32 \
+  train_loader.num_workers=0 \
+  eval_loader.num_workers=0 \
+  global_train_batch_size=32 \
+  device_train_microbatch_size=8 \
+  train_loader.prefetch_factor=null \
+  eval_loader.prefetch_factor=null \
+  train_loader.persistent_workers=false \
+  eval_loader.persistent_workers=false
+```
+
+We haven't yet been able to get `composer eval/eval.py` working. It hits `torch.cuda.current_device()` in `composer/distributed/dist_strategy.py` and then errors because torch was compiled without CUDA. 
