@@ -19,7 +19,7 @@ conda init
 
 Restart the session after running `conda init`. 
 
-Create a file `train_smollm2-135m.sh` and upload it to the `/content` folder:
+Create a file `train_smollm2-135m.sh` and upload it to the `/content` folder. This demo assumes that you have a `smollm2-135m.yaml` file:
 
 ```bash
 cd scripts
@@ -32,7 +32,7 @@ python data_prep/convert_dataset_hf.py \
 
 # Train SmolLM2-135M model for 10 batches
 composer train/train.py \
-  /content/smollm2-135m.yaml \
+  train/yamls/pretrain/smollm2-135m.yaml \
   variables.data_local=my-copy-c4 \
   train_loader.dataset.split=train_small \
   eval_loader.dataset.split=val_small \
@@ -81,7 +81,7 @@ If all goes well you should see something like the following during training:
 ...
 ```
 
-Something like the following evaluation:
+something like the following during evaluation:
 
 ```
 Printing complete results for all models
