@@ -246,7 +246,26 @@ python inference/hf_generate.py \
 ### Paperspace Gradient Notebook 
 [top](#quick-starts)
 
-TBD.
+We may want to change how we do this but for now I have created a Docker Hub registry `vishalbakshi/llm-foundry-jupyter:latest` in [this repo](https://github.com/vishalbakshi/llm-foundry-dockerfile). I believe there is a 1 free Docker Hub registry per account.
+
+In paperspace:
+
+1. Create a notebook.
+2. Select "Start from Scratch" template.
+3. Paste `vishalbakshi/llm-foundry-jupyter:latest` into the Container name and leave all other fields as is.
+4. Click Start Notebook (for me, it fails the first time so I have to repeat steps 2 and 3).
+
+Open a terminal and type:
+
+```
+cd /app/llm-foundry
+```
+Save the script from the Colab Pro section and upload it to your Paperspace notebook (it will live in the `/notebooks` folder). Run the following line (replace `train_smollm2-135m.sh` with whatever you named your `.sh` file):
+
+```
+../../notebooks/train_smollm2-135m.sh
+```
+You should see the output logs as described in the Modal section.
 
 ### Mac
 [top](#quick-starts)
