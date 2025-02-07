@@ -12,32 +12,15 @@ Documentation on how to run the LLM-Foundry quick start (using SmolLM2-135M) on 
 
 This assumes you have modal installed and have logged in via command line. Create the following file locally (we'll call it `quick-start.py`) and run it via CLI with `modal run quick-start.py`:
 
-<mark>Remove this line before merging PR: if the `docs` branch hasn't been merged to `main` yet use `"git clone -b docs https://github.com/LocalResearchGroup/llm-foundry.git && "`</mark>
-
 Note that the batch size arguments can be adjusted based on which GPU you use (L4, A10 or A100).
 
 ```python
 from modal import Image, App
 
-def setup_image():
-    return (
-        Image.micromamba()
-        .apt_install(["git"])
-        .run_commands(
-            "git clone https://github.com/LocalResearchGroup/llm-foundry.git && "
-            "cd llm-foundry && "
-            "micromamba create -n llm-foundry python=3.12 cuda uv -c nvidia/label/12.4.1 -c conda-forge -y && "
-            "export UV_PROJECT_ENVIRONMENT=/opt/conda/envs/llm-foundry && "
-            "micromamba run -n llm-foundry uv sync --extra dev --extra gpu && "
-            "micromamba run -n llm-foundry uv sync --extra flash && "
-            "cd /llm-foundry && micromamba run -n llm-foundry pip install -e ."
-        )
-        .env({"CONDA_DEFAULT_ENV": "llm-foundry", 
-              "PATH": "/opt/conda/envs/llm-foundry/bin:$PATH"})
-    )
+app = App("quick-start")
 
-app = App("quick-start-smollm2-135-m")
-image = setup_image()
+# Build image from local Dockerfile
+image = Image.from_dockerfile("Dockerfile")
 
 @app.function(gpu="l4", image=image, timeout=3600)
 def run_quickstart():
