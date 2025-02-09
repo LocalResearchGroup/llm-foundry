@@ -183,9 +183,9 @@ Docker run command with additional options
 - `--gpus device=0` use the first GPU only
 - `--shm-size=8g` set the size of the shared memory - may be needed for higher # of cores w/ multiprocessing
 - `-v /home/{your username}/llm_foundry/datasets/my-copy-c4:/root/my-copy-c4` mount a local directory to the container so, for example, you only have to download the dataset once for the quickstart
-
+- `-p 43800:43800` run the aim server locally on port 43800 so you can watch progress live from your browser
 ```bash
-docker run --rm -it --gpus device=0 --shm-size=8g -v /home/{your username}/llm_foundry/datasets/my-copy-c4:/root/my-copy-c4 llm_foundry
+docker run --rm -it --gpus device=0 --shm-size=8g -v /home/{your username}/llm_foundry/datasets/my-copy-c4:/root/my-copy-c4 -p 43800:43800 llm_foundry
 ```
 
 Run the quickstart training command
@@ -195,6 +195,9 @@ cd /llm-foundry
 # Set environment variables for AIM remote server upload - omit if only running locally
 export AIM_CLIENT_REQUEST_HEADERS_SECRET='{"CF-Access-Client-Id": "xxxxxxxxxx", "CF-Access-Client-Secret": "xxxxxxxxxx"}'
 export AIM_REMOTE_SERVER_URL_SECRET=https://{insert remote aim server url here}/upload
+
+# OPTIONALLY: if you want to run the aim server in the background to view live progress in your browser - will print the url to your terminal w/ the public ip
+echo "http://$(curl -s ifconfig.io):43800" && aim init -s && aim up --host 0.0.0.0 &
 
 # Inside container, run training command
 composer /llm-foundry/scripts/train/train.py \
