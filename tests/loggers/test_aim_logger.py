@@ -4,7 +4,7 @@ import torch
 import numpy as np
 from pathlib import Path
 
-from llmfoundry.loggers.aim_logger import AimLogger
+from llmfoundry.loggers.composer_aim_logger import AimLogger
 from composer.core import State
 
 def test_basic_initialization(temp_repo_dir):
