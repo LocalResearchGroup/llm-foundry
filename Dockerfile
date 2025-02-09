@@ -25,5 +25,8 @@ WORKDIR /llm-foundry
 RUN echo "eval \"\$(micromamba shell hook --shell bash)\"" >> ~/.bashrc && \
     echo "micromamba activate llm-foundry" >> ~/.bashrc
 
+# Open port to view Aim dashboard live from the container (optional) - Not related to aim remote upload server.
+EXPOSE 43800
+
 # Default shell with environment activated
 CMD ["/bin/bash"]

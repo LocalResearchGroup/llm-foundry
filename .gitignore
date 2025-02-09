@@ -4,6 +4,9 @@ my-copy-arxiv*/
 *.jsonl*
 !tests/eval/local_data/*.jsonl
 
+# cursor_spectstory
+.specstory/
+
 # WandB
 wandb/
 
