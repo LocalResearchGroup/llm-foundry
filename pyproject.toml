@@ -1,4 +1,3 @@
-
 # iSort
 [tool.isort]
 multi_line_output = 0
@@ -542,7 +541,9 @@ dependencies = [
   "fsspec>=2023.6.0,<2024.12.0",
   "sentencepiece>=0.2.0",
   "einops==0.8.0",
-  "omegaconf>=2.2.3,<3",
+  # omegaconf 2.2.3 and 2.3.0 conflict with math-very over
+  # pinned antlr4-python3-runtime versions
+  "omegaconf>=2.4.0.dev3,<3",
   "slack-sdk<4",
   "mosaicml-cli>=0.6.10,<1",
   "onnx==1.17.0",
@@ -555,6 +556,7 @@ dependencies = [
   "typer<1",
   "GitPython==3.1.44",
   "aim>=3.26.0,<4",
+  "math-verify>=0.5.2,<1",
 ]
 dynamic = ["version"]
 
@@ -582,6 +584,9 @@ gpu = ["torch>=2.5.1,<2.5.2", "setuptools>=75.8.0", "packaging"]
 cpu = ["torch>=2.5.1,<2.5.2"]
 flash = ["flash-attn>=2.7.4"]
 openai = ["openai>=1.56.0,<2.0", "tiktoken>=0.4,<0.8.1"]
+eval = [
+    "math-verify==0.5.2",
+]
 
 [tool.setuptools]
 packages = ["llmfoundry"]
