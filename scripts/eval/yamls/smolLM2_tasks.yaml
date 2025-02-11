@@ -71,3 +71,5 @@ icl_tasks:
   early_stopping_criteria:
   - "\n\n"
   - "Question:"
+  metric_names:
+    - math_verify
