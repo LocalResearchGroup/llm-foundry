@@ -164,6 +164,63 @@ The answer to life, the universe, and happiness is**starting Fest Discover shelf
 Here's a quick recipe for baking chocolate chip cookies: Start by quinoa Quantum availabilityromb...
 ```
 
+### Docker
+[top](#quick-starts)
+
+This assumes you have nvidia-docker installed. These are examples of command you may want to edit for your particular setup.
+
+Create the dockerfile. You must be in the root directory of the repo
+```bash
+docker build -t llm_foundry .
+```
+Minimal run command. This will start interactively in bash `-it` and will be deleted when you exit `--rm`
+```bash
+sudo docker run --rm -it llm_foundry
+```
+Docker run command with additional options
+- `--rm` delete the container when it exits
+- `-it` interactive mode
+- `--gpus device=0` use the first GPU only
+- `--shm-size=8g` set the size of the shared memory - may be needed for higher # of cores w/ multiprocessing
+- `-v /home/{your username}/llm_foundry/datasets/my-copy-c4:/root/my-copy-c4` mount a local directory to the container so, for example, you only have to download the dataset once for the quickstart
+- `-p 43800:43800` run the aim server locally on port 43800 so you can watch progress live from your browser
+```bash
+docker run --rm -it --gpus device=0 --shm-size=8g -v /home/{your username}/llm_foundry/datasets/my-copy-c4:/root/my-copy-c4 -p 43800:43800 llm_foundry
+```
+
+Run the quickstart training command
+```bash
+cd /llm-foundry
+
+# Set environment variables for AIM remote server upload - omit if only running locally
+export AIM_CLIENT_REQUEST_HEADERS_SECRET='{"CF-Access-Client-Id": "xxxxxxxxxx", "CF-Access-Client-Secret": "xxxxxxxxxx"}'
+export AIM_REMOTE_SERVER_URL_SECRET=https://{insert remote aim server url here}/upload
+
+# OPTIONALLY: if you want to run the aim server in the background to view live progress in your browser - will print the url to your terminal w/ the public ip
+echo "http://$(curl -s ifconfig.io):43800" && aim init -s && aim up --host 0.0.0.0 &
+
+# Inside container, run training command
+composer /llm-foundry/scripts/train/train.py \
+  /llm-foundry/scripts/train/yamls/pretrain/smollm2-135m.yaml \
+  variables.data_local=/root/my-copy-c4 \
+  train_loader.dataset.split=train_small \
+  eval_loader.dataset.split=val_small \
+  max_duration=10ba \
+  eval_interval=0 \
+  save_folder=/root/smollm2-135m \
+  device_eval_batch_size=4 \
+  device_train_microbatch_size=4 \
+  global_train_batch_size=4
+```
+
+Optionally - run the aim server locally by navigating to the directory containing the aim repo and run `aim up --host 0.0.0.0`
+```bash
+docker exec -it {container_name or container_id} bash
+cd /llm-foundry/ # this folder for the quickstart or the folder containing the aim repo
+aim up --host 0.0.0.0
+```
+
+
 ### Colab Pro
 [top](#quick-starts)
 

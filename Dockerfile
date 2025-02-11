@@ -3,7 +3,7 @@ FROM mambaorg/micromamba:latest
 USER root
 
 # Install git and other dependencies
-RUN apt-get update && apt-get install -y git nano
+RUN apt-get update && apt-get install -y git nano curl wget && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Clone llm-foundry repo and set up environment
 RUN git clone https://github.com/LocalResearchGroup/llm-foundry.git /llm-foundry && \
@@ -24,6 +24,9 @@ WORKDIR /llm-foundry
 # Initialize conda in bash and activate environment by default
 RUN echo "eval \"\$(micromamba shell hook --shell bash)\"" >> ~/.bashrc && \
     echo "micromamba activate llm-foundry" >> ~/.bashrc
+
+# Open port to view Aim dashboard live from the container (optional) - Not related to aim remote upload server.
+EXPOSE 43800
 
 # Default shell with environment activated
 CMD ["/bin/bash"]
