@@ -9,16 +9,15 @@ from composer.loggers import Logger, MLFlowLogger
 from composer.utils import dist
 from torchmetrics import Metric
 
-from llmfoundry.models.mpt import ComposerMPTCausalLM
 from llmfoundry.utils.consts import CROSS_ENTROPY_IGNORE_INDEX
 from llmfoundry.utils.warnings import experimental_class
 
 __all__ = [
-    'LossPerpVsContextLengthLogger',
+    "LossPerpVsContextLengthLogger",
 ]
 
 
-@experimental_class('LossPerpVsContextLengthLogger')
+@experimental_class("LossPerpVsContextLengthLogger")
 class LossPerpVsContextLengthLogger(Callback):
     """Logs the average loss and perplexity for every context length.
 
@@ -38,7 +37,7 @@ class LossPerpVsContextLengthLogger(Callback):
     ):
         if compute_batch_interval > log_batch_interval:
             raise ValueError(
-                'log_batch_interval is shorter than the compute_batch_interval for LossPerpVsContextLengthLogger.',
+                "log_batch_interval is shorter than the compute_batch_interval for LossPerpVsContextLengthLogger.",
             )
         self.log_batch_interval = log_batch_interval
         self.compute_batch_interval = compute_batch_interval
@@ -47,49 +46,55 @@ class LossPerpVsContextLengthLogger(Callback):
         self.loss_perp_v_len = LossPerpVLen(ignore_index)
 
     def init(self, state: State, logger: Logger) -> None:
-        if not isinstance(state.model, ComposerMPTCausalLM):
-            raise ValueError(
-                'LossPerpVsContextLengthLogger only supported for ComposerMPTCausalLM models.',
-            )
+        ### If my cleaning leads to error, this can be a clue.
+        # if not isinstance(state.model, ComposerMPTCausalLM):
+        #     raise ValueError(
+        #         "LossPerpVsContextLengthLogger only supported for ComposerMPTCausalLM models.",
+        #     )
         if state.model.shift_labels is None:
             raise ValueError(
-                'state.model.shift_labels should be set for LossPerpVsContextLengthLogger.',
+                "state.model.shift_labels should be set for LossPerpVsContextLengthLogger.",
             )
         if all(
             not isinstance(destination, MLFlowLogger)
             for destination in logger.destinations
         ):
             raise NotImplementedError(
-                'Did not find MLflow in the list of loggers. LossPerpVsContextLengthLogger is only implemented for the MLflow logger.',
+                "Did not find MLflow in the list of loggers. LossPerpVsContextLengthLogger is only implemented for the MLflow logger.",
             )
 
     def after_backward(self, state: State, logger: Logger) -> None:
         if state.timestamp.batch.value % self.compute_batch_interval == 0:
-            sequence_id = state.batch['sequence_id'
-                                     ] if 'sequence_id' in state.batch else None
-            labels = state.batch['labels']
+            sequence_id = (
+                state.batch["sequence_id"] if "sequence_id" in state.batch else None
+            )
+            labels = state.batch["labels"]
             if state.model.shift_labels:
                 labels[:, :-1] = labels[:, 1:].detach().clone()
                 labels[:, -1] = CROSS_ENTROPY_IGNORE_INDEX
             seq_parallel_world_size = getattr(
                 state.model.model.transformer,
-                'seq_parallel_world_size',
+                "seq_parallel_world_size",
                 1,
             )
-            seq_parallel_rank = state.model.model.transformer.seq_parallel_rank if seq_parallel_world_size > 1 else 0
+            seq_parallel_rank = (
+                state.model.model.transformer.seq_parallel_rank
+                if seq_parallel_world_size > 1
+                else 0
+            )
 
             if isinstance(state.outputs, Mapping):
-                logits = state.outputs['logits']  # type: ignore
+                logits = state.outputs["logits"]  # type: ignore
             elif isinstance(state.outputs, torch.Tensor):
                 logits = state.outputs
             else:
                 raise Exception(
-                    f'Type {type(state.outputs)} for the output is unsupported.',
+                    f"Type {type(state.outputs)} for the output is unsupported.",
                 )
 
             if labels.shape[1] != logits.shape[1]:
                 raise ValueError(
-                    f'The length of labels, {labels.shape[1]=} does not match the length of logits {logits.shape[1]=}.',
+                    f"The length of labels, {labels.shape[1]=} does not match the length of logits {logits.shape[1]=}.",
                 )
 
             labels, logits = self.preprocess_metric_inputs(
@@ -116,30 +121,29 @@ class LossPerpVsContextLengthLogger(Callback):
                 for k, v in current_metric_dict.items():
                     v = v.tolist()
                     v.append(
-                        state.timestamp.batch.value -
-                        1,  # state.timestamp.batch.value - 1 because batch is incremented before batch_end (https://github.com/mosaicml/composer/blob/57c7b72b9df41b0c9777bad1c2bec17f3103c31f/composer/trainer/trainer.py#L2478C1-L2484C55)
+                        state.timestamp.batch.value
+                        - 1,  # state.timestamp.batch.value - 1 because batch is incremented before batch_end (https://github.com/mosaicml/composer/blob/57c7b72b9df41b0c9777bad1c2bec17f3103c31f/composer/trainer/trainer.py#L2478C1-L2484C55)
                     )  # Add the current batch index as the last column
                     if k not in self.metric_dict:
                         self.metric_dict[k] = []
                     self.metric_dict[k].append(v)
         if (
             state.timestamp.batch.value - 1
-        ) % self.log_batch_interval == 0 and dist.get_global_rank(
-        ) == 0:  # state.timestamp.batch.value - 1 because batch is incremented before batch_end (https://github.com/mosaicml/composer/blob/57c7b72b9df41b0c9777bad1c2bec17f3103c31f/composer/trainer/trainer.py#L2478C1-L2484C55)
+        ) % self.log_batch_interval == 0 and dist.get_global_rank() == 0:  # state.timestamp.batch.value - 1 because batch is incremented before batch_end (https://github.com/mosaicml/composer/blob/57c7b72b9df41b0c9777bad1c2bec17f3103c31f/composer/trainer/trainer.py#L2478C1-L2484C55)
             for k, v in self.metric_dict.items():
                 columns = []
                 columns = [
-                    f'context_length_{i}' for i in range(len(v[0]) - 1)
+                    f"context_length_{i}" for i in range(len(v[0]) - 1)
                 ]  # len(v[0]) - 1 because the last column is the batch index
                 columns.append(
-                    'batch_index',
+                    "batch_index",
                 )  # Add batch as the last column name
                 for destination in logger.destinations:
                     if isinstance(destination, MLFlowLogger):
                         destination.log_table(
                             columns=columns,
                             rows=v,
-                            name=f'metrics/train/LossPerpVLenTable/{k}',
+                            name=f"metrics/train/LossPerpVLenTable/{k}",
                             step=state.timestamp.batch.value,
                         )
             self.metric_dict = {}
@@ -155,7 +159,7 @@ class LossPerpVsContextLengthLogger(Callback):
         del sequence_id, seq_parallel_rank
         if seq_parallel_world_size > 1:
             raise ValueError(
-                'LossPerpVsContextLengthLogger does not support sequence parallelism',
+                "LossPerpVsContextLengthLogger does not support sequence parallelism",
             )
 
         return labels, logits
@@ -173,32 +177,32 @@ class LossPerpVLen(Metric):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
 
         self.ignore_index = ignore_index
-        self.add_state('sum_loss', default=torch.Tensor(), dist_reduce_fx='sum')
+        self.add_state("sum_loss", default=torch.Tensor(), dist_reduce_fx="sum")
         self.add_state(
-            'sum_perplexity',
+            "sum_perplexity",
             default=torch.Tensor(),
-            dist_reduce_fx='sum',
+            dist_reduce_fx="sum",
         )
         self.add_state(
-            'sum_length',
+            "sum_length",
             default=torch.Tensor(),
-            dist_reduce_fx='sum',
+            dist_reduce_fx="sum",
         )
 
         self.add_state(
-            'sum_loss_seq_id',
+            "sum_loss_seq_id",
             default=torch.Tensor(),
-            dist_reduce_fx='sum',
+            dist_reduce_fx="sum",
         )
         self.add_state(
-            'sum_perplexity_seq_id',
+            "sum_perplexity_seq_id",
             default=torch.Tensor(),
-            dist_reduce_fx='sum',
+            dist_reduce_fx="sum",
         )
         self.add_state(
-            'sum_length_seq_id',
+            "sum_length_seq_id",
             default=torch.Tensor(),
-            dist_reduce_fx='sum',
+            dist_reduce_fx="sum",
         )
 
     def update(
@@ -263,9 +267,11 @@ class LossPerpVLen(Metric):
         self.sum_length += valid_labels_mask.sum(dim=0)
 
         if sequence_id is not None:
-            seq_id_mask = (sequence_id != -1)
+            seq_id_mask = sequence_id != -1
             sequence_id = torch.where(seq_id_mask, sequence_id, 0)
-            seq_id_expanded = torch.nn.functional.one_hot(sequence_id,)
+            seq_id_expanded = torch.nn.functional.one_hot(
+                sequence_id,
+            )
             seq_id_expanded = torch.where(
                 torch.unsqueeze(seq_id_mask, dim=-1),
                 seq_id_expanded,
@@ -275,7 +281,8 @@ class LossPerpVLen(Metric):
             seq_lens = seq_id_expanded.sum(dim=-1)
             max_num_seq = seq_lens.shape[1]
             seq_tok_ids = torch.arange(seq_len, device=sequence_id.device)[
-                None, None, :].expand(bsz, max_num_seq, -1)
+                None, None, :
+            ].expand(bsz, max_num_seq, -1)
             mask = seq_tok_ids < seq_lens[:, :, None]
             seq_len_offsets = torch.nn.functional.pad(
                 seq_lens.cumsum(dim=1)[:, :-1],
@@ -348,16 +355,10 @@ class LossPerpVLen(Metric):
         )
 
         return {
-            'mean_loss_v_len':
-                sum_loss / sum_length,
-            'mean_perplexity_v_len':
-                sum_perplexity / sum_length,
-            'sum_length':
-                self.sum_length,
-            'mean_loss_seq_id_v_len':
-                sum_loss_seq_id / sum_length_seq_id,
-            'mean_perplexity_seq_id_v_len':
-                sum_perplexity_seq_id / sum_length_seq_id,
-            'sum_length_seq_id':
-                self.sum_length_seq_id,
+            "mean_loss_v_len": sum_loss / sum_length,
+            "mean_perplexity_v_len": sum_perplexity / sum_length,
+            "sum_length": self.sum_length,
+            "mean_loss_seq_id_v_len": sum_loss_seq_id / sum_length_seq_id,
+            "mean_perplexity_seq_id_v_len": sum_perplexity_seq_id / sum_length_seq_id,
+            "sum_length_seq_id": self.sum_length_seq_id,
         }
