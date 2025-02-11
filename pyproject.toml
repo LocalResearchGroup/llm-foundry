@@ -584,9 +584,6 @@ gpu = ["torch>=2.5.1,<2.5.2", "setuptools>=75.8.0", "packaging"]
 cpu = ["torch>=2.5.1,<2.5.2"]
 flash = ["flash-attn>=2.7.4"]
 openai = ["openai>=1.56.0,<2.0", "tiktoken>=0.4,<0.8.1"]
-eval = [
-    "math-verify==0.5.2",
-]
 
 [tool.setuptools]
 packages = ["llmfoundry"]
