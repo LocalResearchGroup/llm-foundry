@@ -3,6 +3,7 @@
 
 """A collection of common torchmetrics."""
 
+from llmfoundry.eval.metrics.math_verify import MathVerifyMetric
 from llmfoundry.eval.metrics.nlp import (
     InContextLearningGenerationExactMatchAccuracy,
     InContextLearningLMAccuracy,
@@ -19,4 +20,5 @@ __all__ = [
     'InContextLearningGenerationExactMatchAccuracy',
     'InContextLearningLMExpectedCalibrationError',
     'InContextLearningMCExpectedCalibrationError',
+    'MathVerifyMetric',
 ]
