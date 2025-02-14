@@ -33,17 +33,4 @@ fsdp_config:
 # Evaluation results Path
 results_path: "./evaluation_results"
 
-# icl_tasks: "eval/yamls/smolLM2_tasks.yaml"
-icl_tasks:
-  -
-    label: triviaqa
-    dataset_uri: eval/local_data/world_knowledge/triviaqa_small.jsonl
-    num_fewshot:
-    - 0
-    batch_size: 4
-    icl_task_type: generation_task_with_answers
-    metric_names:
-    - InContextLearningGenerationExactMatchAccuracy
-    prompt_string: '' # this goes at the beginning of each input
-    example_delimiter: "\n" # this goes between fewshot examples
-    continuation_delimiter: ' ' # this separates questions from answers
+icl_tasks: "eval/yamls/smolLM2_tasks.yaml"
