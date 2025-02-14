@@ -1,0 +1,49 @@
+variables:
+  model_name_or_path: HuggingFaceTB/SmolLM2-135M
+
+  global_seed: 420
+  precision: fp32
+  max_seq_len: 2048
+
+precision: ${variables.precision}
+max_seq_len: ${variables.max_seq_len}
+
+models:
+-
+  model_name: ${variables.model_name_or_path}
+  model:
+    name: hf_causal_lm
+    pretrained_model_name_or_path: ${variables.model_name_or_path}
+    init_device: mixed
+    pretrained: true
+  tokenizer:
+    name: ${variables.model_name_or_path}
+    kwargs:
+      model_max_length: ${variables.max_seq_len}
+
+device_eval_batch_size: 8 
+
+# FSDP config for model sharding
+fsdp_config:
+  sharding_strategy: FULL_SHARD
+  mixed_precision: FULL
+  forward_prefetch: True
+  limit_all_gathers: True
+
+# Evaluation results Path
+results_path: "./evaluation_results"
+
+icl_tasks:
+
+-
+  label: gsm8k
+  dataset_uri: eval/local_data/symbolic_problem_solving/gsm8k_tiny.jsonl
+  num_fewshot: [0]
+  icl_task_type: generation_task_with_answers
+  cot_delimiter: "The answer is "
+  continuation_delimiter: "\n\nA:"
+  question_prelimiter: ""
+  do_normalization: false
+  early_stopping_criteria:
+  - "\n\n"
+  - "Question:"
