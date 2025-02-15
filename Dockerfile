@@ -1,26 +1,32 @@
-# Copyright 2022 MosaicML LLM Foundry authors
-# SPDX-License-Identifier: Apache-2.0
+FROM mambaorg/micromamba:latest
 
-ARG BASE_IMAGE
-FROM $BASE_IMAGE
+USER root
 
-ARG BRANCH_NAME
-ARG DEP_GROUPS
-ARG KEEP_FOUNDRY=false
+# Install git and other dependencies
+RUN apt-get update && apt-get install -y git nano curl wget && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-ENV TORCH_CUDA_ARCH_LIST="8.0 8.6 8.7 8.9 9.0"
+# Clone llm-foundry repo and set up environment
+RUN git clone https://github.com/LocalResearchGroup/llm-foundry.git /llm-foundry && \
+    cd /llm-foundry && \
+    micromamba create -n llm-foundry python=3.12 uv cuda -c nvidia/label/12.4.1 -c conda-forge && \
+    export UV_PROJECT_ENVIRONMENT=/opt/conda/envs/llm-foundry && \
+    micromamba run -n llm-foundry uv python pin 3.12 && \
+    micromamba run -n llm-foundry uv sync --extra dev --extra gpu && \
+    micromamba run -n llm-foundry uv sync --extra flash && \
+    micromamba run -n llm-foundry uv pip install -e .
 
-# Check for changes in setup.py.
-# If there are changes, the docker cache is invalidated and a fresh pip installation is triggered.
-ADD https://raw.githubusercontent.com/mosaicml/llm-foundry/$BRANCH_NAME/setup.py setup.py
-RUN rm setup.py
+ENV UV_PROJECT_ENVIRONMENT=/opt/conda/envs/llm-foundry
+ENV CONDA_DEFAULT_ENV=llm-foundry
+ENV PATH=/opt/conda/envs/llm-foundry/bin:$PATH
 
-# Install and uninstall foundry to cache foundry requirements
-RUN git clone -b $BRANCH_NAME https://github.com/mosaicml/llm-foundry.git
-RUN pip install --no-cache-dir "./llm-foundry${DEP_GROUPS}"
+WORKDIR /llm-foundry
 
-# Conditionally uninstall llm-foundry and remove its directory
-RUN if [ "$KEEP_FOUNDRY" != "true" ]; then \
-      pip uninstall -y llm-foundry && \
-      rm -rf /llm-foundry; \
-    fi
+# Initialize conda in bash and activate environment by default
+RUN echo "eval \"\$(micromamba shell hook --shell bash)\"" >> ~/.bashrc && \
+    echo "micromamba activate llm-foundry" >> ~/.bashrc
+
+# Open port to view Aim dashboard live from the container (optional) - Not related to aim remote upload server.
+EXPOSE 43800
+
+# Default shell with environment activated
+CMD ["/bin/bash"]
