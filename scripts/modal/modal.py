@@ -214,7 +214,34 @@ def convert_model_to_hf(checkpoint_path: str):
     MODEL_CHECKPOINT_VOLUME.commit()
     print("Conversion complete!")
 
-
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
+              concurrency_limit=1)
+def push_to_hf(checkpoint_path: str):
+    from huggingface_hub import create_repo, upload_file
+    from pathlib import Path
+    
+    model_path = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path
+    model_name = model_path.name
+    repo_id = f"LocalResearchGroup/{model_name}"
+    
+    print(f"Creating repository: {repo_id}")
+    create_repo(repo_id, private=True, exist_ok=True)
+    
+    hf_dir = model_path/'hf'
+    for fpath in hf_dir.iterdir():
+        if fpath.is_file():
+            size_mb = fpath.stat().st_size / (1024 * 1024)
+            print(f"Uploading {fpath.name} ({size_mb:.1f} MB)")
+            upload_file(
+                path_or_fileobj=str(fpath),
+                path_in_repo=fpath.name,
+                repo_id=repo_id
+            )
+            print(f"Uploaded {fpath.name}")
+    
+    print(f"All files uploaded to: https://huggingface.co/{repo_id}")
+  
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
               concurrency_limit=1)
@@ -301,6 +328,10 @@ def main():
     time.sleep(1)
     convert_model_to_hf.remote(model_path)
     time.sleep(1)
+
+    # push_to_hf.remote(model_path)
+    time.sleep(1)
+  
     evaluate_model.remote(model_path+"/hf")
     time.sleep(1)
     generate_responses.remote(model_path+"/hf")
