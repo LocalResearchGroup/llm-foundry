@@ -22,6 +22,7 @@ __all__ = [
     'InContextLearningLMAccuracy',
     'InContextLearningMultipleChoiceAccuracy',
     'InContextLearningGenerationExactMatchAccuracy',
+    'InContextLearningGenerationExactMatchAccuracy2',
     'InContextLearningLMExpectedCalibrationError',
     'InContextLearningMCExpectedCalibrationError',
 ]
@@ -216,6 +217,11 @@ class InContextLearningGenerationExactMatchAccuracy(InContextLearningMetric):
         assert isinstance(self.correct, Tensor)
         assert isinstance(self.total, Tensor)
         return self.correct / self.total
+
+
+class InContextLearningGenerationExactMatchAccuracy2(InContextLearningGenerationExactMatchAccuracy):
+    """A copy of InContextLearningGenerationExactMatchAccuracy to be customized."""
+    pass
 
 
 class InContextLearningLMAccuracy(InContextLearningMetric):
