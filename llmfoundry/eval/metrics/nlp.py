@@ -195,13 +195,17 @@ class InContextLearningGenerationExactMatchAccuracy(InContextLearningMetric):
             metric_result_dict['cleaned_output'].append(cleaned_final_answer)
             metric_result_dict['cleaned_label'].append(cleaned_sample_labels)
 
+            print(f"{cleaned_final_answer=}")
+            print(f"{cleaned_sample_labels=}")
             if any(
                 cleaned_final_answer.startswith(label)
                 for label in cleaned_sample_labels
             ):
                 self.correct += torch.tensor(1.0)
+                print("correct")
                 metric_result_dict['result'].append(1)
             else:
+                print("incorrect")
                 metric_result_dict['result'].append(0)
 
             self.total += torch.tensor(1.0)
