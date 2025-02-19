@@ -13,8 +13,8 @@ from modal import Image, App, Secret, Volume
 import pathlib, datetime
 
 PYTHON_PATH = "/opt/conda/envs/llm-foundry/bin/python"
-TRAINING_GPU = "h100" # "a10g" "h100" # "l4"
-BATCH_SIZE = 20 # 20 for h100 4 for l4
+TRAINING_GPU = "l4" # "a10g" "h100" # "l4"
+BATCH_SIZE = 4 # 20 for h100 4 for l4
 DATASET_BASE_PATH = "/datasets"
 DATASETS_VOLUME = Volume.from_name("lrg-datasets", create_if_missing=True)
 DATASETS_VOLUME_MOUNT_PATH = pathlib.Path("/datasets")
@@ -107,7 +107,8 @@ def train_model(run_ts: str):
     
     # Step 2: Train the model
     print("\nTraining model...")
-    save_folder = f"{MODEL_CHECKPOINT_VOLUME_MOUNT_PATH}/smollm2-135m-{run_ts}"
+    run_folder = f"{MODEL_CHECKPOINT_VOLUME_MOUNT_PATH}/smollm2-135m-{run_ts}"
+    save_folder = f"{run_folder}/native_checkpoints"
     
     train_cmd = [
         "composer",
@@ -117,8 +118,8 @@ def train_model(run_ts: str):
         f"variables.data_local={DATASETS_VOLUME_MOUNT_PATH}/c4_small",
         "train_loader.dataset.split=train_small",
         "eval_loader.dataset.split=val_small",
-        "max_duration=500ba",
-        "eval_interval=500ba",
+        "max_duration=100ba",
+        "eval_interval=100ba",
         f"save_folder={save_folder}",  # Updated model name
         f"device_eval_batch_size={BATCH_SIZE}",  # Added batch size settings # 20 for h100 4 for l4
         f"device_train_microbatch_size={BATCH_SIZE}",
@@ -138,7 +139,7 @@ def train_model(run_ts: str):
         print("Training errors:", result.stderr)
     if result.returncode != 0:
         raise Exception(f"Training failed with exit code {result.returncode}\nStderr: {result.stderr}")
-    return str(save_folder)
+    return str(run_folder)
 
 def run_aim_server():
     import subprocess
@@ -195,10 +196,11 @@ def convert_model_to_hf(checkpoint_path: str):
     os.chdir("/llm-foundry/scripts")
     print(f"Working directory: {os.getcwd()}")
 
+    run_folder = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path.split("/")[0]
     composer_checkpoint_path = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path
     if composer_checkpoint_path.is_dir():
-        composer_checkpoint_path = composer_checkpoint_path / "latest-rank0.pt"
-    hf_output_path = composer_checkpoint_path.parent / "hf"
+        composer_checkpoint_path = composer_checkpoint_path / "native_checkpoints" / "latest-rank0.pt"
+    hf_output_path = run_folder
 
     print("\nConverting model to HuggingFace format...")
     convert_cmd = [
@@ -218,7 +220,7 @@ def convert_model_to_hf(checkpoint_path: str):
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
               concurrency_limit=1)
 def push_to_hf(checkpoint_path: str):
-    from huggingface_hub import create_repo, upload_file
+    from huggingface_hub import create_repo, upload_folder
     from pathlib import Path
     
     model_path = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path
@@ -226,21 +228,11 @@ def push_to_hf(checkpoint_path: str):
     repo_id = f"LocalResearchGroup/{model_name}"
     
     print(f"Creating repository: {repo_id}")
-    create_repo(repo_id, private=True, exist_ok=True)
+    create_repo(repo_id, repo_type="model", private=True, exist_ok=True)
+
+    upload_folder(folder_path=model_path, repo_id=repo_id)
     
-    hf_dir = model_path/'hf'
-    for fpath in hf_dir.iterdir():
-        if fpath.is_file():
-            size_mb = fpath.stat().st_size / (1024 * 1024)
-            print(f"Uploading {fpath.name} ({size_mb:.1f} MB)")
-            upload_file(
-                path_or_fileobj=str(fpath),
-                path_in_repo=fpath.name,
-                repo_id=repo_id
-            )
-            print(f"Uploaded {fpath.name}")
-    
-    print(f"All files uploaded to: https://huggingface.co/{repo_id}")
+    print(f"Folder uploaded to: https://huggingface.co/{repo_id}")
   
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
@@ -329,9 +321,9 @@ def main():
     convert_model_to_hf.remote(model_path)
     time.sleep(1)
 
-    # push_to_hf.remote(model_path)
+    push_to_hf.remote(model_path)
     time.sleep(1)
   
-    evaluate_model.remote(model_path+"/hf")
+    evaluate_model.remote(model_path)
     time.sleep(1)
-    generate_responses.remote(model_path+"/hf")
+    generate_responses.remote(model_path)
