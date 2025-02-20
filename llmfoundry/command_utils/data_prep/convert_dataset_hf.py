@@ -158,7 +158,7 @@ c4constants.splits['val_xxsmall'] = DataSplitConstants(
     truncated_samples=100,
 )
 
-CONSTS = {'allenai/c4': c4constants, 'NLTuan/starcoderdata': pileconstants}
+CONSTS = {'allenai/c4': c4constants, 'the_pile': pileconstants}
 
 
 def build_hf_dataset(
