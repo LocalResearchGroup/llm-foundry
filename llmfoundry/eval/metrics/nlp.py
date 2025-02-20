@@ -14,6 +14,7 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 from torchmetrics import Metric
+from math_verify import parse, verify
 
 log = logging.getLogger(__name__)
 
@@ -219,9 +220,91 @@ class InContextLearningGenerationExactMatchAccuracy(InContextLearningMetric):
         return self.correct / self.total
 
 
-class InContextLearningGenerationExactMatchAccuracy2(InContextLearningGenerationExactMatchAccuracy):
-    """A copy of InContextLearningGenerationExactMatchAccuracy to be customized."""
-    pass
+class InContextLearningGenerationExactMatchAccuracy2(InContextLearningMetric):
+    """Like InContextLearningGenerationExactMatchAccuracy but uses Math-Verify for robust comparison."""
+
+    def __init__(self, dist_sync_on_step: bool = False):
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+        self.add_state('correct', default=torch.tensor(0.), dist_reduce_fx='sum')
+        self.add_state('total', default=torch.tensor(0.), dist_reduce_fx='sum')
+        self.output_path = "math_verify_results.tsv"
+        self.metric_result_dict = {
+            'cleaned_output': [],
+            'original_label': [],
+            'cleaned_label': [],
+            'result': [],
+        }
+        # Create/clear the output file
+        with open(self.output_path, 'w') as f:
+            f.write('Model Answer\tGold Answer\tCorrect\n')
+
+    def update(self, batch: dict, outputs: list[str], labels: list[list[str]]):
+        metric_result_dict = copy.deepcopy(self.metric_result_dict)
+
+        for batch_idx, (sample_output, sample_labels) in enumerate(zip(outputs, labels)):
+            # Extract answer using batch parameters
+            final_answer = self._extract_answer(sample_output, batch)
+            print(f"{final_answer=}")
+
+            try:
+                # Parse model output and gold answer
+                parsed_output = parse(final_answer)
+                print(f"{parsed_output=}")
+
+                # Try each possible correct answer
+                correct = False
+                for label in sample_labels:
+                    print(f"{label=}")
+                    try:
+                        parsed_label = parse(label)
+                        print(f"{parsed_label=}")
+                        print(f"{verify(parsed_label, parsed_output)=}")
+                        if verify(parsed_label, parsed_output):
+                            correct = True
+                            break
+                    except Exception as e:
+                        log.debug(f"Failed to parse/verify label {label}: {e}")
+
+                if correct:
+                    self.correct += torch.tensor(1.0)
+                    metric_result_dict['result'].append(1)
+                else:
+                    metric_result_dict['result'].append(0)
+
+            except Exception as e:
+                log.debug(f"Failed to evaluate {final_answer}: {e}")
+                metric_result_dict['result'].append(0)
+
+            self.total += torch.tensor(1.0)
+            metric_result_dict['cleaned_output'].append(final_answer)
+            metric_result_dict['original_label'].append(sample_labels)
+            metric_result_dict['cleaned_label'].append(sample_labels)
+
+            # Write results to file if output path was specified
+            if self.output_path:
+                with open(self.output_path, 'a') as f:
+                    # Escape newlines in all fields
+                    final_answer = final_answer.replace('\n', '\\n')
+                    gold_answer = sample_labels[0].replace('\n', '\\n')
+                    f.write(f'{final_answer}\t{gold_answer}\t{correct}\n')
+
+        return metric_result_dict
+
+    def _extract_answer(self, text: str, batch: dict) -> str:
+        """Extract final answer from model output."""
+        cot_delimiter = batch.get('cot_delimiter', '')
+        stopping_criteria = batch.get('stopping_criteria', None)
+
+        answer = text
+        if stopping_criteria:
+            answer = re.split('|'.join(stopping_criteria), answer)[0]
+        if cot_delimiter:
+            answer = answer.split(cot_delimiter)[-1]
+
+        return answer.strip()
+
+    def compute(self):
+        return self.correct / self.total
 
 
 class InContextLearningLMAccuracy(InContextLearningMetric):
