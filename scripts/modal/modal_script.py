@@ -13,8 +13,8 @@ from modal import Image, App, Secret, Volume
 import pathlib, datetime
 
 PYTHON_PATH = "/opt/conda/envs/llm-foundry/bin/python"
-TRAINING_GPU = "l4" # "a10g" "h100" # "l4"
-BATCH_SIZE = 4 # 20 for h100 4 for l4
+TRAINING_GPU = "h100" # "a10g" "h100" # "l4"
+BATCH_SIZE = 20 # 20 for h100 4 for l4
 DATASET_BASE_PATH = "/datasets"
 DATASETS_VOLUME = Volume.from_name("lrg-datasets", create_if_missing=True)
 DATASETS_VOLUME_MOUNT_PATH = pathlib.Path("/datasets")
@@ -149,6 +149,7 @@ def run_aim_server():
     print("Initializing Aim...")
     subprocess.run(["aim", "init"], check=True)
     
+    # Background process that needs to be closed by calling function using .terminate()
     process = subprocess.Popen(
         ["aim", "up", "--host", "0.0.0.0", "--port", "43800"],
         stdout=subprocess.PIPE,
@@ -186,7 +187,7 @@ def train_with_aim(run_ts: str):
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
               concurrency_limit=1)
-def convert_model_to_hf(checkpoint_path: str):
+def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
     """
     Convert a model checkpoint to a HuggingFace format.
     """
@@ -209,6 +210,8 @@ def convert_model_to_hf(checkpoint_path: str):
         "--hf_output_path", hf_output_path,
         "--output_precision", "bf16"
     ]
+    if upload_to_hf: convert_cmd.extend(["--hf_repo_for_upload", run_folder.name])
+
     result = subprocess.run(convert_cmd, capture_output=True, text=True)
     print(result.stdout)
     if result.stderr:
@@ -216,24 +219,26 @@ def convert_model_to_hf(checkpoint_path: str):
     MODEL_CHECKPOINT_VOLUME.commit()
     print("Conversion complete!")
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
-              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              concurrency_limit=1)
-def push_to_hf(checkpoint_path: str):
-    from huggingface_hub import create_repo, upload_folder
-    from pathlib import Path
-    
-    model_path = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path
-    model_name = model_path.name
-    repo_id = f"LocalResearchGroup/{model_name}"
-    
-    print(f"Creating repository: {repo_id}")
-    create_repo(repo_id, repo_type="model", private=True, exist_ok=True)
 
-    upload_folder(folder_path=model_path, repo_id=repo_id)
+# @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+#               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
+#               concurrency_limit=1)
+# def push_to_hf(checkpoint_path: str):
+#     from huggingface_hub import create_repo, upload_folder
+#     from pathlib import Path
     
-    print(f"Folder uploaded to: https://huggingface.co/{repo_id}")
+#     model_path = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path
+#     model_name = model_path.name
+#     repo_id = f"LocalResearchGroup/{model_name}"
+    
+#     print(f"Creating repository: {repo_id}")
+#     create_repo(repo_id, repo_type="model", private=True, exist_ok=True)
+
+#     upload_folder(folder_path=model_path, repo_id=repo_id)
+    
+#     print(f"Folder uploaded to: https://huggingface.co/{repo_id}")
   
+
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
               concurrency_limit=1)
@@ -245,7 +250,7 @@ def evaluate_model(checkpoint_path: str):
     print(f"Working directory: {os.getcwd()}")
     
     model_path = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path
-    save_path = model_path.parent/"evals"  # Create evals subfolder path
+    save_path = model_path/"evals"  # Create evals subfolder path
     
     print("\nEvaluating model...")
     eval_cmd = [
@@ -301,6 +306,33 @@ def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
     print("Generation complete!")
 
 
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
+              concurrency_limit=1)
+def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: str = "model", private: bool = True):
+    """
+    Upload model checkpoint to HuggingFace Hub.
+    """
+    from huggingface_hub import HfApi
+    from pathlib import Path
+
+    folder_path = Path(folder_path)
+    if not folder_path.exists() or not folder_path.is_dir():
+        raise FileNotFoundError(f"Folder {folder_path} does not exist or is not a directory.")
+    folder_name = folder_path.name
+    if repo_id is None: repo_id = f"LocalResearchGroup/{folder_name}"
+
+    api = HfApi()
+
+    print(f'Uploading {folder_path} to HuggingFace Hub at {repo_id}')
+    
+    api.create_repo(repo_id=repo_id, use_auth_token=True, repo_type=repo_type, private=private, exist_ok=True)
+    print('Repo created.')
+
+    api.upload_folder(folder_path=folder_path, repo_id=repo_id, use_auth_token=True, repo_type=repo_type)
+    print(f'Folder "{folder_path}" uploaded to: "{repo_id}" successfully.')
+
+
 @app.local_entrypoint()
 def main():
     from pathlib import Path
@@ -320,10 +352,11 @@ def main():
     time.sleep(1)
     convert_model_to_hf.remote(model_path)
     time.sleep(1)
-
-    push_to_hf.remote(model_path)
-    time.sleep(1)
   
     evaluate_model.remote(model_path)
     time.sleep(1)
+
+    push_folder_to_hf.remote(Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/model_path) 
+    time.sleep(1)
+
     generate_responses.remote(model_path)
