@@ -1,11 +1,6 @@
 #TODO:
 # - Probably want to put local aim repo in the folder with the model checkpoints
 # - Fix duplicate container issue
-# - Add function to publish model to hf hub. Add `huggingface_hub` to project dependencies and thus to the project container. 
-#   - https://huggingface.co/docs/huggingface_hub/installation 
-#   - https://huggingface.co/docs/huggingface_hub/guides/upload
-
-
 
 import modal
 from modal import Image, App, Secret, Volume
@@ -94,12 +89,20 @@ def view_model_checkpoints(save_folder: str=None):
                     print(f"{os.path.join(folder, filename)}: {size_mb:.2f} MB")
 
 
+def get_model_name(yaml_path: str):
+    from pathlib import Path
+    return Path(yaml_path).stem
+
+
+def get_run_folder(run_ts: str, model_name: str):
+    return f"{MODEL_CHECKPOINT_VOLUME_MOUNT_PATH}/{model_name}-{run_ts}"
+
 # @app.function(gpu=TRAINING_GPU, image=image, timeout=6*3600, secrets=[Secret.from_name("LRG")], 
 #               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
 #                        DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME})
-def train_model(run_ts: str):
-    import subprocess
-    import os
+def train_model(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m.yaml"):
+    import os, subprocess, shutil
+    from pathlib import Path
     
     # Change to llm-foundry/scripts directory at the start
     os.chdir("/llm-foundry/scripts")
@@ -107,14 +110,19 @@ def train_model(run_ts: str):
     
     # Step 2: Train the model
     print("\nTraining model...")
-    run_folder = f"{MODEL_CHECKPOINT_VOLUME_MOUNT_PATH}/smollm2-135m-{run_ts}"
-    save_folder = f"{run_folder}/native_checkpoints"
+    model_name = get_model_name(yaml_path)
+    run_folder = get_run_folder(run_ts, model_name)
+    save_folder = Path(f"{run_folder}/native_checkpoints")
+
+    save_folder.mkdir(exist_ok=True)
+    shutil.copy(yaml_path, Path(save_folder) / Path(yaml_path).name)
     
     train_cmd = [
         "composer",
         "train/train.py",
-        "train/yamls/pretrain/smollm2-135m.yaml",  # Updated YAML path
-        "loggers.aim.experiment_name=quickstart_test_smollm2_135m_modal",
+        yaml_path,  # Updated YAML path
+        f"loggers.aim.experiment_name=quickstart_{model_name}_modal",
+        f"loggers.aim.repo={run_folder}/.aim",
         f"variables.data_local={DATASETS_VOLUME_MOUNT_PATH}/c4_small",
         "train_loader.dataset.split=train_small",
         "eval_loader.dataset.split=val_small",
@@ -141,11 +149,13 @@ def train_model(run_ts: str):
         raise Exception(f"Training failed with exit code {result.returncode}\nStderr: {result.stderr}")
     return str(run_folder)
 
-def run_aim_server():
-    import subprocess
-    import os
+def run_aim_server(run_folder: str):
+    import os, subprocess
+    from pathlib import Path
     
-    os.chdir("/llm-foundry/scripts")
+    Path(run_folder).mkdir(exist_ok=True)
+    pwd = os.getcwd()
+    os.chdir(run_folder)
     print("Initializing Aim...")
     subprocess.run(["aim", "init"], check=True)
     
@@ -155,7 +165,7 @@ def run_aim_server():
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
-    
+    os.chdir(pwd)
     return process
 
 
@@ -163,17 +173,17 @@ def run_aim_server():
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
               concurrency_limit=1)
-def train_with_aim(run_ts: str):
+def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m.yaml"):
     import subprocess, time
 
     with modal.forward(43800) as tunnel:
         print(f"\nAim server available at: {tunnel.url}")
         model_path = None
-        aim_task = run_aim_server()
+        aim_task = run_aim_server(get_run_folder(run_ts, get_model_name(yaml_path)))
         time.sleep(5)
     
         try:
-            model_path = train_model(run_ts)
+            model_path = train_model(run_ts, yaml_path)
 
         finally:
             aim_task.terminate()
@@ -210,7 +220,7 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
         "--hf_output_path", hf_output_path,
         "--output_precision", "bf16"
     ]
-    if upload_to_hf: convert_cmd.extend(["--hf_repo_for_upload", run_folder.name])
+    if upload_to_hf: convert_cmd.extend(["--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"])
 
     result = subprocess.run(convert_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -343,14 +353,14 @@ def main():
     time.sleep(1)
     # convert_c4_small_dataset.remote() # Only run once
 
-    model_path = train_with_aim.remote(run_ts)
+    model_path = train_with_aim.remote(run_ts, yaml_path="train/yamls/pretrain/smollm2-135m.yaml")
     print(f"Model path: {model_path}")
     model_path = Path(model_path).name
     time.sleep(1)
     
     view_model_checkpoints.remote()
     time.sleep(1)
-    convert_model_to_hf.remote(model_path)
+    convert_model_to_hf.remote(model_path, upload_to_hf=False)
     time.sleep(1)
   
     evaluate_model.remote(model_path)
