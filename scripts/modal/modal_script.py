@@ -10,11 +10,16 @@ import pathlib, datetime
 PYTHON_PATH = "/opt/conda/envs/llm-foundry/bin/python"
 TRAINING_GPU = "h100" # "a10g" "h100" # "l4"
 BATCH_SIZE = 20 # 20 for h100 4 for l4
+TRAIN_DURATION="100ba"
+EVAL_DURATION="100ba"
+SAVE_INTERVAL="50ba"    
+
 DATASET_BASE_PATH = "/datasets"
 DATASETS_VOLUME = Volume.from_name("lrg-datasets", create_if_missing=True)
 DATASETS_VOLUME_MOUNT_PATH = pathlib.Path("/datasets")
 MODEL_CHECKPOINT_VOLUME = Volume.from_name("lrg-model-checkpoints", create_if_missing=True)
 MODEL_CHECKPOINT_VOLUME_MOUNT_PATH = pathlib.Path("/model-checkpoints")
+
 
 app = App("quick-start")
 
@@ -126,9 +131,10 @@ def train_model(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m
         f"variables.data_local={DATASETS_VOLUME_MOUNT_PATH}/c4_small",
         "train_loader.dataset.split=train_small",
         "eval_loader.dataset.split=val_small",
-        "max_duration=100ba",
-        "eval_interval=100ba", 
+        f"max_duration={TRAIN_DURATION}",
+        f"eval_interval={EVAL_INTERVAL}", 
         f"save_folder={save_folder}",  # Updated model name
+        f"save_interval={SAVE_INTERVAL}",
         f"device_eval_batch_size={BATCH_SIZE}",  # Added batch size settings # 20 for h100 4 for l4
         f"device_train_microbatch_size={BATCH_SIZE}",
         f"global_train_batch_size={BATCH_SIZE}"
