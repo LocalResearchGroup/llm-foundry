@@ -15,7 +15,7 @@ Then depending on your system, run one of the following commands to install the 
 
 ```bash
 uv python pin 3.12
-uv sync --extra dev --extra cpu
+uv sync --dev --extra cpu
 ```
 
 ### GPU
@@ -36,17 +36,17 @@ With Cuda installed, then use uv to install the library:
 
 ```bash
 uv python pin 3.12
-uv sync --extra dev --extra gpu
+uv sync --dev --extra gpu
 
 # Install flash attention if you have a Ampere (RTX 30xx series) or newer GPU
-uv sync --extra dev --extra gpu --extra flash
+uv sync --dev --extra gpu --extra flash
 ```
 
 ### Apple Silicon (macOS)
 
 ```bash
 uv python pin 3.12
-uv sync --extra dev
+uv sync --dev
 ```
 
 ## Refresh
