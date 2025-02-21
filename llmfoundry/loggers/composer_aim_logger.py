@@ -352,7 +352,7 @@ class AimLogger(LoggerDestination):
                 self._run = None
                 if self.upload_on_close:
                     try:
-                        upload_id = upload_repo()
+                        upload_id = upload_repo(self.repo)
                         if upload_id:
                             sys_logger.info(f"\n{'#'*40}\n{'#'*10} AIM REMOTE UPLOAD SUCCESSFUL: {upload_id} {'#'*10}\n{'#'*40}")
                         else:
