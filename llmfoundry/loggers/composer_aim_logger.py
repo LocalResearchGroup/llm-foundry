@@ -210,6 +210,15 @@ class AimLogger(LoggerDestination):
 
     def log_hyperparameters(self, hyperparameters: dict[str, Any]):
         """Log arbitrary hyperparameters to Aim."""
+        if "model" in hyperparameters:
+            model = hyperparameters.get("model", None)
+            if model:
+                mn = model.get("name")
+                self._run.add_tag(f"model-{mn}")
+        if "global_train_batch_size" in hyperparameters:
+            mtbs = hyperparameters.get("global_train_batch_size", None)
+            if mtbs:
+                self._run.add_tag(f"batch-size-{mtbs}")
         if not self._enabled or not self._run:
             return
         # In WandB: wandb.config.update(hyperparameters)
