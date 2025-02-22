@@ -1,6 +1,7 @@
 ######## WARNING: THIS IS AN INITIAL DRAFT GENERATED WITH AI ASSISTANCE. THIS NEEDS TO BE REVIEWED AND TESTED. ########
 
 import atexit
+import os
 from logging import getLogger
 from typing import Dict, Optional, Any, Sequence, Union
 
@@ -102,6 +103,17 @@ class AimLogger(LoggerDestination):
             self._setup()
         return self._run
 
+    def _add_tags(self):
+        lrg_user = os.environ.get('LRG_USER', None)
+        if lrg_user:
+            self._run.add_tag(lrg_user)
+        
+        lrg_tags = os.environ.get('LRG_TAGS', None)
+        if lrg_tags:
+            lrg_tags = filter(lambda t: len(t) > 0, lrg_tags.split(","))
+            for tag in lrg_tags:
+                self._run.add_tag(tag)
+
     def _setup(self, state: Optional[State] = None):
         """Initialize the Aim Run if not already initialized."""
         if self._run is not None or not self._enabled:
@@ -131,6 +143,7 @@ class AimLogger(LoggerDestination):
                     capture_terminal_logs=self.capture_terminal_logs,
                 )
                 self._run_hash = self._run.hash
+            
 
             # If available, store or conceive a notion of "run_dir" or "run_url"
             # (Aim doesn't natively provide both. You can store custom info if desired.)
@@ -143,7 +156,8 @@ class AimLogger(LoggerDestination):
             # Optionally log initial state as hyperparameters
             if state:
                 self._log_hparams(state)
-
+            
+            self._add_tags()
         except Exception as e:
             sys_logger.error(f"Failed to initialize Aim run: {e}")
             raise RuntimeError(f"Aim logger initialization failed: {e}") from e
