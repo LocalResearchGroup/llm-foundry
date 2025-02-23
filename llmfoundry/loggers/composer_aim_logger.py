@@ -122,7 +122,7 @@ class AimLogger(LoggerDestination):
         try:
             import re, subprocess
             gpu_info = subprocess.check_output('nvidia-smi -L', shell=True).decode()
-            gpu_types = re.findall(r':\s*(?:NVIDIA\s+)?(?:GeForce\s+)?(?:RTX|GTX\s+)?([A-Z0-9 -_]+)\s*\(', gpu_info)
+            gpu_types = re.findall(r':\s*(?:NVIDIA\s+)?(?:GeForce\s+)?(?:RTX|GTX\s+)?([A-Z0-9 \-_]+)\s*\(', gpu_info)
             if not gpu_types: return
             main_type = gpu_types[0].strip()
             count = len([t for t in gpu_types if t.strip() == main_type])
@@ -175,6 +175,7 @@ class AimLogger(LoggerDestination):
                 self._log_hparams(state)
             
             self._add_env_var_tags()
+            self._add_gpu_tag()
             if self.tags:
                 if isinstance(self.tags, str): self._run.add_tag(self.tags)
                 else: [self._run.add_tag(t) for t in list(self.tags)]
