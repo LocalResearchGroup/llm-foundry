@@ -195,10 +195,13 @@ class AimLogger(LoggerDestination):
                 'optimizer': state.optimizers[0].__class__.__name__ if state.optimizers and len(state.optimizers) > 0 else None,
             }
             if state.model: default_hparams['model_class'] = state.model.__class__.__name__
-            default_hparams['state'].update(dict(state.get_model_state_dict()))
-
             self._run['state'] = default_hparams
+            state_dict = state.get_model_state_dict()
+            if state_dict:
+                default_hparams['state'].update(dict(state_dict))
 
+            # If you want to log your entire config dictionary, you can do so:
+            # self._run['composer/config'] = state.get_serialized_attributes()  # Example only
             # If you want to log your entire config dictionary, you can do so:
             # self._run['composer/config'] = state.get_serialized_attributes()  # Example only
             # Or if the user's separate hyperparameter dictionary is known, do:
@@ -224,6 +227,8 @@ class AimLogger(LoggerDestination):
 
     def log_hyperparameters(self, hyperparameters: dict[str, Any]):
         """Log arbitrary hyperparameters to Aim."""
+        sys_logger.info(f"Logging hyperparameters: {hyperparameters}")
+        print(f"Logging hyperparameters: {hyperparameters}")
         for hparam_to_tag, tag_prefix in self.hparams_to_tags.items():
             hparam_value = self._get_nested(hyperparameters, hparam_to_tag)
             if hparam_value is not None:
@@ -236,6 +241,8 @@ class AimLogger(LoggerDestination):
         # In WandB: wandb.config.update(hyperparameters)
         # In Aim, we just store them in a nested dictionary key, or flatten them:
         self._run['hparams'] = {k: v for k, v in hyperparameters.items()}
+        sys_logger.info(f"Finished logging hyperparameters.")
+        print(f"Finished logging hyperparameters.")
 
     def log_table(
         self,
