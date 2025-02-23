@@ -240,7 +240,9 @@ class AimLogger(LoggerDestination):
             return
         # In WandB: wandb.config.update(hyperparameters)
         # In Aim, we just store them in a nested dictionary key, or flatten them:
+
         self._run['hparams'] = {k: v for k, v in hyperparameters.items()}
+        self._run['hparams3'] = str({k: v for k, v in hyperparameters.items()})
         self._run['hparams2'] = {'test1': 'test2', 'test3': 'test4'} 
         sys_logger.info(f"Finished logging hyperparameters.")
         print(f"Finished logging hyperparameters.")
