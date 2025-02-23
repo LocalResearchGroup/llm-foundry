@@ -59,6 +59,8 @@ class AimLogger(LoggerDestination):
         entity: Optional[str] = None,
         project: Optional[str] = None,
         upload_on_close: bool = True,
+        tags: Optional[Sequence[str]] = None,
+        hparams_to_tags: Optional[Dict[str, str]] = (('model.pretrained_model_name_or_path', 'MN'), ('global_train_batch_size', 'GBS'), ('train_loader.dataset.local', 'DS')),
     ):
         """
         Args:
@@ -71,6 +73,9 @@ class AimLogger(LoggerDestination):
             entity (str, optional): For parity with WandB. Not strictly required by Aim.
             project (str, optional): For parity with WandB. Not strictly required by Aim.
             upload_on_close (bool): Whether to upload the Aim repo on trainer close.
+            tags (Sequence[str], optional): Tags to add to the Aim run.
+            hparams_to_tags (Dict[str, str], optional): Hyperparameters to add to the Aim run as tags. 
+                Use dot notation to specify nested hyperparameters. e.g. {'model.pretrained_model_name_or_path':'MN', 'global_train_batch_size':'GBS'}
         """
         super().__init__()
         self.repo = repo
@@ -93,6 +98,9 @@ class AimLogger(LoggerDestination):
         self._is_in_atexit = False
         atexit.register(self._set_is_in_atexit)
         self.upload_on_close = upload_on_close
+        self.tags = tags
+        hparams_to_tags = dict(hparams_to_tags) if hparams_to_tags is not None else {}
+
     def _set_is_in_atexit(self):
         self._is_in_atexit = True
 
@@ -103,16 +111,23 @@ class AimLogger(LoggerDestination):
             self._setup()
         return self._run
 
-    def _add_tags(self):
-        lrg_user = os.environ.get('LRG_USER', None)
-        if lrg_user:
-            self._run.add_tag(lrg_user)
-        
-        lrg_tags = os.environ.get('LRG_TAGS', None)
-        if lrg_tags:
-            lrg_tags = filter(lambda t: len(t) > 0, lrg_tags.split(","))
-            for tag in lrg_tags:
-                self._run.add_tag(tag)
+    def _add_env_var_tags(self):
+        user = os.environ.get('LRG_USER')
+        if user: self._run.add_tag(user)
+        tags = os.environ.get('LRG_TAGS')
+        if tags: [self._run.add_tag(t) for t in tags.split(',') if t]
+    
+    def _add_gpu_tag(self):
+        """Add GPU type and count as tag (e.g. 'GPU-2x3090')"""
+        try:
+            import re, subprocess
+            gpu_info = subprocess.check_output('nvidia-smi -L', shell=True).decode()
+            gpu_types = re.findall(r':\s*(?:NVIDIA\s+)?(?:GeForce\s+)?(?:RTX|GTX\s+)?([A-Z0-9 -_]+)\s*\(', gpu_info)
+            if not gpu_types: return
+            main_type = gpu_types[0].strip()
+            count = len([t for t in gpu_types if t.strip() == main_type])
+            self._run.add_tag(f"GPU-{main_type}x{count}")
+        except: pass
 
     def _setup(self, state: Optional[State] = None):
         """Initialize the Aim Run if not already initialized."""
@@ -157,7 +172,11 @@ class AimLogger(LoggerDestination):
             if state:
                 self._log_hparams(state)
             
-            self._add_tags()
+            self._add_env_var_tags()
+            if self.tags:
+                if isinstance(self.tags, str): self._run.add_tag(self.tags)
+                else: [self._run.add_tag(t) for t in list(self.tags)]
+        
         except Exception as e:
             sys_logger.error(f"Failed to initialize Aim run: {e}")
             raise RuntimeError(f"Aim logger initialization failed: {e}") from e
@@ -208,23 +227,24 @@ class AimLogger(LoggerDestination):
         # then _enabled = False and we won't do anything.
         self._setup(state)
 
+    def _get_nested(self, d: dict, key: str) -> Any:
+        """Get nested dict value from dot-separated key string."""
+        return d.get(key.split('.')[0]) if '.' not in key else self._get_nested(d.get(key.split('.')[0], {}), '.'.join(key.split('.')[1:]))
+
     def log_hyperparameters(self, hyperparameters: dict[str, Any]):
         """Log arbitrary hyperparameters to Aim."""
-        if "model" in hyperparameters:
-            model = hyperparameters.get("model", None)
-            if model:
-                mn = model.get("name")
-                self._run.add_tag(f"model-{mn}")
-        if "global_train_batch_size" in hyperparameters:
-            mtbs = hyperparameters.get("global_train_batch_size", None)
-            if mtbs:
-                self._run.add_tag(f"batch-size-{mtbs}")
+        for hparam_to_tag, tag_prefix in self.hparams_to_tags.items():
+            hparam_value = self._get_nested(hyperparameters, hparam_to_tag)
+            if hparam_value is not None:
+                if (isinstance(hparam_value, str) and '/' in hparam_value and len(hparam_value.split('/')[-1]) > 1): 
+                    hparam_value = hparam_value.split('/')[-1]
+                self._run.add_tag(f"{tag_prefix}-{hparam_value}")
+
         if not self._enabled or not self._run:
             return
         # In WandB: wandb.config.update(hyperparameters)
         # In Aim, we just store them in a nested dictionary key, or flatten them:
-        for k, v in hyperparameters.items():
-            self._run[f'hparams/{k}'] = v
+        self._run['hparams'] = hyperparameters
 
     def log_table(
         self,
