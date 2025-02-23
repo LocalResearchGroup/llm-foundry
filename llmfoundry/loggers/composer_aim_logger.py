@@ -113,7 +113,7 @@ class AimLogger(LoggerDestination):
 
     def _add_env_var_tags(self):
         user = os.environ.get('LRG_USER')
-        if user: self._run.add_tag(user)
+        if user: self._run.add_tag(f"U-{user}")
         tags = os.environ.get('LRG_TAGS')
         if tags: [self._run.add_tag(t) for t in tags.split(',') if t]
     
@@ -127,7 +127,9 @@ class AimLogger(LoggerDestination):
             main_type = gpu_types[0].strip()
             count = len([t for t in gpu_types if t.strip() == main_type])
             self._run.add_tag(f"GPU-{main_type}x{count}")
-        except: pass
+        except Exception as e:
+            print(f"Failed to add GPU tag: {e}")
+            sys_logger.warning(f"Failed to add GPU tag: {e}")
 
     def _setup(self, state: Optional[State] = None):
         """Initialize the Aim Run if not already initialized."""

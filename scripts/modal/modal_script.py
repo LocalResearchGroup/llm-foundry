@@ -41,10 +41,11 @@ def get_stats():
 
     # Run nvidia-smi to check GPU status
     nvidia_smi = subprocess.run(['nvidia-smi'], capture_output=True, text=True)
+    nvidia_smi_2 = subprocess.run(['nvidia-smi', '-L'], capture_output=True, text=True)
     print("NVIDIA-SMI Output:")
     print(nvidia_smi.stdout)
-    if nvidia_smi.stderr:
-        print("NVIDIA-SMI Errors:", nvidia_smi.stderr)
+    print(nvidia_smi_2.stdout)
+    if nvidia_smi.stderr: print("NVIDIA-SMI Errors:", nvidia_smi.stderr)
 
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")], 
