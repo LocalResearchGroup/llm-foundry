@@ -189,27 +189,15 @@ class AimLogger(LoggerDestination):
         if not self._enabled:
             return
         try:
-            # Provide some base hyperparameters
-            batch_size = getattr(state.dataloader, 'batch_size', None)
-            max_duration_str = str(state.max_duration) if state.max_duration else None
-            optimizer_name = None
-            if state.optimizers and len(state.optimizers) > 0:
-                optimizer_name = state.optimizers[0].__class__.__name__
-
-            # Log some known parameters
             default_hparams = {
-                'batch_size': batch_size,
-                'max_duration': max_duration_str,
-                'optimizer': optimizer_name,
+                'batch_size': getattr(state.dataloader, 'batch_size', None),
+                'max_duration': str(state.max_duration) if state.max_duration else None,
+                'optimizer': state.optimizers[0].__class__.__name__ if state.optimizers and len(state.optimizers) > 0 else None,
             }
+            if state.model: default_hparams['model_class'] = state.model.__class__.__name__
+            default_hparams['state'].update(dict(state.get_model_state_dict()))
 
-            # Log more from composer state if desired
-            if state.model is not None:
-                default_hparams['model_class'] = state.model.__class__.__name__
-
-            # Set each hyperparameter individually
-            for key, val in default_hparams.items():
-                self._run[f'hparams/{key}'] = val
+            self._run['state'] = default_hparams
 
             # If you want to log your entire config dictionary, you can do so:
             # self._run['composer/config'] = state.get_serialized_attributes()  # Example only
@@ -247,7 +235,7 @@ class AimLogger(LoggerDestination):
             return
         # In WandB: wandb.config.update(hyperparameters)
         # In Aim, we just store them in a nested dictionary key, or flatten them:
-        self._run['hparams'] = hyperparameters
+        self._run['hparams'] = {k: v for k, v in hyperparameters.items()}
 
     def log_table(
         self,
