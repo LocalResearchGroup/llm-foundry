@@ -99,7 +99,7 @@ class AimLogger(LoggerDestination):
         atexit.register(self._set_is_in_atexit)
         self.upload_on_close = upload_on_close
         self.tags = tags
-        hparams_to_tags = dict(hparams_to_tags) if hparams_to_tags is not None else {}
+        self.hparams_to_tags = dict(hparams_to_tags) if hparams_to_tags is not None else {}
 
     def _set_is_in_atexit(self):
         self._is_in_atexit = True

@@ -11,8 +11,8 @@ PYTHON_PATH = "/opt/conda/envs/llm-foundry/bin/python"
 TRAINING_GPU = "h100" # "a10g" "h100" # "l4"
 BATCH_SIZE = 20 # 20 for h100 4 for l4
 TRAIN_DURATION="100ba"
-EVAL_DURATION="100ba"
-SAVE_INTERVAL="50ba"    
+EVAL_INTERVAL="100ba"
+SAVE_INTERVAL="100ba"    
 
 DATASET_BASE_PATH = "/datasets"
 DATASETS_VOLUME = Volume.from_name("lrg-datasets", create_if_missing=True)
