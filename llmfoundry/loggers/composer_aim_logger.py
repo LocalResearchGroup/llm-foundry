@@ -253,9 +253,9 @@ class AimLogger(LoggerDestination):
             self._run.set(('hparams', k, str(uuid4()).replace('-', '')), v) # Testing if there are overwrites
             if isinstance(v, dict):
                 for k2, v2 in v.items():
-                    self._run.set(('hparams', k, k2), v2)
-                    self._run.set(('hparams', k, k2, str(uuid4()).replace('-', '')), v2) # Testing if there are overwrites
-        
+                    self._run.set(('hparams', k, 'l2', k2), v2)
+                    self._run.set(('hparams', k, 'l2', k2, str(uuid4()).replace('-', '')), v2) # Testing if there are overwrites
+
         # self._run['hparams'] = {k: v for k, v in hyperparameters.items()}
         # self._run['hparams3'] = str({k: v for k, v in hyperparameters.items()})
         # self._run['hparams2'] = {'test1': 'test2', 'test3': 'test4'} 
