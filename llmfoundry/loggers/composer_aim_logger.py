@@ -195,10 +195,12 @@ class AimLogger(LoggerDestination):
                 'optimizer': state.optimizers[0].__class__.__name__ if state.optimizers and len(state.optimizers) > 0 else None,
             }
             if state.model: default_hparams['model_class'] = state.model.__class__.__name__
-            self._run['state'] = default_hparams
+            for k, v in default_hparams.items():
+                self._run.set(('state', k), v)
             state_dict = state.state_dict()
             if state_dict:
-                default_hparams['state'].update(dict(state_dict))
+                for k, v in state_dict.items():
+                    self._run.set(('state', k), v)
 
             # If you want to log your entire config dictionary, you can do so:
             # self._run['composer/config'] = state.get_serialized_attributes()  # Example only
@@ -240,11 +242,12 @@ class AimLogger(LoggerDestination):
             return
         # In WandB: wandb.config.update(hyperparameters)
         # In Aim, we just store them in a nested dictionary key, or flatten them:
-
-        self._run['hparams'] = {k: v for k, v in hyperparameters.items()}
-        self._run['hparams3'] = str({k: v for k, v in hyperparameters.items()})
-        self._run['hparams2'] = {'test1': 'test2', 'test3': 'test4'} 
-        self._run['hparams4'] = str({k: v for k, v in hyperparameters.items()})
+        for k, v in hyperparameters.items():
+            self._run.set(('hparams', k), v)
+        # self._run['hparams'] = {k: v for k, v in hyperparameters.items()}
+        # self._run['hparams3'] = str({k: v for k, v in hyperparameters.items()})
+        # self._run['hparams2'] = {'test1': 'test2', 'test3': 'test4'} 
+        # self._run['hparams4'] = str({k: v for k, v in hyperparameters.items()})
         sys_logger.info(f"Finished logging hyperparameters.")
         print(f"Finished logging hyperparameters.")
 
