@@ -196,7 +196,7 @@ class AimLogger(LoggerDestination):
             }
             if state.model: default_hparams['model_class'] = state.model.__class__.__name__
             self._run['state'] = default_hparams
-            state_dict = state.get_model_state_dict()
+            state_dict = state.state_dict()
             if state_dict:
                 default_hparams['state'].update(dict(state_dict))
 
@@ -244,6 +244,7 @@ class AimLogger(LoggerDestination):
         self._run['hparams'] = {k: v for k, v in hyperparameters.items()}
         self._run['hparams3'] = str({k: v for k, v in hyperparameters.items()})
         self._run['hparams2'] = {'test1': 'test2', 'test3': 'test4'} 
+        self._run['hparams4'] = str({k: v for k, v in hyperparameters.items()})
         sys_logger.info(f"Finished logging hyperparameters.")
         print(f"Finished logging hyperparameters.")
 
