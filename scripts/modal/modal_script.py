@@ -24,7 +24,7 @@ MODEL_CHECKPOINT_VOLUME_MOUNT_PATH = pathlib.Path("/model-checkpoints")
 app = App("quick-start")
 
 # Build image from local Dockerfile
-image = Image.from_dockerfile("Dockerfile")
+image = Image.from_dockerfile("Dockerfile", gpu='l4')
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
              concurrency_limit=1)
@@ -122,7 +122,7 @@ def train_model(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m
 
     save_folder.mkdir(exist_ok=True)
     shutil.copy(yaml_path, Path(save_folder) / Path(yaml_path).name)
-    
+
     train_cmd = [
         "composer",
         "train/train.py",
