@@ -29,6 +29,9 @@ loggers:
     repo: '.aim' # Local directory to save the Aim repo
     experiment_name: 'quickstart_test_smollm2_135m' # Group of runs in Aim
     upload_on_close: true # Whether to upload the local Aim repo to the central aim server
+    # tags:
+    #   - 'test1'
+    #   - 'test2'
 
 # Rest of the configuration remains similar to your example, but let's adjust some parameters
 train_loader:

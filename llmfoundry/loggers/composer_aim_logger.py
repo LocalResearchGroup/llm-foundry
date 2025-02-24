@@ -1,6 +1,7 @@
 ######## WARNING: THIS IS AN INITIAL DRAFT GENERATED WITH AI ASSISTANCE. THIS NEEDS TO BE REVIEWED AND TESTED. ########
 
 import atexit
+import os
 from logging import getLogger
 from typing import Dict, Optional, Any, Sequence, Union
 
@@ -11,6 +12,8 @@ from aim.ext.resource.configs import DEFAULT_SYSTEM_TRACKING_INT
 from aim.sdk.run import Run
 
 from llmfoundry.loggers.aim_remote_uploader import upload_repo
+
+from uuid import uuid4
 
 try:
     from composer.core import State
@@ -58,6 +61,8 @@ class AimLogger(LoggerDestination):
         entity: Optional[str] = None,
         project: Optional[str] = None,
         upload_on_close: bool = True,
+        tags: Optional[Sequence[str]] = None,
+        hparams_to_tags: Optional[Dict[str, str]] = (('model.pretrained_model_name_or_path', 'MN'), ('global_train_batch_size', 'GBS'), ('train_loader.dataset.local', 'DS')),
     ):
         """
         Args:
@@ -70,6 +75,9 @@ class AimLogger(LoggerDestination):
             entity (str, optional): For parity with WandB. Not strictly required by Aim.
             project (str, optional): For parity with WandB. Not strictly required by Aim.
             upload_on_close (bool): Whether to upload the Aim repo on trainer close.
+            tags (Sequence[str], optional): Tags to add to the Aim run.
+            hparams_to_tags (Dict[str, str], optional): Hyperparameters to add to the Aim run as tags. 
+                Use dot notation to specify nested hyperparameters. e.g. {'model.pretrained_model_name_or_path':'MN', 'global_train_batch_size':'GBS'}
         """
         super().__init__()
         self.repo = repo
@@ -92,6 +100,9 @@ class AimLogger(LoggerDestination):
         self._is_in_atexit = False
         atexit.register(self._set_is_in_atexit)
         self.upload_on_close = upload_on_close
+        self.tags = tags
+        self.hparams_to_tags = dict(hparams_to_tags) if hparams_to_tags is not None else {}
+
     def _set_is_in_atexit(self):
         self._is_in_atexit = True
 
@@ -101,6 +112,28 @@ class AimLogger(LoggerDestination):
         if not self._run:
             self._setup()
         return self._run
+
+    def _add_env_var_tags(self):
+        user = os.environ.get('LRG_USER')
+        if user: self._run.add_tag(f"U-{user}")
+        tags = os.environ.get('LRG_TAGS')
+        if tags: [self._run.add_tag(t) for t in tags.split(',') if t]
+    
+    def _add_gpu_tag(self):
+        """Add GPU type and count as tag (e.g. 'GPU-2x3090')"""
+        try:
+            import re, subprocess
+            gpu_info = subprocess.check_output('nvidia-smi -L', shell=True).decode()
+            gpu_types = re.findall(r':\s*(?:NVIDIA\s+)?(?:GeForce\s+)?(?:RTX|GTX\s+)?([A-Z0-9 \-_]+)\s*\(', gpu_info)
+            if not gpu_types: return
+            main_type = gpu_types[0].strip()
+            count = len([t for t in gpu_types if t.strip() == main_type])
+            self._run.add_tag(f"GPU-{main_type}x{count}")
+            self._run.set('gpu', main_type)
+            self._run.set('gpu_count', count)
+        except Exception as e:
+            print(f"Failed to add GPU tag: {e}")
+            sys_logger.warning(f"Failed to add GPU tag: {e}")
 
     def _setup(self, state: Optional[State] = None):
         """Initialize the Aim Run if not already initialized."""
@@ -131,6 +164,7 @@ class AimLogger(LoggerDestination):
                     capture_terminal_logs=self.capture_terminal_logs,
                 )
                 self._run_hash = self._run.hash
+            
 
             # If available, store or conceive a notion of "run_dir" or "run_url"
             # (Aim doesn't natively provide both. You can store custom info if desired.)
@@ -143,7 +177,13 @@ class AimLogger(LoggerDestination):
             # Optionally log initial state as hyperparameters
             if state:
                 self._log_hparams(state)
-
+            
+            self._add_env_var_tags()
+            self._add_gpu_tag()
+            if self.tags:
+                if isinstance(self.tags, str): self._run.add_tag(self.tags)
+                else: [self._run.add_tag(t) for t in list(self.tags)]
+        
         except Exception as e:
             sys_logger.error(f"Failed to initialize Aim run: {e}")
             raise RuntimeError(f"Aim logger initialization failed: {e}") from e
@@ -153,27 +193,20 @@ class AimLogger(LoggerDestination):
         if not self._enabled:
             return
         try:
-            # Provide some base hyperparameters
-            batch_size = getattr(state.dataloader, 'batch_size', None)
-            max_duration_str = str(state.max_duration) if state.max_duration else None
-            optimizer_name = None
-            if state.optimizers and len(state.optimizers) > 0:
-                optimizer_name = state.optimizers[0].__class__.__name__
-
-            # Log some known parameters
             default_hparams = {
-                'batch_size': batch_size,
-                'max_duration': max_duration_str,
-                'optimizer': optimizer_name,
+                'batch_size': getattr(state.dataloader, 'batch_size', None),
+                'max_duration': str(state.max_duration) if state.max_duration else None,
+                'optimizer': state.optimizers[0].__class__.__name__ if state.optimizers and len(state.optimizers) > 0 else None,
             }
-
-            # Log more from composer state if desired
-            if state.model is not None:
-                default_hparams['model_class'] = state.model.__class__.__name__
-
-            # Set each hyperparameter individually
-            for key, val in default_hparams.items():
-                self._run[f'hparams/{key}'] = val
+            if state.model: default_hparams['model_class'] = state.model.__class__.__name__
+            for k, v in default_hparams.items():
+                self._run.set(('state', k), v)
+                # self._run.set(('state', f"{k}_{str(uuid4()).replace('-', '')}"), v) # Testing if there are overwrites (there were not in the initial testing)
+            state_dict = state.state_dict()
+            if state_dict:
+                for k, v in state_dict.items():
+                    self._run.set(('state', k), v)
+                    # self._run.set(('state', f"{k}__{str(uuid4()).replace('-', '')}"), v) # Testing if there are overwrites (there were not in the initial testing)
 
             # If you want to log your entire config dictionary, you can do so:
             # self._run['composer/config'] = state.get_serialized_attributes()  # Example only
@@ -194,14 +227,33 @@ class AimLogger(LoggerDestination):
         # then _enabled = False and we won't do anything.
         self._setup(state)
 
+    def _get_nested(self, d: dict, key: str) -> Any:
+        """Get nested dict value from dot-separated key string."""
+        return d.get(key.split('.')[0]) if '.' not in key else self._get_nested(d.get(key.split('.')[0], {}), '.'.join(key.split('.')[1:]))
+
     def log_hyperparameters(self, hyperparameters: dict[str, Any]):
         """Log arbitrary hyperparameters to Aim."""
         if not self._enabled or not self._run:
+            sys_logger.info(f"Aim logger not enabled or not initialized. Skipping hyperparameter logging.")
+            print(f"Aim logger not enabled or not initialized. Skipping hyperparameter logging.")
             return
+        
+        sys_logger.info(f"Logging hyperparameters: {hyperparameters}")
+        print(f"Logging hyperparameters: {hyperparameters}")
+        for hparam_to_tag, tag_prefix in self.hparams_to_tags.items():
+            hparam_value = self._get_nested(hyperparameters, hparam_to_tag)
+            if hparam_value is not None:
+                if (isinstance(hparam_value, str) and '/' in hparam_value and len(hparam_value.split('/')[-1]) > 1): 
+                    hparam_value = hparam_value.split('/')[-1]
+                self._run.add_tag(f"{tag_prefix}-{hparam_value}")
         # In WandB: wandb.config.update(hyperparameters)
         # In Aim, we just store them in a nested dictionary key, or flatten them:
         for k, v in hyperparameters.items():
-            self._run[f'hparams/{k}'] = v
+            self._run.set(('hparams', k), v)
+            # self._run.set(('hparams', f"{k}___{str(uuid4()).replace('-', '')}"), v) # Testing if there are overwrites (there were not in the initial testing)
+
+        sys_logger.info(f"Finished logging hyperparameters.")
+        print(f"Finished logging hyperparameters.")
 
     def log_table(
         self,
