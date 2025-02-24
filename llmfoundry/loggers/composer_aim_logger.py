@@ -201,12 +201,12 @@ class AimLogger(LoggerDestination):
             if state.model: default_hparams['model_class'] = state.model.__class__.__name__
             for k, v in default_hparams.items():
                 self._run.set(('state', k), v)
-                self._run.set(('state', k, str(uuid4()).replace('-', '')), v) # Testing if there are overwrites
+                self._run.set(('state', f"{k}_{str(uuid4()).replace('-', '')}"), v) # Testing if there are overwrites
             state_dict = state.state_dict()
             if state_dict:
                 for k, v in state_dict.items():
                     self._run.set(('state', k), v)
-                    self._run.set(('state', k, str(uuid4()).replace('-', '')), v) # Testing if there are overwrites
+                    self._run.set(('state', f"{k}__{str(uuid4()).replace('-', '')}"), v) # Testing if there are overwrites
 
             # If you want to log your entire config dictionary, you can do so:
             # self._run['composer/config'] = state.get_serialized_attributes()  # Example only
@@ -250,7 +250,7 @@ class AimLogger(LoggerDestination):
         # In Aim, we just store them in a nested dictionary key, or flatten them:
         for k, v in hyperparameters.items():
             self._run.set(('hparams', k), v)
-            self._run.set(('hparams', k, str(uuid4()).replace('-', '')), v) # Testing if there are overwrites
+            self._run.set(('hparams', f"{k}___{str(uuid4()).replace('-', '')}"), v) # Testing if there are overwrites
             # if isinstance(v, dict):
             #     for k2, v2 in v.items():
             #         self._run.set(('hparams', k, 'l2', k2), v2)
