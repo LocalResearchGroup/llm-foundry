@@ -233,6 +233,11 @@ class AimLogger(LoggerDestination):
 
     def log_hyperparameters(self, hyperparameters: dict[str, Any]):
         """Log arbitrary hyperparameters to Aim."""
+        if not self._enabled or not self._run:
+            sys_logger.info(f"Aim logger not enabled or not initialized. Skipping hyperparameter logging.")
+            print(f"Aim logger not enabled or not initialized. Skipping hyperparameter logging.")
+            return
+        
         sys_logger.info(f"Logging hyperparameters: {hyperparameters}")
         print(f"Logging hyperparameters: {hyperparameters}")
         for hparam_to_tag, tag_prefix in self.hparams_to_tags.items():
@@ -241,9 +246,6 @@ class AimLogger(LoggerDestination):
                 if (isinstance(hparam_value, str) and '/' in hparam_value and len(hparam_value.split('/')[-1]) > 1): 
                     hparam_value = hparam_value.split('/')[-1]
                 self._run.add_tag(f"{tag_prefix}-{hparam_value}")
-
-        if not self._enabled or not self._run:
-            return
         # In WandB: wandb.config.update(hyperparameters)
         # In Aim, we just store them in a nested dictionary key, or flatten them:
         for k, v in hyperparameters.items():
