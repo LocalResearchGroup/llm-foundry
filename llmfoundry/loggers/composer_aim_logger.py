@@ -13,6 +13,8 @@ from aim.sdk.run import Run
 
 from llmfoundry.loggers.aim_remote_uploader import upload_repo
 
+from uuid import uuid4
+
 try:
     from composer.core import State
     from composer.loggers import Logger, LoggerDestination
@@ -127,6 +129,8 @@ class AimLogger(LoggerDestination):
             main_type = gpu_types[0].strip()
             count = len([t for t in gpu_types if t.strip() == main_type])
             self._run.add_tag(f"GPU-{main_type}x{count}")
+            self._run.set('GPU', main_type)
+            self._run.set('GPU-COUNT', count)
         except Exception as e:
             print(f"Failed to add GPU tag: {e}")
             sys_logger.warning(f"Failed to add GPU tag: {e}")
@@ -197,10 +201,12 @@ class AimLogger(LoggerDestination):
             if state.model: default_hparams['model_class'] = state.model.__class__.__name__
             for k, v in default_hparams.items():
                 self._run.set(('state', k), v)
+                self._run.set(('state', k, str(uuid4()).replace('-', '')), v) # Testing if there are overwrites
             state_dict = state.state_dict()
             if state_dict:
                 for k, v in state_dict.items():
                     self._run.set(('state', k), v)
+                    self._run.set(('state', k, str(uuid4()).replace('-', '')), v) # Testing if there are overwrites
 
             # If you want to log your entire config dictionary, you can do so:
             # self._run['composer/config'] = state.get_serialized_attributes()  # Example only
@@ -244,6 +250,12 @@ class AimLogger(LoggerDestination):
         # In Aim, we just store them in a nested dictionary key, or flatten them:
         for k, v in hyperparameters.items():
             self._run.set(('hparams', k), v)
+            self._run.set(('hparams', k, str(uuid4()).replace('-', '')), v) # Testing if there are overwrites
+            if isinstance(v, dict):
+                for k2, v2 in v.items():
+                    self._run.set(('hparams', k, k2), v2)
+                    self._run.set(('hparams', k, k2, str(uuid4()).replace('-', '')), v2) # Testing if there are overwrites
+        
         # self._run['hparams'] = {k: v for k, v in hyperparameters.items()}
         # self._run['hparams3'] = str({k: v for k, v in hyperparameters.items()})
         # self._run['hparams2'] = {'test1': 'test2', 'test3': 'test4'} 
