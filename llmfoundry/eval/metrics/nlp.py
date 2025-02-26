@@ -23,7 +23,7 @@ __all__ = [
     'InContextLearningLMAccuracy',
     'InContextLearningMultipleChoiceAccuracy',
     'InContextLearningGenerationExactMatchAccuracy',
-    'MathVerifyAccuracy',
+    'InContextLearningGenerationExactMatchAccuracy2',
     'InContextLearningLMExpectedCalibrationError',
     'InContextLearningMCExpectedCalibrationError',
 ]
@@ -197,17 +197,13 @@ class InContextLearningGenerationExactMatchAccuracy(InContextLearningMetric):
             metric_result_dict['cleaned_output'].append(cleaned_final_answer)
             metric_result_dict['cleaned_label'].append(cleaned_sample_labels)
 
-            print(f"{cleaned_final_answer=}")
-            print(f"{cleaned_sample_labels=}")
             if any(
                 cleaned_final_answer.startswith(label)
                 for label in cleaned_sample_labels
             ):
                 self.correct += torch.tensor(1.0)
-                print("correct")
                 metric_result_dict['result'].append(1)
             else:
-                print("incorrect")
                 metric_result_dict['result'].append(0)
 
             self.total += torch.tensor(1.0)
@@ -220,7 +216,7 @@ class InContextLearningGenerationExactMatchAccuracy(InContextLearningMetric):
         return self.correct / self.total
 
 
-class MathVerifyAccuracy(InContextLearningMetric):
+class InContextLearningGenerationExactMatchAccuracy2(InContextLearningMetric):
     """Like InContextLearningGenerationExactMatchAccuracy but uses Math-Verify for robust comparison."""
 
     def __init__(self, dist_sync_on_step: bool = False):
@@ -244,21 +240,16 @@ class MathVerifyAccuracy(InContextLearningMetric):
         for batch_idx, (sample_output, sample_labels) in enumerate(zip(outputs, labels)):
             # Extract answer using batch parameters
             final_answer = self._extract_answer(sample_output, batch)
-            print(f"{final_answer=}")
 
             try:
                 # Parse model output and gold answer
                 parsed_output = parse(final_answer)
-                print(f"{parsed_output=}")
 
                 # Try each possible correct answer
                 correct = False
                 for label in sample_labels:
-                    print(f"{label=}")
                     try:
                         parsed_label = parse(label)
-                        print(f"{parsed_label=}")
-                        print(f"{verify(parsed_label, parsed_output)=}")
                         if verify(parsed_label, parsed_output):
                             correct = True
                             break
