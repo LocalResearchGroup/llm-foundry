@@ -9,7 +9,7 @@ from composer.metrics import (
 
 from llmfoundry.eval.metrics import (
     InContextLearningGenerationExactMatchAccuracy,
-    InContextLearningGenerationExactMatchAccuracy2,
+    MathVerifyAccuracy,
     InContextLearningLMAccuracy,
     InContextLearningLMExpectedCalibrationError,
     InContextLearningMCExpectedCalibrationError,
@@ -35,7 +35,7 @@ metrics.register(
 )
 metrics.register(
     'qa_accuracy2',
-    func=InContextLearningGenerationExactMatchAccuracy2,
+    func=MathVerifyAccuracy,
 )
 metrics.register('language_cross_entropy', func=LanguageCrossEntropy)
 metrics.register('language_perplexity', func=LanguagePerplexity)
@@ -71,7 +71,7 @@ __all__ = [
     'InContextLearningMCExpectedCalibrationError',
     'InContextLearningMultipleChoiceAccuracy',
     'InContextLearningGenerationExactMatchAccuracy',
-    'InContextLearningGenerationExactMatchAccuracy2',
+    'MathVerifyAccuracy',
     'DEFAULT_CAUSAL_LM_TRAIN_METRICS',
     'DEFAULT_CAUSAL_LM_EVAL_METRICS',
     'DEFAULT_ENC_DEC_METRICS',
