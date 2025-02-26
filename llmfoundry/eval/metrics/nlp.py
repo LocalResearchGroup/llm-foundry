@@ -5,6 +5,7 @@
 
 import copy
 import functools
+import json
 import logging
 import re
 import string
@@ -223,30 +224,36 @@ class MathVerifyAccuracy(InContextLearningMetric):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
         self.add_state('correct', default=torch.tensor(0.), dist_reduce_fx='sum')
         self.add_state('total', default=torch.tensor(0.), dist_reduce_fx='sum')
-        self.output_path = "math_verify_results.tsv"
+        self.output_path = "math_verify_results.jsonl" # FIXME: remove before merging
         self.metric_result_dict = {
-            'cleaned_output': [],
-            'original_label': [],
-            'cleaned_label': [],
+            'model_output': [],
+            'extracted_answer': [],
+            'parsed_answer': [],
+            'label': [],
+            'parsed_label': [],
             'result': [],
         }
-        # Create/clear the output file
-        with open(self.output_path, 'w') as f:
-            f.write('Model Answer\tGold Answer\tCorrect\n')
+        
+        if self.output_path:
+            # Create/clear the output file
+            with open(self.output_path, 'w') as f:
+                # Just create an empty file - we'll append to it later
+                pass
 
     def update(self, batch: dict, outputs: list[str], labels: list[list[str]]):
         metric_result_dict = copy.deepcopy(self.metric_result_dict)
 
         for batch_idx, (sample_output, sample_labels) in enumerate(zip(outputs, labels)):
-            # Extract answer using batch parameters
-            final_answer = self._extract_answer(sample_output, batch)
+            # TODO: I don't understand what this line is doing. It might be doing work that would be better done by `parse`
+            extracted_answer = self._extract_answer(sample_output, batch)
+            
 
             try:
-                # Parse model output and gold answer
-                parsed_output = parse(final_answer)
+                # Parse model output
+                parsed_output = parse(extracted_answer)
+                correct = False
 
                 # Try each possible correct answer
-                correct = False
                 for label in sample_labels:
                     try:
                         parsed_label = parse(label)
@@ -255,7 +262,7 @@ class MathVerifyAccuracy(InContextLearningMetric):
                             break
                     except Exception as e:
                         log.debug(f"Failed to parse/verify label {label}: {e}")
-
+                
                 if correct:
                     self.correct += torch.tensor(1.0)
                     metric_result_dict['result'].append(1)
@@ -263,21 +270,29 @@ class MathVerifyAccuracy(InContextLearningMetric):
                     metric_result_dict['result'].append(0)
 
             except Exception as e:
-                log.debug(f"Failed to evaluate {final_answer}: {e}")
+                log.debug(f"Failed to evaluate {extracted_answer}: {e}")
                 metric_result_dict['result'].append(0)
 
             self.total += torch.tensor(1.0)
-            metric_result_dict['cleaned_output'].append(final_answer)
-            metric_result_dict['original_label'].append(sample_labels)
-            metric_result_dict['cleaned_label'].append(sample_labels)
+            
+            # Store all requested information
+            metric_result_dict['model_output'].append(sample_output)
+            metric_result_dict['extracted_answer'].append(extracted_answer)
+            metric_result_dict['parsed_answer'].append(parsed_output)
+            metric_result_dict['label'].append(sample_labels)
+            metric_result_dict['parsed_label'].append(parsed_label)
 
-            # Write results to file if output path was specified
+            # Write results to JSONL file if output path was specified
             if self.output_path:
                 with open(self.output_path, 'a') as f:
-                    # Escape newlines in all fields
-                    final_answer = final_answer.replace('\n', '\\n')
-                    gold_answer = sample_labels[0].replace('\n', '\\n')
-                    f.write(f'{final_answer}\t{gold_answer}\t{correct}\n')
+                    # Get the index of the current sample (last item in each list)
+                    idx = len(metric_result_dict['result']) - 1
+                    
+                    # Write directly to the file, handling the parsed objects inline
+                    f.write(json.dumps({
+                        k: (str(v[idx]) if k in ['parsed_answer', 'parsed_label'] and v[idx] is not None else v[idx])
+                        for k, v in metric_result_dict.items()
+                    }) + '\n')
 
         return metric_result_dict
 
