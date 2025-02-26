@@ -23,7 +23,7 @@ __all__ = [
     'InContextLearningLMAccuracy',
     'InContextLearningMultipleChoiceAccuracy',
     'InContextLearningGenerationExactMatchAccuracy',
-    'InContextLearningGenerationExactMatchAccuracy2',
+    'MathVerifyAccuracy',
     'InContextLearningLMExpectedCalibrationError',
     'InContextLearningMCExpectedCalibrationError',
 ]
@@ -216,8 +216,8 @@ class InContextLearningGenerationExactMatchAccuracy(InContextLearningMetric):
         return self.correct / self.total
 
 
-class InContextLearningGenerationExactMatchAccuracy2(InContextLearningMetric):
-    """Like InContextLearningGenerationExactMatchAccuracy but uses Math-Verify for robust comparison."""
+class MathVerifyAccuracy(InContextLearningMetric):
+    """Uses Math-Verify for robust parsing and verification of mathematical expressions."""
 
     def __init__(self, dist_sync_on_step: bool = False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
