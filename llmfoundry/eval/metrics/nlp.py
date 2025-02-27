@@ -7,9 +7,10 @@ import copy
 import functools
 import json
 import logging
+import os
 import re
 import string
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import torch
 from torch import Tensor
@@ -218,13 +219,19 @@ class InContextLearningGenerationExactMatchAccuracy(InContextLearningMetric):
 
 
 class MathVerifyAccuracy(InContextLearningMetric):
-    """Uses Math-Verify for robust parsing and verification of mathematical expressions."""
+    """Uses Math-Verify for robust parsing and verification of mathematical expressions.
+
+    This metric evaluates mathematical expressions by parsing both the model output and the
+    reference answer, then verifying if they are mathematically equivalent.
+
+    The metric stores detailed information in the metric_result_dict, which can be logged
+    to disk using the EvalOutputLogging callback.
+    """
 
     def __init__(self, dist_sync_on_step: bool = False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
         self.add_state('correct', default=torch.tensor(0.), dist_reduce_fx='sum')
         self.add_state('total', default=torch.tensor(0.), dist_reduce_fx='sum')
-        self.output_path = "math_verify_results.jsonl" # FIXME: remove before merging
         self.metric_result_dict = {
             'model_output': [],
             'extracted_answer': [],
@@ -233,27 +240,20 @@ class MathVerifyAccuracy(InContextLearningMetric):
             'parsed_label': [],
             'result': [],
         }
-        
-        if self.output_path:
-            # Create/clear the output file
-            with open(self.output_path, 'w') as f:
-                # Just create an empty file - we'll append to it later
-                pass
 
     def update(self, batch: dict, outputs: list[str], labels: list[list[str]]):
         metric_result_dict = copy.deepcopy(self.metric_result_dict)
 
         for batch_idx, (sample_output, sample_labels) in enumerate(zip(outputs, labels)):
-            # TODO: I don't understand what this line is doing. It might be doing work that would be better done by `parse`
             extracted_answer = self._extract_answer(sample_output, batch)
             
-
             try:
                 # Parse model output
                 parsed_output = parse(extracted_answer)
                 correct = False
 
                 # Try each possible correct answer
+                parsed_label = None
                 for label in sample_labels:
                     try:
                         parsed_label = parse(label)
@@ -275,29 +275,45 @@ class MathVerifyAccuracy(InContextLearningMetric):
 
             self.total += torch.tensor(1.0)
             
-            # Store all requested information
             metric_result_dict['model_output'].append(sample_output)
             metric_result_dict['extracted_answer'].append(extracted_answer)
-            metric_result_dict['parsed_answer'].append(parsed_output)
-            metric_result_dict['label'].append(sample_labels)
-            metric_result_dict['parsed_label'].append(parsed_label)
-
-            # Write results to JSONL file if output path was specified
-            if self.output_path:
-                with open(self.output_path, 'a') as f:
-                    # Get the index of the current sample (last item in each list)
-                    idx = len(metric_result_dict['result']) - 1
-                    
-                    # Write directly to the file, handling the parsed objects inline
-                    f.write(json.dumps({
-                        k: (str(v[idx]) if k in ['parsed_answer', 'parsed_label'] and v[idx] is not None else v[idx])
-                        for k, v in metric_result_dict.items()
-                    }) + '\n')
+            metric_result_dict['parsed_answer'].append(str(parsed_output))
+            metric_result_dict['label'].append(str(sample_labels))
+            metric_result_dict['parsed_label'].append(str(parsed_label))
 
         return metric_result_dict
 
     def _extract_answer(self, text: str, batch: dict) -> str:
-        """Extract final answer from model output."""
+        """Extract the final answer from the model's output text.
+        
+        This method processes the raw model output to extract just the answer portion,
+        applying any configured post-processing steps from the batch configuration:
+        
+        1. If stopping_criteria is provided, truncates the text at the first occurrence
+           of any stopping criterion (e.g., cutting off at "Therefore," or "Thus,").
+        2. If cot_delimiter is provided, extracts only the text after the last occurrence
+           of the delimiter (e.g., taking only what comes after "The answer is:").
+        3. Strips leading and trailing whitespace from the result.
+        
+        This extraction is important for chain-of-thought (CoT) responses where the model
+        shows its reasoning before giving a final answer, or when the model continues
+        generating text beyond the answer.
+
+        Args:
+            text (str): The raw text output from the model.
+            batch (dict): A dictionary containing optional configuration parameters:
+                - cot_delimiter (str): A string that separates reasoning from the final answer.
+                - stopping_criteria (list[str]): A list of strings at which to truncate the output.
+
+        Returns:
+            str: The extracted answer with whitespace stripped.
+
+        Example:
+            >>> _extract_answer("Let me think... 2+2=4. The answer is: 4", {"cot_delimiter": "The answer is:"})
+            "4"
+            >>> _extract_answer("The result is 42. Therefore, x=42", {"stopping_criteria": ["Therefore,"]})
+            "The result is 42."
+        """
         cot_delimiter = batch.get('cot_delimiter', '')
         stopping_criteria = batch.get('stopping_criteria', None)
 
