@@ -258,6 +258,8 @@ For training and inference performance results on Intel Gaudi2 accelerators, see
 
 > **Note**
 > Make sure to go through the installation steps above before trying the quickstart!
+> You can set env variables `LRG_USER` and `LRG_TAGS` to tag your runs or add them
+> to `loggers.aim.tags` in yml config.
 
 Here is an end-to-end workflow for preparing a subset of the C4 dataset, training an MPT-125M model for 10 batches,
 converting the model to HuggingFace format, evaluating the model on the Winograd challenge, and generating responses to prompts.
