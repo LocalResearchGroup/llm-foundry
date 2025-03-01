@@ -176,7 +176,7 @@ finemathconstants.splits["val_finemath_3plus"] = DataSplitConstants(
     hf_split='train',
     folder_split='val_finemath_3plus',
     raw_samples=int(21_300_000 * .1),
-    truncated_samples=int(21_300_000 * .1) * 9,
+    truncated_samples=int(21_300_000 * .1),
 )
 
 # finemath 4 plus is about 6.7M rows
@@ -225,14 +225,13 @@ finemathconstants.splits["val_infiwebmath_4plus"] = DataSplitConstants(
 )
 
 
-# tiny pairs of splits
+# train/val 1,000,000 rows
 finemathconstants.splits["train"] = DataSplitConstants(
     hf_split='train',
     folder_split='train',
     raw_samples=100_000 * 9,
     truncated_samples=100_000 * 9,
 )
-
 finemathconstants.splits['val'] = DataSplitConstants(
     hf_split='train',
     folder_split='val',
@@ -240,13 +239,13 @@ finemathconstants.splits['val'] = DataSplitConstants(
     truncated_samples=100_000,
 )
 
+# train_small/val_small 100,000 rows
 finemathconstants.splits['train_small'] = DataSplitConstants(
     hf_split='train',
     folder_split='train_small',
     raw_samples=10_000 * 9,
     truncated_samples=10_000 * 9,
 )
-
 finemathconstants.splits['val_small'] = DataSplitConstants(
     hf_split='train',
     folder_split='val_small',
@@ -254,13 +253,13 @@ finemathconstants.splits['val_small'] = DataSplitConstants(
     truncated_samples=10_000,
 )
 
+# train_xsmall/val_xsmall  30,000 rows
 finemathconstants.splits['train_xsmall'] = DataSplitConstants(
     hf_split='train',
     folder_split='train_xsmall',
     raw_samples=3_000 * 9,
     truncated_samples=3_000 * 9,
 )
-
 finemathconstants.splits['val_xsmall'] = DataSplitConstants(
     hf_split='train',
     folder_split='val_xsmall',
@@ -268,13 +267,13 @@ finemathconstants.splits['val_xsmall'] = DataSplitConstants(
     truncated_samples=3_000,
 )
 
+# train_xxsmall/val_xxsmall 1,000 rows
 finemathconstants.splits['train_xxsmall'] = DataSplitConstants(
     hf_split='train',
     folder_split='train_xxsmall',
     raw_samples=100 * 9,
     truncated_samples=100 * 9,
 )
-
 finemathconstants.splits['val_xxsmall'] = DataSplitConstants(
     hf_split='train',
     folder_split='val_xxsmall',
@@ -324,7 +323,6 @@ def build_hf_dataset(
     )
     # Before converting to No/ConcatTokensDataset shuffle, skip and take
     if dataset_name in ["HuggingFaceTB/finemath"]:
-        hf_dataset = hf_dataset.shuffle(seed=42)
         if current_split.folder_split.startswith("val"):
             # if validation skip 90% of training set
             hf_dataset = hf_dataset.skip(current_split.raw_samples * 9)
