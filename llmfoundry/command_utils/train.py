@@ -521,11 +521,41 @@ def train(cfg: DictConfig) -> Trainer:
     
     original_forward = Linear.forward
     
+    # Track a few specific magnitude vectors
+    tracked_modules = ["model.base_model.model.model.layers.0.self_attn.q_proj"]
+    tracked_values = {}
+    
     def patched_forward(self, x, *args, **kwargs):
         result = original_forward(self, x, *args, **kwargs)
-        if hasattr(self, 'use_dora') and any(self.use_dora.values()):
-            print(f"DoRA is active: {self.use_dora}")
-            print(f"First few values of magnitude vector: {list(self.lora_magnitude_vector.values())[0].weight[:5].tolist()}")
+        module_name = None
+        
+        # Find this module's name (only for tracked modules)
+        for name, module in model.named_modules():
+            if module is self and name in tracked_modules:
+                module_name = name
+                break
+                
+        if module_name and hasattr(self, 'use_dora') and any(self.use_dora.values()):
+            adapter_name = list(self.use_dora.keys())[0]
+            mag_vector = list(self.lora_magnitude_vector.values())[0].weight[:5].tolist()
+            
+            step = getattr(self, 'step_counter', 0)
+            if step % 1 == 0:  # Print every step
+                print(f"Step {step}, {module_name}: {mag_vector}")
+                
+                # Also print some DoRA calculation values
+                if hasattr(self, 'last_dora_values'):
+                    print(f"  Last DoRA calculation: {self.last_dora_values}")
+                    
+            self.step_counter = step + 1
+            
+            # Store some values from the last DoRA calculation
+            if module_name not in tracked_values:
+                tracked_values[module_name] = []
+            
+            if step % 1 == 0:
+                tracked_values[module_name].append(mag_vector)
+                
         return result
     
     Linear.forward = patched_forward
