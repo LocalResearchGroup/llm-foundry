@@ -12,7 +12,7 @@ RUN git clone https://github.com/LocalResearchGroup/llm-foundry.git /llm-foundry
     export UV_PROJECT_ENVIRONMENT=/opt/conda/envs/llm-foundry && \
     micromamba run -n llm-foundry uv python pin 3.12 && \
     micromamba run -n llm-foundry uv sync --dev --extra gpu && \
-    micromamba run -n llm-foundry uv sync --dev --extra gpu --extra flash
+    micromamba run -n llm-foundry uv sync --dev --extra gpu --extra flash --no-cache
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/conda/envs/llm-foundry
 ENV CONDA_DEFAULT_ENV=llm-foundry
