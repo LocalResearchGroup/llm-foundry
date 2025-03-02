@@ -515,6 +515,21 @@ def train(cfg: DictConfig) -> Trainer:
     # DoRA debugging
     print("PEFT Config:", model_config.get('peft_config', {}))
 
+    # Check if DoRA is active and that linear layers have `lora_magnitude_vector` weights
+    import types
+    from peft.tuners.lora.layer import Linear
+    
+    original_forward = Linear.forward
+    
+    def patched_forward(self, x, *args, **kwargs):
+        result = original_forward(self, x, *args, **kwargs)
+        if hasattr(self, 'use_dora') and any(self.use_dora.values()):
+            print(f"DoRA is active: {self.use_dora}")
+            print(f"First few values of magnitude vector: {list(self.lora_magnitude_vector.values())[0].weight[:5].tolist()}")
+        return result
+    
+    Linear.forward = patched_forward
+
     model = build_composer_model(
         name=name,
         tokenizer=tokenizer,
