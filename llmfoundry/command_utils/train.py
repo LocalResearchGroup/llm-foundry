@@ -518,6 +518,7 @@ def train(cfg: DictConfig) -> Trainer:
     # Check if DoRA is active and that linear layers have `lora_magnitude_vector` weights
     import types
     from peft.tuners.lora.layer import Linear
+    from peft.utils.integrations import dequantize_module_weight
     
     original_forward = Linear.forward
     
@@ -539,13 +540,20 @@ def train(cfg: DictConfig) -> Trainer:
             adapter_name = list(self.use_dora.keys())[0]
             mag_vector = list(self.lora_magnitude_vector.values())[0].weight[:5].tolist()
             
+            if adapter_name in self.lora_magnitude_vector:
+                full_mag_vector = self.lora_magnitude_vector[adapter_name].weight
+                weight = dequantize_module_weight(self.get_base_layer())
+                lora_A = self.lora_A[adapter_name].weight
+                lora_B = self.lora_B[adapter_name].weight
+                lora_weight = lora_B @ lora_A
+                weight_norm = self.lora_magnitude_vector[adapter_name].get_weight_norm(
+                    weight, lora_weight.detach(), scaling=1).detach()
+                mag_norm_scale = (full_mag_vector / weight_norm).mean().item()
+            
             step = getattr(self, 'step_counter', 0)
             if step % 100 == 0:  # Print every 100th step
                 print(f"Step {step}, {module_name}: {mag_vector}")
-                
-                # Also print some DoRA calculation values
-                if hasattr(self, 'last_dora_values'):
-                    print(f"  Last DoRA calculation: {self.last_dora_values}")
+                print(f"  mag_norm_scale={mag_norm_scale}")
                     
             self.step_counter = step + 1
             
