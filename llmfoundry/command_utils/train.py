@@ -540,7 +540,7 @@ def train(cfg: DictConfig) -> Trainer:
             mag_vector = list(self.lora_magnitude_vector.values())[0].weight[:5].tolist()
             
             step = getattr(self, 'step_counter', 0)
-            if step % 1 == 0:  # Print every step
+            if step % 100 == 0:  # Print every 100th step
                 print(f"Step {step}, {module_name}: {mag_vector}")
                 
                 # Also print some DoRA calculation values
@@ -553,7 +553,7 @@ def train(cfg: DictConfig) -> Trainer:
             if module_name not in tracked_values:
                 tracked_values[module_name] = []
             
-            if step % 1 == 0:
+            if step % 100 == 0:
                 tracked_values[module_name].append(mag_vector)
                 
         return result
