@@ -533,6 +533,7 @@ description = "LLM Foundry"
 authors = [{ name = "Local Research Group" }]
 readme = "README.md"
 requires-python = ">=3.12.0"
+dynamic = ["version"]
 dependencies = [
   "mosaicml[wandb,peft,mlflow]>=0.28.0,<0.29",
   "accelerate>=0.25,<1.4",
@@ -555,19 +556,12 @@ dependencies = [
   "typer<1",
   "GitPython==3.1.44",
   "aim>=3.26.0,<4",
-  "math_verify>=0.6.0"
+  "math_verify>=0.6.0",
+  "zstd>=1.5.6.1,!=1.5.6.2",
 ]
-dynamic = ["version"]
 
-[build-system]
-requires = ["setuptools>=75.8.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[project.scripts]
-llmfoundry = "llmfoundry.cli.cli:app"
-
-[project.optional-dependencies]
 # Extra group for development requirements
+[dependency-groups]
 dev = [
   "coverage[toml]==7.6.10",
   "pre-commit>=3.4.0,<4",
@@ -579,6 +573,15 @@ dev = [
   "packaging>=21,<25",
   "hf_transfer>=0.1.8,<0.2",
 ]
+
+[build-system]
+requires = ["setuptools>=75.8.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+llmfoundry = "llmfoundry.cli.cli:app"
+
+[project.optional-dependencies]
 gpu = ["torch>=2.5.1,<2.5.2", "setuptools>=75.8.0", "packaging"]
 cpu = ["torch>=2.5.1,<2.5.2"]
 flash = ["flash-attn>=2.7.4"]
@@ -610,7 +613,7 @@ torch = [
   { index = "pytorch-cpu", extra = "cpu" },
   { index = "pytorch-gpu", extra = "gpu" },
 ]
-# flash-attn = { git = "https://github.com/Dao-AILab/flash-attention", tag = "v2.7.4" }
+aim = { git = "https://github.com/LocalResearchGroup/aim.git", branch = "release/3.27.x" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
