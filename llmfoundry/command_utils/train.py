@@ -511,6 +511,10 @@ def train(cfg: DictConfig) -> Trainer:
     name = model_config.pop('name')
     assert isinstance(name, str)
     assert isinstance(model_config, dict)
+
+    # DoRA debugging
+    print("PEFT Config:", model_config.get('peft_config', {}))
+
     model = build_composer_model(
         name=name,
         tokenizer=tokenizer,
