@@ -558,6 +558,13 @@ def train(cfg: DictConfig) -> Trainer:
     compile_config = train_cfg.compile_config
     # Build the Trainer
     log.info('Building trainer...')
+
+    # Add after model creation
+    for name, module in model.named_modules():
+        if hasattr(module, 'lora_magnitude_vector'):
+            for adapter_name, magnitude_vector in module.lora_magnitude_vector.items():
+                print(f"{name}: Magnitude vector requires_grad={magnitude_vector.weight.requires_grad}")
+                
     trainer = Trainer(
         run_name=run_name,
         seed=seed,
