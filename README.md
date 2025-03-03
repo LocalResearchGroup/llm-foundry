@@ -15,7 +15,7 @@ Then depending on your system, run one of the following commands to install the 
 
 ```bash
 uv python pin 3.12
-uv sync --extra dev --extra cpu
+uv sync --dev --extra cpu
 ```
 
 ### GPU
@@ -36,17 +36,17 @@ With Cuda installed, then use uv to install the library:
 
 ```bash
 uv python pin 3.12
-uv sync --extra dev --extra gpu
+uv sync --dev --extra gpu
 
 # Install flash attention if you have a Ampere (RTX 30xx series) or newer GPU
-uv sync --extra dev --extra gpu --extra flash
+uv sync --dev --extra gpu --extra flash
 ```
 
 ### Apple Silicon (macOS)
 
 ```bash
 uv python pin 3.12
-uv sync --extra dev
+uv sync --dev
 ```
 
 ## Refresh
@@ -258,6 +258,8 @@ For training and inference performance results on Intel Gaudi2 accelerators, see
 
 > **Note**
 > Make sure to go through the installation steps above before trying the quickstart!
+> You can set env variables `LRG_USER` and `LRG_TAGS` to tag your runs or add them
+> to `loggers.aim.tags` in yml config.
 
 Here is an end-to-end workflow for preparing a subset of the C4 dataset, training an MPT-125M model for 10 batches,
 converting the model to HuggingFace format, evaluating the model on the Winograd challenge, and generating responses to prompts.

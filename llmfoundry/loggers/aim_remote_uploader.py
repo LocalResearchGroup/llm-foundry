@@ -13,9 +13,9 @@ except:
 AIM_CLIENT_REQUEST_HEADERS = json.loads(os.environ['AIM_CLIENT_REQUEST_HEADERS_SECRET'])
 AIM_REMOTE_SERVER_URL = os.environ['AIM_REMOTE_SERVER_URL_SECRET']
 
-def upload_repo():
+def upload_repo(repo_path: str = '.aim'):
     server_url = AIM_REMOTE_SERVER_URL
-    repo_path = Path('.aim')
+    repo_path = Path(repo_path)
     if not repo_path.exists(): raise ValueError(f"AIM repo not found at {repo_path}")
     zip_filepath = repo_path.resolve().parent/'aim_repo.zip'
     if zip_filepath.exists(): zip_filepath.unlink()

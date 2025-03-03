@@ -89,7 +89,7 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         ) / 'local-composer-checkpoint.pt'
 
     # create folder
-    os.makedirs(output_path)
+    os.makedirs(output_path, exist_ok=True)
 
     # download the checkpoint file
     print(
