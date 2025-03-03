@@ -555,7 +555,7 @@ dependencies = [
   "typer<1",
   "GitPython==3.1.44",
   "aim>=3.26.0,<4",
-  "math_verify>=0.6.0"
+  "math_verify>=0.6.0",
 ]
 dynamic = ["version"]
 
