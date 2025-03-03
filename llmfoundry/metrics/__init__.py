@@ -34,7 +34,7 @@ metrics.register(
     func=InContextLearningGenerationExactMatchAccuracy,
 )
 metrics.register(
-    'qa_accuracy2',
+    'math_verify_accuracy',
     func=MathVerifyAccuracy,
 )
 metrics.register('language_cross_entropy', func=LanguageCrossEntropy)
@@ -56,7 +56,7 @@ DEFAULT_CAUSAL_LM_EVAL_METRICS = [
     'mc_expected_calibration_error',
     'mc_accuracy',
     'qa_accuracy',
-    'qa_accuracy2',
+    'math_verify_accuracy',
 ]
 
 DEFAULT_ENC_DEC_METRICS = [
