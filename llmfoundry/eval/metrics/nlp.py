@@ -219,13 +219,11 @@ class InContextLearningGenerationExactMatchAccuracy(InContextLearningMetric):
 
 
 class MathVerifyAccuracy(InContextLearningMetric):
-    """Uses Math-Verify for robust parsing and verification of mathematical expressions.
+    """Uses Math-Verify to evaluate answers to math questions.
 
-    This metric evaluates mathematical expressions by parsing both the model output and the
-    reference answer, then verifying if they are mathematically equivalent.
-
-    The metric stores detailed information in the metric_result_dict, which can be logged
-    to disk using the EvalOutputLogging callback.
+    Evaluates mathematical expressions by extracting the part of the model output between the `cot_delimiter`
+    and the `stopping_criteria` and then using Math-Verify to parse both the extracted text and the reference
+    answer and check whether they are equivalent.
     """
 
     def __init__(self, dist_sync_on_step: bool = False):
@@ -248,11 +246,9 @@ class MathVerifyAccuracy(InContextLearningMetric):
             extracted_answer = self._extract_answer(sample_output, batch)
             
             try:
-                # Parse model output
                 parsed_output = parse(extracted_answer)
                 correct = False
 
-                # Try each possible correct answer
                 parsed_label = None
                 for label in sample_labels:
                     try:
