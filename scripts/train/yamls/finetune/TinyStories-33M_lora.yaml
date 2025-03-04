@@ -1,7 +1,7 @@
 variables:
   data_local: ./hello_test
   data_remote: # If blank, files must be present in data_local
-  tokenizer_name: roneneldan/TinyStories-33M
+  tokenizer_name: EleutherAI/gpt-neo-125M
   global_seed: 17
   max_seq_len: 512
   run_name:  # If left blank, will be read from env var $RUN_NAME
