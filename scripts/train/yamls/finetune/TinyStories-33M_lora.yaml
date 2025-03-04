@@ -31,7 +31,7 @@ model:
       - down_proj
     use_rslora: false
     use_dora: false
-  use_flash_attention_2: true  # Moved outside of config_overrides
+  use_flash_attention_2: false
   pretrained: true
 
 # Tokenizer
