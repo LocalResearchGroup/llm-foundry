@@ -3,7 +3,7 @@ variables:
   data_remote: # If blank, files must be present in data_local
   tokenizer_name: EleutherAI/gpt-neo-125M
   global_seed: 17
-  max_seq_len: 512
+  max_seq_len: 2048
   run_name:  # If left blank, will be read from env var $RUN_NAME
 
 max_seq_len: ${variables.max_seq_len}
