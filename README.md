@@ -20,26 +20,27 @@ uv sync --dev --extra cpu
 
 ### GPU
 
-For Flash Attention support you'll need to install Cuda 12.4. The simplest way is to use [Miniconda](https://docs.anaconda.com/miniconda/install) to install it.
+For Flash Attention support you'll need to install Cuda/Cuda Toolkit 12.4. The simplest way is to use [Miniconda](https://docs.anaconda.com/miniconda/install) to install it.
 
 ```bash
-conda create -n llm-foundry python=3.12 uv cuda -c nvidia/label/12.4.1 -c conda-forge
+# swap cuda-toolkit for cuda if you want to compile cuda packages
+conda create -n llm-foundry python=3.12 uv cuda-toolkit -c nvidia/label/cuda-12.4.1 -c conda-forge
 conda activate llm-foundry
-# This sets uv to use the active Conda environment whether using uv or uv pip commands
-# To permanently set uv to use the active Conda environment, add this to your ~/.bashrc
+# This sets uv to use the active Conda environment whether using uv or uv pip commands.
+# You'll need to run this command every time you open a new terminal to run a uv command.
 export UV_PROJECT_ENVIRONMENT="$CONDA_PREFIX"
 ```
 
 Or install [system Cuda](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/) (not recommended).
 
-With Cuda installed, then use uv to install the library:
+With Cuda/Cuda Toolkit installed, then use uv to install the library:
 
 ```bash
 uv python pin 3.12
 uv sync --dev --extra gpu
 
 # Install flash attention if you have a Ampere (RTX 30xx series) or newer GPU
-uv sync --dev --extra gpu --extra flash
+uv sync --dev --extra gpu --extra flash --no-cache
 ```
 
 ### Apple Silicon (macOS)
@@ -61,7 +62,14 @@ If you installed to the Conda environment, you can activate it with:
 conda activate llm-foundry
 ```
 
-if you used uv to create a virtual environment, you can activate it with:
+Then you'll need to manually run the following command:
+
+```bash
+export UV_PROJECT_ENVIRONMENT="$CONDA_PREFIX"
+```
+to ensure uv uses the active Conda environment.
+
+If you used uv to create a virtual environment, you can activate it with:
 
 ```bash
 # macOS & Linux
