@@ -1196,3 +1196,15 @@ def messages_format_preprocessor(inp: dict) -> ChatFormattedDict:
     except Exception as e:
         raise UnableToProcessPromptResponseError(inp) from e
     return {'messages': messages}
+
+
+@dataset_constructor.register('meta-math/MetaMathQA')
+def meta_math_format_preprocessor(inp: dict) -> ChatFormattedDict:
+    """Convert MetaMathQA format to our chat format."""
+    try:
+        prompt = inp['query']
+        response = inp['response']
+
+    except Exception as e:
+        raise UnableToProcessPromptResponseError(inp) from e
+    return {'prompt': prompt, 'response': response}
