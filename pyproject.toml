@@ -1,4 +1,3 @@
-
 # iSort
 [tool.isort]
 multi_line_output = 0
@@ -19,34 +18,33 @@ exclude = [
 # Ruff linter
 [tool.ruff.lint]
 select = [
-    "C4",
-    "LOG",
-    "PERF",
-    "PLE",
-    "COM812",
-    "D", # pydocstyle
-    "UP006"
+    "C4",   # flake8-comprehensions
+    "LOG",  # flake8-logging
+    "PERF", # perflint
+    "PLE",  # pylint errors
+    "COM812", # trailing comma
+    "D",    # pydocstyle
+    "UP006", # use tuple instead of parentheses
 ]
 extend-safe-fixes = [
     "UP006",
 ]
 extend-select = ["D404"] # pydocstyle
 ignore = [
-    "D100",
-    "D101",
-    "D102",
-    "D103",
-    "D104",
-    "D105",
-    "D107",
-    "D400",
-    "D401",
-    "D415",
+    "D100",  # Missing docstring in public module
+    "D101",  # Missing docstring in public class
+    "D102",  # Missing docstring in public method
+    "D103",  # Missing docstring in public function
+    "D104",  # Missing docstring in public package
+    "D105",  # Missing docstring in magic method
+    "D107",  # Missing docstring in __init__
+    "D400",  # First line should end with period
+    "D401",  # First line should be in imperative mood
+    "D415",  # First line should end with period, question mark, or exclamation point
 ]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
-
 
 # Coverage
 [tool.coverage.run]

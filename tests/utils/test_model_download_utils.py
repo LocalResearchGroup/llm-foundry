@@ -199,7 +199,7 @@ def test_download_from_http_fileserver(
     mock_makedirs: MagicMock,
     mock_get: MagicMock,
 ):
-    model_url = f'https://cache.com/models/model/'
+    model_url = 'https://cache.com/models/model/'
     save_dir = 'save_dir/'
 
     mock_open.return_value = MagicMock()

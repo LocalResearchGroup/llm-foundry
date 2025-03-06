@@ -21,7 +21,7 @@ try:
 except ImportError:
     raise RuntimeError(
         'This contrib module requires composer to be installed. ' +
-        'Please install it with command: \n pip install mosaicml'
+        'Please install it with command: \n pip install mosaicml',
     )
 
 sys_logger = getLogger(__name__)
@@ -29,7 +29,9 @@ sys_logger = getLogger(__name__)
 
 def _get_global_rank() -> int:
     """Return the global rank for distributed training.
-    If torch.distributed is not available or not initialized, returns 0."""
+
+    If torch.distributed is not available or not initialized, returns 0.
+    """
     if torch.distributed.is_available() and torch.distributed.is_initialized():
         return torch.distributed.get_rank()
     return 0
@@ -48,6 +50,9 @@ class AimLogger(LoggerDestination):
         entity (str, optional): For organizational purposes (not strictly used by Aim).
         project (str, optional): For organizational purposes (not strictly used by Aim).
         upload_on_close (bool): Whether to upload the Aim repo on trainer close.
+        tags (Sequence[str], optional): Tags to add to the Aim run.
+        hparams_to_tags (Dict[str, str], optional): Hyperparameters to add to the Aim run as tags. 
+            Use dot notation to specify nested hyperparameters. e.g. {'model.pretrained_model_name_or_path':'MN', 'global_train_batch_size':'GBS'}
     """
 
     def __init__(
@@ -62,23 +67,8 @@ class AimLogger(LoggerDestination):
         project: Optional[str] = None,
         upload_on_close: bool = True,
         tags: Optional[Sequence[str]] = None,
-        hparams_to_tags: Optional[Dict[str, str]] = (('model.pretrained_model_name_or_path', 'MN'), ('global_train_batch_size', 'GBS'), ('train_loader.dataset.local', 'DS')),
+        hparams_to_tags: Optional[dict[str, str]] = (('model.pretrained_model_name_or_path', 'MN'), ('global_train_batch_size', 'GBS'), ('train_loader.dataset.local', 'DS')),
     ):
-        """
-        Args:
-            repo (str, optional): Path or URI for Aim repo location.
-            experiment_name (str, optional): The Aim experiment name.
-            system_tracking_interval (int, optional): Controls how often system usage is logged.
-            log_system_params (bool): Whether to log system-level metrics (CPU usage, etc.).
-            capture_terminal_logs (bool, optional): Whether to capture stdout logs.
-            rank_zero_only (bool): Whether to log only on the global rank zero process.
-            entity (str, optional): For parity with WandB. Not strictly required by Aim.
-            project (str, optional): For parity with WandB. Not strictly required by Aim.
-            upload_on_close (bool): Whether to upload the Aim repo on trainer close.
-            tags (Sequence[str], optional): Tags to add to the Aim run.
-            hparams_to_tags (Dict[str, str], optional): Hyperparameters to add to the Aim run as tags. 
-                Use dot notation to specify nested hyperparameters. e.g. {'model.pretrained_model_name_or_path':'MN', 'global_train_batch_size':'GBS'}
-        """
         super().__init__()
         self.repo = repo
         self.experiment_name = experiment_name
@@ -272,7 +262,7 @@ class AimLogger(LoggerDestination):
         # Typically you'd store as just a dictionary, or in custom namespace:
         self._run.track(table_data, name=name, step=step, context={'type': 'table'})
 
-    def log_metrics(self, metrics: Dict[str, Any], step: Optional[int] = None) -> None:
+    def log_metrics(self, metrics: dict[str, Any], step: Optional[int] = None) -> None:
         """Log metrics to Aim."""
         if not self._enabled or not self._run:
             return
@@ -305,7 +295,7 @@ class AimLogger(LoggerDestination):
                     value,
                     name=name,
                     step=step,
-                    context={"type": "array"}
+                    context={"type": "array"},
                 )
                 
         except Exception as e:
@@ -316,7 +306,7 @@ class AimLogger(LoggerDestination):
         images: Union[np.ndarray, torch.Tensor, Sequence[Union[np.ndarray, torch.Tensor]]],
         name: str = 'Images',
         step: Optional[int] = None,
-        **kwargs
+        **kwargs,
     ):
         """Log images, optionally with segmentation masks, to Aim.
 
@@ -329,7 +319,7 @@ class AimLogger(LoggerDestination):
         context = {
             "type": "image",
             "format": "CHW" if not kwargs.get('channels_last', False) else "HWC",
-            **kwargs
+            **kwargs,
         }
         
         # Convert to sequence if single image
@@ -342,7 +332,7 @@ class AimLogger(LoggerDestination):
                 img_data,
                 name=f"{name}/{idx}" if len(images) > 1 else name,
                 step=step,
-                context=context
+                context=context,
             )
 
     ### THIS DOES NOT WORK CURRENTLY - AIM DOESN'T NATIVELY SUPPORT ARTIFACT STORAGE SO IT REQUIRES A CUSTOM APPROACH ###
@@ -385,7 +375,7 @@ class AimLogger(LoggerDestination):
     ):
         """Download a file from an artifact store. Aim does not natively support this, so NotImplementedError."""
         raise NotImplementedError(
-            "Aim does not provide a built-in artifact download mechanism. Provide a custom approach if needed."
+            "Aim does not provide a built-in artifact download mechanism. Provide a custom approach if needed.",
         )
 
     def close(self, state: Optional[State] = None, logger: Optional[Logger] = None) -> None:
