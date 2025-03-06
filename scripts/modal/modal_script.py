@@ -205,8 +205,7 @@ def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-1
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
               concurrency_limit=1)
 def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
-    """Convert a model checkpoint to a HuggingFace format.
-    """
+    """Convert a model checkpoint to a HuggingFace format."""
     import subprocess, os
     from pathlib import Path
 
