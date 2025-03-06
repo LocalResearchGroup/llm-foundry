@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from composer.loggers import (
+    FileLogger,
     InMemoryLogger,
     MLFlowLogger,
     MosaicMLLogger,
@@ -23,3 +24,4 @@ loggers.register(
 loggers.register('mlflow', func=MLFlowLogger)
 loggers.register('mosaicml', func=MosaicMLLogger)
 loggers.register('aim', func=AimLogger)
+loggers.register('file_logger', func=FileLogger)

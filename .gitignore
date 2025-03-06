@@ -160,3 +160,6 @@ notebooks/
 **/mlruns/*
 **/tokenizer-save-dir-*/**
 **/.downloaded_finetuning/
+
+# artifacts from evaluation
+scripts/evaluation_results/
