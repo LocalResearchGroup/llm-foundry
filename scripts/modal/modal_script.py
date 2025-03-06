@@ -35,7 +35,7 @@ def get_stats():
     import_check = subprocess.run(
         [PYTHON_PATH, "-c", "import flash_attn; print(flash_attn.__version__)"],
         capture_output=True,
-        text=True
+        text=True,
     )
     print(f"Flash Attention version: {import_check.stdout}")
 
@@ -70,7 +70,7 @@ def convert_c4_small_dataset():
         "--splits", "train_small", "val_small",
         "--concat_tokens", "2048",
         "--tokenizer", "HuggingFaceTB/SmolLM2-135M",
-        "--eos_text", "<|endoftext|>"
+        "--eos_text", "<|endoftext|>",
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -138,7 +138,7 @@ def train_model(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m
         f"save_interval={SAVE_INTERVAL}",
         f"device_eval_batch_size={BATCH_SIZE}",  # Added batch size settings # 20 for h100 4 for l4
         f"device_train_microbatch_size={BATCH_SIZE}",
-        f"global_train_batch_size={BATCH_SIZE}"
+        f"global_train_batch_size={BATCH_SIZE}",
     ]
     result = subprocess.run(train_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -170,7 +170,7 @@ def run_aim_server(run_folder: str):
     process = subprocess.Popen(
         ["aim", "up", "--host", "0.0.0.0", "--port", "43800"],
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
+        stderr=subprocess.PIPE,
     )
     os.chdir(pwd)
     return process
@@ -205,9 +205,7 @@ def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-1
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
               concurrency_limit=1)
 def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
-    """
-    Convert a model checkpoint to a HuggingFace format.
-    """
+    """Convert a model checkpoint to a HuggingFace format."""
     import subprocess, os
     from pathlib import Path
 
@@ -225,7 +223,7 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
         PYTHON_PATH, "inference/convert_composer_to_hf.py",
         "--composer_path", composer_checkpoint_path,
         "--hf_output_path", hf_output_path,
-        "--output_precision", "bf16"
+        "--output_precision", "bf16",
     ]
     if upload_to_hf: convert_cmd.extend(["--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"])
 
@@ -276,7 +274,7 @@ def evaluate_model(checkpoint_path: str):
         "eval/yamls/hf_eval.yaml",
         "icl_tasks=eval/yamls/copa.yaml",
         f"variables.model_name_or_path={model_path}",
-        f"results_path={save_path}"  # Add results_path parameter
+        f"results_path={save_path}",  # Add results_path parameter
     ]
     result = subprocess.run(eval_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -302,7 +300,7 @@ def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
     if prompts is None:
         prompts = [
             "The answer to life, the universe, and happiness is",
-            "Here's a quick recipe for baking chocolate chip cookies: Start by"
+            "Here's a quick recipe for baking chocolate chip cookies: Start by",
         ]
     elif isinstance(prompts, str):
         prompts = [prompts]
@@ -314,7 +312,7 @@ def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
         "--name_or_path", model_path,
         "--max_new_tokens", "256",
         "--prompts",
-        *prompts
+        *prompts,
     ]
     result = subprocess.run(generate_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -327,9 +325,7 @@ def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
               concurrency_limit=1)
 def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: str = "model", private: bool = True):
-    """
-    Upload model checkpoint to HuggingFace Hub.
-    """
+    """Upload model checkpoint to HuggingFace Hub."""
     from huggingface_hub import HfApi
     from pathlib import Path
 
