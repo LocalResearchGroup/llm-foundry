@@ -1,14 +1,16 @@
 from datasets import load_dataset, load_from_disk, DatasetDict
-from huggingface_hub import HfApi  #, login
+from huggingface_hub import HfApi, login
 
-# login()
-hf_dataset = "tyoc213/test2"
+hf_dataset = "LocalResearchGroup/finemath-4plus"
+print(f"Enter you credentials to upload dataset {hf_dataset}")
+login()
 
+
+print(f"Downloading finemath-4plus")
 dataset = load_dataset(
         path="HuggingFaceTB/finemath",
         name="finemath-4plus",
         split="train",
-        # streaming=True,
     )
 
 # Split with a fixed seed
@@ -20,6 +22,7 @@ combined = DatasetDict({
 })
 
 # push full dataset as is
+print(f"Uploading finemath-4plus full train/val")
 combined.push_to_hub(
     hf_dataset,
     config_name="full",
@@ -28,16 +31,21 @@ combined.push_to_hub(
 
 # save to parquet locally
 for split, dataset in combined.items():
-    dataset.to_parquet(f"dataset-{split}.parquet")
+    filename = f"dataset-{split}.parquet"
+    if not Path().exists(filename).exists():
+        print(f"Saving dataset-{split}.parquet")
+        dataset.to_parquet(filename)
+    else:
+        print(f"dataset-{split}.parquet exist. Skipping...")
 
 # load from local
 data_files = {
     "train": "dataset-train.parquet",
     "valid": "dataset-valid.parquet"
 }
+
+print("Loading parquet training/val")
 raw_datasets = load_dataset("parquet", data_dir=".", data_files=data_files)
-
-
 
 def create_size_ablation(dataset, total_rows):
     """Create a subset with a given percentage of the original data"""
@@ -47,11 +55,11 @@ def create_size_ablation(dataset, total_rows):
         "valid": dataset["valid"].shuffle(42).select(range(total_rows - train_size)),
     }
 
-
 a = [1_000_000, 100_000, 10_000, 1000]
 l = ["1M", "100k", "10k", "1k"]
 
 for amount, label in zip(a, l):
+    print(f"Creating ablation {label} train/val")
     ds =create_size_ablation(raw_datasets, amount)
 
     dsdict = DatasetDict({
@@ -59,6 +67,7 @@ for amount, label in zip(a, l):
         "valid": ds["valid"],
     })
 
+    print(f"Uploading ablation {label} train/val")
     dsdict.push_to_hub(
         hf_dataset,
         config_name=label,
