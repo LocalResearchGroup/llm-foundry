@@ -1,5 +1,6 @@
 from datasets import load_dataset, load_from_disk, DatasetDict
 from huggingface_hub import HfApi, login
+from pathlib import Path
 
 hf_dataset = "LocalResearchGroup/finemath-4plus"
 print(f"Enter you credentials to upload dataset {hf_dataset}")
@@ -32,7 +33,7 @@ combined.push_to_hub(
 # save to parquet locally
 for split, dataset in combined.items():
     filename = f"dataset-{split}.parquet"
-    if not Path().exists(filename).exists():
+    if not Path(filename).exists():
         print(f"Saving dataset-{split}.parquet")
         dataset.to_parquet(filename)
     else:
