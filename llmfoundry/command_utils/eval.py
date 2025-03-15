@@ -238,8 +238,7 @@ def allow_toplevel_keys(cfg: dict[str, Any]) -> dict[str, Any]:
     return cfg
 
 def tensor_safe_save(df: pd.DataFrame, path: str, save_format: str = 'csv'):
-    """
-    Safely save DataFrame containing tensor values to CSV or JSON.
+    """Safely save DataFrame containing tensor values to CSV or JSON.
     
     Args:
         df: DataFrame to save
@@ -253,7 +252,7 @@ def tensor_safe_save(df: pd.DataFrame, path: str, save_format: str = 'csv'):
     for column in save_df.columns:
         if save_df[column].dtype == 'object':
             save_df[column] = save_df[column].apply(
-                lambda x: float(x) if hasattr(x, 'item') else x
+                lambda x: float(x) if hasattr(x, 'item') else x,
             )
     
     try:
