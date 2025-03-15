@@ -32,7 +32,7 @@ def generate_exclusive_test_params(param_names: list[str]):
         pytest.param: Each with one parameter set to True, indicating the specific case being tested.
     """
     for _, name in enumerate(param_names):
-        params = {param_name: False for param_name in param_names}
+        params = dict.fromkeys(param_names, False)
         params[name] = True
         param_values = list(params.values())
         param_id = f'{name}=True'
