@@ -160,6 +160,9 @@ c4constants.splits['val_xxsmall'] = DataSplitConstants(
 
 CONSTS = {'allenai/c4': c4constants, 'the_pile': pileconstants}
 
+def add_dataset_config(name, splits):
+    global CONSTS
+    CONSTS[name] = splits
 
 def build_hf_dataset(
     dataset_name: str,
