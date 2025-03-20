@@ -16,14 +16,16 @@ from composer.utils import (
     parse_uri,
     safe_torch_load,
 )
-from transformers import PretrainedConfig, PreTrainedTokenizerBase
+from transformers import PretrainedConfig, PreTrainedTokenizerBase, AutoModelForCausalLM
 
 from llmfoundry import MPTConfig, MPTForCausalLM
 from llmfoundry.utils import get_hf_tokenizer_from_composer_state_dict
 from llmfoundry.utils.checkpoint_conversion_helpers import load_tokenizer
 from llmfoundry.utils.huggingface_hub_utils import \
     edit_files_for_hf_compatibility
+from hf_generate import str2bool
 
+from peft import get_peft_model, LoraConfig
 
 def write_huggingface_pretrained_from_composer_checkpoint(
     checkpoint_path: Union[Path, str],
@@ -31,6 +33,7 @@ def write_huggingface_pretrained_from_composer_checkpoint(
     trust_remote_code: bool,
     output_precision: str = 'fp32',
     local_checkpoint_save_location: Optional[Union[Path, str]] = None,
+    peft_model: bool = False,
 ) -> tuple[PretrainedConfig, Optional[PreTrainedTokenizerBase]]:
     """Convert a Composer checkpoint to a pretrained HF checkpoint folder.
 
@@ -74,6 +77,7 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         local_checkpoint_save_location (Optional[Union[Path, str]], optional): If specified, where to save the checkpoint file to locally.
                                                                                 If the input ``checkpoint_path`` is already a local path, this will be a symlink.
                                                                                 Defaults to None, which will use a temporary file.
+        peft_model (bool, optional): True if the model being converted is a peft finetuned model. Defaults to False.
     """
     dtype = {
         'fp32': torch.float32,
@@ -131,6 +135,7 @@ def write_huggingface_pretrained_from_composer_checkpoint(
     print('#' * 30)
     print('Saving HF Model Weights...')
     weights_state_dict = composer_state_dict
+    
     if 'state' in weights_state_dict:
         weights_state_dict = weights_state_dict['state']['model']
     torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(  # pyright: ignore
@@ -143,8 +148,28 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         if isinstance(v, torch.Tensor):
             weights_state_dict[k] = v.to(dtype=dtype)
 
-    # Save weights
-    torch.save(weights_state_dict, Path(output_path) / 'pytorch_model.bin')
+    # Handle the case if the model is a peft finetuned model, in this case, just save the adapters
+    if peft_model:
+        print("THIS IS THE PEFT CASE")
+        
+        # THESE VALUES ARE HARDCODED FOR NOW
+        lora_config = LoraConfig(
+            r=256,   
+            lora_alpha=512,
+            target_modules=["q_proj", "v_proj"],
+            lora_dropout=0.05,
+            task_type="CAUSAL_LM",
+            peft_type="LORA"
+        )
+        
+        base_model = AutoModelForCausalLM.from_config(hf_config)
+        peft_model = get_peft_model(base_model, lora_config)
+        peft_model.load_state_dict(weights_state_dict, strict=False)
+    
+        peft_model.save_pretrained(Path(output_path) / "adapters")
+    else:
+        # Save weights
+        torch.save(weights_state_dict, Path(output_path) / 'pytorch_model.bin')
 
     print('#' * 30)
     print(f'HF checkpoint folder successfully created at {output_path}.')
@@ -179,6 +204,12 @@ def parse_args() -> Namespace:
         help='Whether or not to use code outside of transformers module.',
     )
 
+    parser.add_argument(
+        "--peft_model",
+        type=str2bool, 
+        default=False, 
+        help="True if the model being converted is a peft finetuned model"
+    )
     return parser.parse_args()
 
 
@@ -195,6 +226,7 @@ def _convert_composer_to_hf(args: Namespace) -> None:
         trust_remote_code=args.trust_remote_code,
         output_precision=args.output_precision,
         local_checkpoint_save_location=args.local_checkpoint_save_location,
+        peft_model=args.peft_model,
     )
 
     dtype = {
