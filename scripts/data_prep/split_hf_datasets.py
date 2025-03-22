@@ -87,13 +87,105 @@ def pull_n_push(
 def filter_tulu(dataset):
     print(f"Original dataset rows {len(dataset)}")
     dataset = dataset.filter(lambda r: r["source"] is not None and "aya" not in r["source"])
+    print("tulu", dataset.features)
+    # dataset = dataset.rename_column("messages", "text")
+    dataset = dataset.flatten()
+    print("new tulu features: ", dataset.features)
     print(f"         current rows {len(dataset)}")
     return dataset
 
+def process_numina(dataset):
+    print("numina", dataset.features)
+    # dataset = dataset.rename_column("messages", "text")
+    dataset = dataset.flatten()
+    print("new numina features", dataset.features)
+    return dataset
+
+def upload_token_folder(local_path, target_repo):
+    api = HfApi()
+    p = Path(".")
+    print(f"uploading to finemath-1k tokens {p.absolute()}")
+    print(f"                                {str(p/'finemath-k1')}")
+    api.upload_folder(
+        folder_path=local_path,
+        repo_id=target_repo,
+        repo_type="dataset",
+        # path_in_repo="",
+        # commit_message="",
+    )
+
+    print("endo!!!")
+
+def create_upload():
+    ######################################################
+    # import configurations to tokenize new dataset splits
+    import tokenize_split
+    from llmfoundry.command_utils import convert_dataset_hf_from_args, DatasetConstants, DataSplitConstants, add_dataset_config, CONSTS
+
+    configs = [
+        {
+            "target": "tyoc213/split-tulu-3-sft-olmo-2-mixture",
+            "ablations": ["full", "100k", "10k", "1k"],
+        },
+        # {
+        #     "target": "tyoc213/split-NuminaMath-CoT",
+        #     "ablations": ["full", "100k", "10k", "1k"],
+        # },
+        # {
+        #     "target": "tyoc213/split-finemath",
+        #     "ablations": ["full", "1M", "100k", "10k", "1k"],
+        # },
+    ]
+
+    for c in configs:
+        folder = c["target"].split("/")[1]
+        for ablation in c["ablations"]:
+            args = Namespace(
+                dataset=c["target"],
+                data_subset=ablation,
+                splits=['train', 'test'],
+                out_root=f'tokenized-{folder}-{ablation}',
+                compression="zstd",
+                concat_tokens=None,
+                tokenizer='HuggingFaceTB/SmolLM2-135M',
+                tokenizer_kwargs=None,
+                bos_text=None,
+                eos_text='<|endoftext|>',
+                no_wrap=False,
+                num_workers=None
+            )
+            print(f"        {args=}")
+            convert_dataset_hf_from_args(
+                dataset=args.dataset,
+                data_subset=args.data_subset,
+                splits=args.splits,
+                out_root=args.out_root,
+                compression=args.compression,
+                concat_tokens=args.concat_tokens,
+                tokenizer=args.tokenizer,
+                tokenizer_kwargs=args.tokenizer_kwargs,
+                bos_text=args.bos_text,
+                eos_text=args.eos_text,
+                no_wrap=args.no_wrap,
+                num_workers=args.num_workers,
+            )
+
+    print("\n          ----------------------------\n"*7)
+    for c in configs:
+        for ablation in c["ablations"]:
+            local_path = Path(".") / f"{c['target']}" / f"{ablation}"
+            target_repo = c["target"]
+            print("local", local_path, "target_repo", target_repo)
+            # upload_token_folder(local_path, target_repo)
+    # upload all tokenized folders to corresponding repo/folder
 if __name__ == "__main__":
     if not os.environ.get("HUGGING_FACE_HUB_TOKEN"):
         print("No Hugging Face token found. Please login.")
         login()
-    pull_n_push("LocalResearchGroup/split-finemath", "HuggingFaceTB/finemath", "finemath-4plus")
-    pull_n_push("LocalResearchGroup/split-tulu-3-sft-olmo-2-mixture", "allenai/tulu-3-sft-olmo-2-mixture", after_pull=filter_tulu, ablations=("full", "100k", "10k", "1k"))
-    pull_n_push("LocalResearchGroup/split-NuminaMath-CoT", "AI-MO/NuminaMath-CoT", ablations=("full", "100k", "10k", "1k"))
+    REMOTE_REPO = "LocalResearchGroup"
+    pull_n_push(f"{REMOTE_REPO}/split-tulu-3-sft-olmo-2-mixture", "allenai/tulu-3-sft-olmo-2-mixture", after_pull=filter_tulu, ablations=("full", "100k", "10k", "1k"))
+    pull_n_push(f"{REMOTE_REPO}/split-NuminaMath-CoT", "AI-MO/NuminaMath-CoT", after_pull=process_numina, ablations=("full", "100k", "10k", "1k"))
+    pull_n_push(f"{REMOTE_REPO}/split-finemath", "HuggingFaceTB/finemath", "finemath-4plus", ablations=("100k", "10k", "1k"))
+
+    if False:
+        create_upload()
