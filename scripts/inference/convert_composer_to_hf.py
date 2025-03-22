@@ -169,10 +169,11 @@ def write_huggingface_pretrained_from_composer_checkpoint(
             target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
             lora_dropout=0.05,
             task_type="CAUSAL_LM",
-            peft_type="LORA"
+            peft_type="LORA",
         )
         
-        base_model = AutoModelForCausalLM.from_config(hf_config)
+        #base_model = AutoModelForCausalLM.from_config(hf_config)
+        base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M")
         peft_model = get_peft_model(base_model, lora_config)
         peft_model.load_state_dict(weights_state_dict, strict=False)
     
