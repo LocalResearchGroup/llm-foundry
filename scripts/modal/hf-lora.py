@@ -18,7 +18,11 @@ def _train():
     from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, Trainer
     from peft import LoraConfig, get_peft_model
     from datasets import load_dataset
+    from composer.utils.reproducibility import seed_all
 
+    seed=17
+    seed_all(seed)
+  
     wandb.login()
 
     model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M")
@@ -120,6 +124,7 @@ def _train():
         learning_rate=1e-4,
         report_to="wandb",   
         logging_steps=1, 
+        seed=seed
     )
 
     trainer = Trainer(
