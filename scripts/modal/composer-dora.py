@@ -27,6 +27,9 @@ def _train():
     from peft.tuners.lora.layer import Linear
     from peft.utils.integrations import dequantize_module_weight
     from composer_aim_logger import AimLogger
+    from composer.utils.reproducibility import seed_all
+
+    seed_all(17)
 
     model_nm = "HuggingFaceTB/SmolLM2-135M"
 
@@ -183,7 +186,8 @@ def _train():
         precision="amp_bf16",
         loggers=[aim_logger],
         save_folder="/model-checkpoints/smollm2-135m_dora_composer-20250305-160000/native_checkpoints",
-        save_filename="ep0-ba5000-rank0.pt"
+        save_filename="ep0-ba5000-rank0.pt",
+        seed=17
     )
     
     print("Starting DoRA training with HuggingFace dataset...")
