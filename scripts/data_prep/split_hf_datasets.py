@@ -6,7 +6,7 @@ from pathlib import Path
 import os
 
 def save_to_parquet(combined: DatasetDict, out_ds_path: Path):
-    data_files = dict()
+    data_files = {}
     for split, dataset in combined.items():
         filename = out_ds_path /f"{split}.parquet"
         data_files[split] = filename
@@ -41,7 +41,7 @@ def push_ablations(raw_datasets, ablations, hf_repo, config_name, private, shard
             {
                 "train": ds["train"],
                 "test": ds["test"],
-            }
+            },
         )
     
         print(f"Uploading ablation {label} train/val")
@@ -89,7 +89,7 @@ def filter_tulu(dataset):
     dataset = dataset.filter(lambda r: r["source"] is not None and "aya" not in r["source"])
     print("tulu", dataset.features)
     # dataset = dataset.rename_column("messages", "text")
-    dataset = dataset.flatten()
+    # dataset = dataset.flatten()
     print("new tulu features: ", dataset.features)
     print(f"         current rows {len(dataset)}")
     return dataset
@@ -97,15 +97,14 @@ def filter_tulu(dataset):
 def process_numina(dataset):
     print("numina", dataset.features)
     # dataset = dataset.rename_column("messages", "text")
-    dataset = dataset.flatten()
+    # dataset = dataset.flatten()
     print("new numina features", dataset.features)
     return dataset
 
 def upload_token_folder(local_path, target_repo):
+    # WIP: remove constants
     api = HfApi()
     p = Path(".")
-    print(f"uploading to finemath-1k tokens {p.absolute()}")
-    print(f"                                {str(p/'finemath-k1')}")
     api.upload_folder(
         folder_path=local_path,
         repo_id=target_repo,
@@ -114,10 +113,8 @@ def upload_token_folder(local_path, target_repo):
         # commit_message="",
     )
 
-    print("endo!!!")
 
 def create_upload():
-    ######################################################
     # import configurations to tokenize new dataset splits
     import tokenize_split
     from llmfoundry.command_utils import convert_dataset_hf_from_args, DatasetConstants, DataSplitConstants, add_dataset_config, CONSTS
@@ -152,9 +149,9 @@ def create_upload():
                 bos_text=None,
                 eos_text='<|endoftext|>',
                 no_wrap=False,
-                num_workers=None
+                num_workers=None,
             )
-            print(f"        {args=}")
+
             convert_dataset_hf_from_args(
                 dataset=args.dataset,
                 data_subset=args.data_subset,
@@ -170,14 +167,12 @@ def create_upload():
                 num_workers=args.num_workers,
             )
 
-    print("\n          ----------------------------\n"*7)
+    # upload all tokenized folders to corresponding repo/folder
     for c in configs:
         for ablation in c["ablations"]:
             local_path = Path(".") / f"{c['target']}" / f"{ablation}"
             target_repo = c["target"]
-            print("local", local_path, "target_repo", target_repo)
             # upload_token_folder(local_path, target_repo)
-    # upload all tokenized folders to corresponding repo/folder
 if __name__ == "__main__":
     if not os.environ.get("HUGGING_FACE_HUB_TOKEN"):
         print("No Hugging Face token found. Please login.")

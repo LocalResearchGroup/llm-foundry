@@ -1,5 +1,5 @@
 from llmfoundry.data.finetuning.tasks import (
-    DatasetConstructor
+    DatasetConstructor,
 )
 
 dataset_constructor = DatasetConstructor()
