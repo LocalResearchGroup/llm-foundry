@@ -153,10 +153,20 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         print("THIS IS THE PEFT CASE")
         
         # THESE VALUES ARE HARDCODED FOR NOW
+        # lora_config = LoraConfig(
+        #     r=256,   
+        #     lora_alpha=512,
+        #     target_modules=["q_proj", "v_proj"],
+        #     lora_dropout=0.05,
+        #     task_type="CAUSAL_LM",
+        #     peft_type="LORA"
+        # )
+
+        # for model_path = smollm2-135m_lora-20250305_114026
         lora_config = LoraConfig(
-            r=256,   
-            lora_alpha=512,
-            target_modules=["q_proj", "v_proj"],
+            r=64,
+            lora_alpha=128,
+            target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
             lora_dropout=0.05,
             task_type="CAUSAL_LM",
             peft_type="LORA"
