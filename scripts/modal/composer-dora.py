@@ -29,7 +29,8 @@ def _train():
     from composer_aim_logger import AimLogger
     from composer.utils.reproducibility import seed_all
 
-    seed_all(17)
+    seed=17
+    seed_all(seed)
 
     model_nm = "HuggingFaceTB/SmolLM2-135M"
 
@@ -187,7 +188,7 @@ def _train():
         loggers=[aim_logger],
         save_folder="/model-checkpoints/smollm2-135m_dora_composer-20250305-160000/native_checkpoints",
         save_filename="ep0-ba5000-rank0.pt",
-        seed=17
+        seed=seed
     )
     
     print("Starting DoRA training with HuggingFace dataset...")
