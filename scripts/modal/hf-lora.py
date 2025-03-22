@@ -141,7 +141,7 @@ def _train():
     
     trainer.train()
     wandb.finish()
-    model.push_to_hub("LocalResearchGroup/HF-Trainer-smollm2-135m-LoRA-5000ba")
+    #model.push_to_hub("LocalResearchGroup/HF-Trainer-smollm2-135m-LoRA-5000ba")
 
 @app.local_entrypoint()
 def main():
