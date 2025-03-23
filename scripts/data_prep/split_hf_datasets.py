@@ -86,18 +86,19 @@ def pull_n_push(
 
 def filter_tulu(dataset):
     print(f"Original dataset rows {len(dataset)}")
-    dataset = dataset.filter(lambda r: r["source"] is not None and "aya" not in r["source"])
+    # filter out messages of lenght = 2 user+assistant
+    # FIXME: extra checks finding [None] * 512 batch?
+    dataset = dataset.filter(lambda r: r["source"] is not None and "aya" not in r["source"] and len(r["messages"]) == 2 and r["messages"] is not None and r["messages"][0] is not None and r["messages"][1] is not None)
     print("tulu", dataset.features)
-    # dataset = dataset.rename_column("messages", "text")
-    # dataset = dataset.flatten()
+    dataset = dataset.remove_columns(["source", "dataset"])
     print("new tulu features: ", dataset.features)
     print(f"         current rows {len(dataset)}")
     return dataset
 
 def process_numina(dataset):
     print("numina", dataset.features)
-    # dataset = dataset.rename_column("messages", "text")
-    # dataset = dataset.flatten()
+    # remove column that on batch of 512 only has 2 rows which breaks pytorch collate!
+    dataset = dataset.remove_columns("messages")
     print("new numina features", dataset.features)
     return dataset
 
@@ -124,10 +125,10 @@ def create_upload():
             "target": "tyoc213/split-tulu-3-sft-olmo-2-mixture",
             "ablations": ["full", "100k", "10k", "1k"],
         },
-        # {
-        #     "target": "tyoc213/split-NuminaMath-CoT",
-        #     "ablations": ["full", "100k", "10k", "1k"],
-        # },
+        {
+            "target": "tyoc213/split-NuminaMath-CoT",
+            "ablations": ["full", "100k", "10k", "1k"],
+        },
         # {
         #     "target": "tyoc213/split-finemath",
         #     "ablations": ["full", "1M", "100k", "10k", "1k"],
