@@ -173,6 +173,26 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         )
 
         # added for debugging
+        def are_rope_embeddings_equal(embedding1, embedding2):
+            # Check configuration parameters
+            if embedding1.rope_type != embedding2.rope_type:
+                return False
+        
+            # Compare max sequence length settings
+            if (embedding1.max_seq_len_cached != embedding2.max_seq_len_cached or
+                embedding1.original_max_seq_len != embedding2.original_max_seq_len):
+                return False
+        
+            # Compare buffers (most important part)
+            if not torch.allclose(embedding1.inv_freq, embedding2.inv_freq):
+                return False
+        
+            # Compare scaling factors
+            if embedding1.attention_scaling != embedding2.attention_scaling:
+                return False
+        
+            return True
+            
         def compare_base_models(base_model1, base_model2):
             layer_names = {
                 "self_attn": ["q_proj", "k_proj", "v_proj", "o_proj"],
