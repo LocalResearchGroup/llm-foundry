@@ -173,7 +173,8 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         )
         
         #base_model = AutoModelForCausalLM.from_config(hf_config)
-        base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M")
+        #base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M")
+        base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M", torch_dtype=torch.bfloat16)
         peft_model = get_peft_model(base_model, lora_config)
         peft_model.load_state_dict(weights_state_dict, strict=False)
     
