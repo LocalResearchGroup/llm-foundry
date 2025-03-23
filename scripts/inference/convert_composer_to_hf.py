@@ -171,10 +171,68 @@ def write_huggingface_pretrained_from_composer_checkpoint(
             task_type="CAUSAL_LM",
             peft_type="LORA",
         )
+
+        # added for debugging
+        def compare_base_models(base_model1, base_model2):
+            flag = True
+            diffs = []
         
-        #base_model = AutoModelForCausalLM.from_config(hf_config)
+            # embed tokens
+            if not torch.allclose(base_model1.model.embed_tokens.weight, base_model2.model.embed_tokens.weight): 
+                flag = False
+                diffs.append(("embed_tokens"))
+        
+            # Compare LlamaDecoderLayer
+            for layer_idx in range(30):
+                for module in layer_names.keys():
+                    module1 = getattr(base_model1.model.layers[layer_idx], module)
+                    module2 = getattr(base_model2.model.layers[layer_idx], module)
+                    for layer_name in layer_names[module]:
+                        layer1 = getattr(module1, layer_name)
+                        layer2 = getattr(module2, layer_name)
+        
+                        if not torch.allclose(layer1.weight, layer2.weight):
+                            flag = False
+                            diffs.append((layer_idx, module, layer_name))
+                
+                # Compare layernorms
+                if not torch.allclose(
+                    base_model1.model.layers[layer_idx].input_layernorm.weight,
+                    base_model2.model.layers[layer_idx].input_layernorm.weight): 
+                    flag = False
+                    diffs.append((layer_idx, "input_layer_norm"))
+        
+                if not torch.allclose(
+                    base_model1.model.layers[layer_idx].post_attention_layernorm.weight,
+                    base_model2.model.layers[layer_idx].post_attention_layernorm.weight): 
+                    flag = False 
+                    diffs.append((layer_idx, "post_attention_layernorm"))
+        
+            # Compare final norm
+            if not torch.allclose(base_model1.model.norm.weight, base_model2.model.norm.weight): 
+                flag = False
+                diffs.append(("norm"))
+        
+            # Compare Rotary Embeddings
+            if not are_rope_embeddings_equal(base_model1.model.rotary_emb, base_model2.model.rotary_emb): 
+                flag = False
+                diffs.append(("rotary_emb"))
+        
+            # Compare final head
+            if not torch.allclose(base_model1.lm_head.weight, base_model2.lm_head.weight): 
+                flag = False
+                diffs.append(("lm_head"))
+            
+            return flag, diffs
+
+        base_model_cfg = AutoModelForCausalLM.from_config(hf_config)
         #base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M")
         base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M", torch_dtype=torch.bfloat16)
+        flag, diffs = compare_base_models(base_model, base_model_cfg)
+
+        print(f"Flag: {flag}")
+        print(f"len(diffs): {len(diffs)}")
+        
         peft_model = get_peft_model(base_model, lora_config)
         peft_model.load_state_dict(weights_state_dict, strict=False)
     
