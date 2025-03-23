@@ -174,6 +174,10 @@ def write_huggingface_pretrained_from_composer_checkpoint(
 
         # added for debugging
         def compare_base_models(base_model1, base_model2):
+            layer_names = {
+                "self_attn": ["q_proj", "k_proj", "v_proj", "o_proj"],
+                "mlp": ["gate_proj", "up_proj", "down_proj"]
+            }
             flag = True
             diffs = []
         
