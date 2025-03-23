@@ -225,8 +225,9 @@ def write_huggingface_pretrained_from_composer_checkpoint(
             
             return flag, diffs
 
-        base_model_cfg = AutoModelForCausalLM.from_config(hf_config)
+        #base_model = AutoModelForCausalLM.from_config(hf_config)
         #base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M")
+        base_model_cfg = AutoModelForCausalLM.from_config(hf_config).to(torch.bfloat16)
         base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M", torch_dtype=torch.bfloat16)
         flag, diffs = compare_base_models(base_model, base_model_cfg)
 
