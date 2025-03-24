@@ -26,6 +26,7 @@ from llmfoundry.utils.huggingface_hub_utils import \
 from hf_generate import str2bool
 
 from peft import get_peft_model, LoraConfig
+from huggingface_hub import hf_hub_download
 
 def write_huggingface_pretrained_from_composer_checkpoint(
     checkpoint_path: Union[Path, str],
@@ -171,6 +172,21 @@ def write_huggingface_pretrained_from_composer_checkpoint(
             task_type="CAUSAL_LM",
             peft_type="LORA",
         )
+
+        # added for debugging
+        checkpoint_path = hf_hub_download(
+            repo_id="LocalResearchGroup/smollm2-135m_lora-20250305_114026",
+            filename="native_checkpoints/ep0-ba5000-rank0.pt"
+        )
+
+        checkpoint = torch.load(checkpoint_path, weights_only=False)
+
+        # compare checkpoint weights with `weights_state_dict`
+        for key in weights_state_dict.keys():
+            w1 = weights_state_dict[key].to(torch.bfloat16).to("cuda")
+            key = 'model.' + key
+            w2 = checkpoint['state']['model'][key].to(torch.bfloat16).to("cuda")
+            if not torch.allclose(w1, w2): print(key)
 
         # added for debugging
         def are_rope_embeddings_equal(embedding1, embedding2):
