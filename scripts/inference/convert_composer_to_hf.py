@@ -355,42 +355,42 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         print(f"Compare base_model2 and base_model_cfg2, len(diffs): {len(diffs)}")
 
         # create a PeftModel for each combination of checkpoint/weights_state_dict and base_model/base_model_cfg
-        peft_model1 = get_peft_model(base_model1, lora_config)
-        peft_model1.load_state_dict(weights_state_dict, strict=False)
+        peft_wsd_fpt = get_peft_model(base_model1, lora_config)
+        peft_wsd_fpt.load_state_dict(weights_state_dict, strict=False)
 
-        peft_model2 = get_peft_model(base_model2, lora_config)
+        peft_ckpt_fpt = get_peft_model(base_model2, lora_config)
         if "state" in checkpoint:
             state_dict = checkpoint["state"]["model"]
             # Remove 'model.' prefix if present
             state_dict = {k.removeprefix('model.'): v for k, v in state_dict.items()}
             # Load the weights into the model
-            peft_model2.load_state_dict(state_dict, strict=False)
+            peft_ckpt_fpt.load_state_dict(state_dict, strict=False)
             
-        peft_model3 = get_peft_model(base_model_cfg1, lora_config)
-        peft_model3.load_state_dict(weights_state_dict, strict=False)
+        peft_wsd_cfg = get_peft_model(base_model_cfg1, lora_config)
+        peft_wsd_cfg.load_state_dict(weights_state_dict, strict=False)
 
-        peft_model4 = get_peft_model(base_model_cfg2, lora_config)
+        peft_ckpt_cfg = get_peft_model(base_model_cfg2, lora_config)
         if "state" in checkpoint:
             state_dict = checkpoint["state"]["model"]
             # Remove 'model.' prefix if present
             state_dict = {k.removeprefix('model.'): v for k, v in state_dict.items()}
             # Load the weights into the model
-            peft_model4.load_state_dict(state_dict, strict=False)
+            peft_ckpt_cfg.load_state_dict(state_dict, strict=False)
 
         
-        flag, diffs = compare_adapters(peft_model1, peft_model2)
-        print(f"peft_model1 & peft_model2, len(diffs): {len(diffs)}")
+        flag, diffs = compare_adapters(peft_wsd_fpt, peft_ckpt_fpt)
+        print(f"peft_wsd_fpt & peft_ckpt_fpt, len(diffs): {len(diffs)}")
 
-        flag, diffs = compare_adapters(peft_model3, peft_model4)
-        print(f"peft_model3 & peft_model4, len(diffs): {len(diffs)}")
+        flag, diffs = compare_adapters(peft_wsd_cfg, peft_ckpt_cfg)
+        print(f"peft_wsd_cfg & peft_ckpt_cfg, len(diffs): {len(diffs)}")
 
-        flag, diffs = compare_adapters(peft_model1, peft_model3)
-        print(f"peft_model1 & peft_model3, len(diffs): {len(diffs)}")
+        flag, diffs = compare_adapters(peft_wsd_fpt, peft_wsd_cfg)
+        print(f"peft_wsd_fpt & peft_wsd_cfg, len(diffs): {len(diffs)}")
 
-        flag, diffs = compare_adapters(peft_model2, peft_model4)
-        print(f"peft_model2 & peft_model4, len(diffs): {len(diffs)}")
-        
-        peft_model.save_pretrained(Path(output_path) / "adapters")
+        flag, diffs = compare_adapters(peft_ckpt_fpt, peft_ckpt_cfg)
+        print(f"peft_ckpt_fpt & peft_ckpt_cfg, len(diffs): {len(diffs)}")
+
+        #peft_model.save_pretrained(Path(output_path) / "adapters")
     else:
         # Save weights
         torch.save(weights_state_dict, Path(output_path) / 'pytorch_model.bin')
