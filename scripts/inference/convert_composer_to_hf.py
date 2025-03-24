@@ -391,8 +391,8 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         print(f"peft_ckpt_fpt & peft_ckpt_cfg, len(diffs): {len(diffs)}")
 
         # compare HF Hub adapters to each of the four peft models
-        base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M", torch_dtype=torch.bfloat16).to("cuda")
-        ckpt_hub_adapters = PeftModel.from_pretrained(base_model, "LocalResearchGroup/smollm2-135m_lora-20250305_114026-custom-adapter").to("cuda")
+        base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M", torch_dtype=torch.bfloat16)
+        ckpt_hub_adapters = PeftModel.from_pretrained(base_model, "LocalResearchGroup/smollm2-135m_lora-20250305_114026-custom-adapter")
 
         flag, diffs = compare_adapters(peft_wsd_fpt, ckpt_hub_adapters)
         print(f"peft_wsd_fpt & ckpt_hub_adapters, len(diffs): {len(diffs)}")
