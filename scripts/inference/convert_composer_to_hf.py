@@ -180,13 +180,19 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         )
 
         checkpoint = torch.load(checkpoint_path, weights_only=False)
+        print("HF Hub checkpoint loaded")
 
         # compare checkpoint weights with `weights_state_dict`
+        diffs = []
         for key in weights_state_dict.keys():
             w1 = weights_state_dict[key].to(torch.bfloat16).to("cuda")
             key = 'model.' + key
             w2 = checkpoint['state']['model'][key].to(torch.bfloat16).to("cuda")
-            if not torch.allclose(w1, w2): print(key)
+            if not torch.allclose(w1, w2): 
+                print(key)
+                diffs.append(key)
+
+        print(f"len(diffs) b/w checkpoint and weights_state_dict: {len(diffs)}")
 
         # added for debugging
         def are_rope_embeddings_equal(embedding1, embedding2):
