@@ -417,6 +417,18 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         flag, diffs = compare_adapters(peft_ckpt_cfg, ckpt_hub_adapters)
         print(f"peft_ckpt_cfg & ckpt_hub_adapters, len(diffs): {len(diffs)}")
 
+        print("peft_ckpt_fpt")
+        print(peft_ckpt_fpt)
+
+        print("peft_wsd_fpt")
+        print(peft_wsd_fpt)
+
+        print('checkpoint["state"]["model"].keys():')
+        print(checkpoint["state"]["model"].keys())
+
+        print("weights_state_dict.keys():")
+        print(weights_state_dict.keys())
+        
         #peft_model.save_pretrained(Path(output_path) / "adapters")
     else:
         # Save weights
