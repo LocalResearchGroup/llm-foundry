@@ -26,7 +26,7 @@ from llmfoundry.utils.huggingface_hub_utils import \
 from hf_generate import str2bool
 
 from peft import get_peft_model, LoraConfig, PeftModel
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, upload_file
 
 def write_huggingface_pretrained_from_composer_checkpoint(
     checkpoint_path: Union[Path, str],
@@ -428,6 +428,16 @@ def write_huggingface_pretrained_from_composer_checkpoint(
 
         print("weights_state_dict.keys():")
         print(weights_state_dict.keys())
+
+        # Save the state dict to a local file
+        torch.save(weights_state_dict, "weights_state_dict.pt")
+        
+        # Upload the file
+        upload_file(
+            path_or_fileobj="weights_state_dict.pt",
+            path_in_repo="weights_state_dict.pt",
+            repo_id="LocalResearchGroup/smollm2-135m_lora-20250305_114026"
+        )
         
         #peft_model.save_pretrained(Path(output_path) / "adapters")
     else:
