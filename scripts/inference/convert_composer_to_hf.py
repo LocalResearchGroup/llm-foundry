@@ -194,6 +194,17 @@ def write_huggingface_pretrained_from_composer_checkpoint(
 
         print(f"len(diffs) b/w checkpoint and weights_state_dict: {len(diffs)}")
 
+        diffs = []
+        for key in checkpoint['state']['model'].keys():
+            w1 = checkpoint['state']['model'][key].to(torch.bfloat16).to("cuda")
+            key = key.removeprefix('model.')
+            w2 = weights_state_dict[key].to(torch.bfloat16).to("cuda")
+            if not torch.allclose(w1, w2): 
+                print(key)
+                diffs.append(key)
+
+        print(f"len(diffs) b/w checkpoint and weights_state_dict: {len(diffs)}")
+        
         # added for debugging
         def are_rope_embeddings_equal(embedding1, embedding2):
             # Check configuration parameters
