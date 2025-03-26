@@ -15,14 +15,7 @@ def preprocessing_function(inp: dict) -> dict:
 
 @dataset_constructor.register(f"{HF_REPO}/split-tulu-3-sft-olmo-2-mixture")
 def pre_tulu(inp: dict):
-    pro = [m["content"] for m in inp["messages"] if m["role"] == "user"]
-    ans = [m["content"] for m in inp["messages"] if m["role"] == "assistant"]
-
-    prompt = "\n".join(pro)
-    answer = "\n".join(ans)
-    assert prompt is not None
-    assert answer is not None
-    return {'prompt': prompt, 'response': answer}
+    return {'prompt': inp["prompt"], 'response': inp["response"]}
 
 
 @dataset_constructor.register(f"{HF_REPO}/split-NuminaMath-CoT")
