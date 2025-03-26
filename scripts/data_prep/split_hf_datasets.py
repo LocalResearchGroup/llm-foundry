@@ -91,6 +91,14 @@ def filter_tulu(dataset):
     dataset = dataset.filter(lambda r: r["source"] is not None and "aya" not in r["source"] and len(r["messages"]) == 2 and r["messages"] is not None and r["messages"][0] is not None and r["messages"][1] is not None)
     print("tulu", dataset.features)
     dataset = dataset.remove_columns(["source", "dataset"])
+    def extract_qa(messages):
+        user_question = next((msg["content"] for msg in messages if msg["role"] == "user"), None)
+        assistant_response = next((msg["content"] for msg in messages if msg["role"] == "assistant"), None)
+        return {"prompt": user_question, "response": assistant_response}
+
+    # Apply function to dataset
+    dataset = dataset.map(lambda example: extract_qa(example["messages"]))
+    dataset = dataset.remove_columns(["messages"])
     print("new tulu features: ", dataset.features)
     print(f"         current rows {len(dataset)}")
     return dataset
