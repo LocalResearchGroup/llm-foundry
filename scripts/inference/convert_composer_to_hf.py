@@ -209,7 +209,7 @@ def parse_args() -> Namespace:
     )
 
     parser.add_argument(
-        "--peft_model",
+        "--is_peft",
         type=str2bool, 
         default=False, 
         help="True if the model being converted is a peft finetuned model"
