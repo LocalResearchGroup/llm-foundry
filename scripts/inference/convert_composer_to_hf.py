@@ -230,7 +230,7 @@ def _convert_composer_to_hf(args: Namespace) -> None:
         trust_remote_code=args.trust_remote_code,
         output_precision=args.output_precision,
         local_checkpoint_save_location=args.local_checkpoint_save_location,
-        peft_model=args.peft_model,
+        is_peft=args.is_peft,
     )
 
     dtype = {
