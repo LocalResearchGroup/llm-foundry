@@ -1,4 +1,4 @@
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser, Namespace, BooleanOptionalAction
 
 from datasets import load_dataset, load_from_disk, DatasetDict
 from huggingface_hub import HfApi, login
@@ -44,7 +44,7 @@ def push_ablations(raw_datasets, ablations, hf_repo, config_name, private, shard
             },
         )
     
-        print(f"Uploading ablation {label} train/val")
+        print(f"\nUploading ablation {label} train/val")
         
         dsdict.push_to_hub(hf_repo, config_name=label, private=private, max_shard_size=shard_size)
 
@@ -64,7 +64,9 @@ def pull_n_push(
     banner = f"Loading dataset {hf_ds_src}/{'default' if ds_name is None else ds_name}"
     print("#"*len(banner))
     print(banner)
+    print(f"path={hf_ds_src=}, name={ds_name=}, split=train")
     print("#"*len(banner))
+
     dataset = load_dataset(path=hf_ds_src, name=ds_name, split="train")
     if after_pull is not None:
         dataset = after_pull(dataset)
@@ -72,7 +74,10 @@ def pull_n_push(
     dsd = DatasetDict({"train": dataset["train"], "test": dataset["test"]})
 
     if saving2parquet:
-        print(f"Saving parquet to {hf_ds_tgt} train/test")
+        b = f"Saving parquet to {hf_ds_tgt} train/test"
+        print("=" * len(b))
+        print(b)
+        print("=" * len(b))
         out_ds_path = Path(hf_ds_tgt)
         out_ds_path.mkdir(parents=True, exist_ok=True)
         data_files = save_to_parquet(dsd, out_ds_path.absolute())
@@ -111,85 +116,132 @@ def process_numina(dataset):
     return dataset
 
 def upload_token_folder(local_path, target_repo):
-    # WIP: remove constants
+    print(f"upload_token_folder({str(local_path.absolute())=}, {target_repo=})")
     api = HfApi()
-    p = Path(".")
-    api.upload_folder(
+    api.upload_large_folder(
         folder_path=local_path,
         repo_id=target_repo,
         repo_type="dataset",
-        # path_in_repo="",
-        # commit_message="",
     )
 
-
-def create_upload():
+def create_pretraining_tokens(args, datasets, tokenizer='HuggingFaceTB/SmolLM2-135M'):
     # import configurations to tokenize new dataset splits
     import tokenize_split
     from llmfoundry.command_utils import convert_dataset_hf_from_args, DatasetConstants, DataSplitConstants, add_dataset_config, CONSTS
 
-    configs = [
-        {
-            "target": "tyoc213/split-tulu-3-sft-olmo-2-mixture",
-            "ablations": ["full", "100k", "10k", "1k"],
-        },
-        {
-            "target": "tyoc213/split-NuminaMath-CoT",
-            "ablations": ["full", "100k", "10k", "1k"],
-        },
-        # {
-        #     "target": "tyoc213/split-finemath",
-        #     "ablations": ["full", "1M", "100k", "10k", "1k"],
-        # },
-    ]
+    for s in args.source:
+        
+        d = datasets[s]
+        folder = d["target"].split("/")[1]
+        for ablation in d["ablations"]:
+            if s == "finemath":
+                print("\ngenerating tokens for", s, ablation)
+                convert_dataset_hf_from_args(
+                    dataset=d["target"],
+                    data_subset=ablation,
+                    splits=['train', 'test'],
+                    out_root=f'tokenized-{s}-{ablation}',
+                    compression="zstd",
+                    concat_tokens=None,
+                    tokenizer=tokenizer,
+                    tokenizer_kwargs=None,
+                    bos_text=None,
+                    eos_text='<|endoftext|>',
+                    no_wrap=False,
+                    num_workers=None,
+                )
+            else:
+                print(f"\nskipping {s} as it is an instruct dataset and doesn't containt text column")
+                print("use data_prep/convert_finetuning_dataset.py instead")
+                print(f"{d=}")
 
-    for c in configs:
-        folder = c["target"].split("/")[1]
-        for ablation in c["ablations"]:
-            args = Namespace(
-                dataset=c["target"],
-                data_subset=ablation,
-                splits=['train', 'test'],
-                out_root=f'tokenized-{folder}-{ablation}',
-                compression="zstd",
-                concat_tokens=None,
-                tokenizer='HuggingFaceTB/SmolLM2-135M',
-                tokenizer_kwargs=None,
-                bos_text=None,
-                eos_text='<|endoftext|>',
-                no_wrap=False,
-                num_workers=None,
-            )
-
-            convert_dataset_hf_from_args(
-                dataset=args.dataset,
-                data_subset=args.data_subset,
-                splits=args.splits,
-                out_root=args.out_root,
-                compression=args.compression,
-                concat_tokens=args.concat_tokens,
-                tokenizer=args.tokenizer,
-                tokenizer_kwargs=args.tokenizer_kwargs,
-                bos_text=args.bos_text,
-                eos_text=args.eos_text,
-                no_wrap=args.no_wrap,
-                num_workers=args.num_workers,
-            )
-
+def create_upload(args, datasets):
     # upload all tokenized folders to corresponding repo/folder
-    for c in configs:
-        for ablation in c["ablations"]:
-            local_path = Path(".") / f"{c['target']}" / f"{ablation}"
-            target_repo = c["target"]
-            # upload_token_folder(local_path, target_repo)
+    for s in args.source:
+        d = datasets[s]
+        for ablation in d["ablations"]:
+            if s == "finemath":
+                local_path = Path(".") / f"tokenized-{s}-{ablation}"
+                target_repo = d["target"]
+                upload_token_folder(local_path, target_repo)
+        else:
+            print(f"skipping upload of tokens for {s}")
+
+
+def upload_splits(args, datas):
+    for arg in args.source:
+        d = datas[arg]
+        ds_name = d.get("ds_name", None)
+        pull_n_push(
+            d["target"],
+            d["src"],
+            ds_name=ds_name,
+            ablations=d["ablations"],
+            after_pull=d.get("after_pull", None),
+        )
+
+
+def main(args):
+    datasets = {
+        "tulu": {
+            "src": "allenai/tulu-3-sft-olmo-2-mixture",
+            "target": f"{args.target_repo}/split-tulu-3-sft-olmo-2-mixture",
+            "after_pull": filter_tulu,
+            "ablations": ("full", "100k", "10k", "1k"),
+        },
+        "numina": {
+            "src": "AI-MO/NuminaMath-CoT",
+            "target": f"{args.target_repo}/split-NuminaMath-CoT",
+            "after_pull": process_numina,
+            "ablations": ("full", "100k", "10k", "1k"),
+        },
+        "finemath" :{
+            "src": "HuggingFaceTB/finemath",
+            "ds_name": "finemath-4plus",
+            "target": f"{args.target_repo}/split-finemath",
+            "ablations": ("full", "1M", "100k", "10k", "1k"),
+        }
+    }
+    if args.split:
+        d = upload_splits(args, datasets)
+    if args.tokenize:
+        create_pretraining_tokens(args, datasets)
+    if args.upload:
+        create_upload(args, datasets)
+
+
+def parse_args() -> Namespace:
+    """Parse commandline arguments."""
+    parser = ArgumentParser(
+        description=
+        'Split to train/test 1M, 100k, 10k, 1k and tokenize',
+    )
+    parser.add_argument(
+        '--source',
+        nargs='+',
+        choices=['tulu', 'numina', 'finemath'],
+        default=['tulu', 'numina', 'finemath'],
+    )
+
+    parser.add_argument(
+        "--target_repo",
+        default="LocalResearchGroup",
+        help="target repo to upload splits and tokenizations",
+    )
+    
+    parser.add_argument('--split', action=BooleanOptionalAction, default=True, help="split generation")
+    parser.add_argument('--tokenize', action=BooleanOptionalAction, default=True, help="generate tokenization for splits")
+    # parser.add_argument('--tokenize-instruct', action=BooleanOptionalAction, default=True, help="generate tokenization for splits")
+    parser.add_argument('--upload', action=BooleanOptionalAction, default=True, help="upload tokenization folders")
+    # parser.add_argument('--upload-instruct-tokens', action=BooleanOptionalAction, default=True, help="upload tokenization folders")
+    
+    parsed = parser.parse_args()
+    return parsed
+
+
 if __name__ == "__main__":
+    args = parse_args()
     if not os.environ.get("HUGGING_FACE_HUB_TOKEN"):
         print("No Hugging Face token found. Please login.")
         login()
-    REMOTE_REPO = "LocalResearchGroup"
-    pull_n_push(f"{REMOTE_REPO}/split-tulu-3-sft-olmo-2-mixture", "allenai/tulu-3-sft-olmo-2-mixture", after_pull=filter_tulu, ablations=("full", "100k", "10k", "1k"))
-    pull_n_push(f"{REMOTE_REPO}/split-NuminaMath-CoT", "AI-MO/NuminaMath-CoT", after_pull=process_numina, ablations=("full", "100k", "10k", "1k"))
-    pull_n_push(f"{REMOTE_REPO}/split-finemath", "HuggingFaceTB/finemath", "finemath-4plus", ablations=("100k", "10k", "1k"))
-
-    if False:
-        create_upload()
+    main(args)
