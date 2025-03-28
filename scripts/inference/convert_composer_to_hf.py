@@ -34,7 +34,7 @@ def write_huggingface_pretrained_from_composer_checkpoint(
     trust_remote_code: bool,
     output_precision: str = 'fp32',
     local_checkpoint_save_location: Optional[Union[Path, str]] = None,
-    peft_model: bool = False,
+    is_peft: bool = False,
 ) -> tuple[PretrainedConfig, Optional[PreTrainedTokenizerBase]]:
     """Convert a Composer checkpoint to a pretrained HF checkpoint folder.
 
@@ -78,7 +78,7 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         local_checkpoint_save_location (Optional[Union[Path, str]], optional): If specified, where to save the checkpoint file to locally.
                                                                                 If the input ``checkpoint_path`` is already a local path, this will be a symlink.
                                                                                 Defaults to None, which will use a temporary file.
-        peft_model (bool, optional): True if the model being converted is a peft finetuned model. Defaults to False.
+        is_peft (bool, optional): True if the model being converted is a peft finetuned model. Defaults to False.
     """
     dtype = {
         'fp32': torch.float32,
@@ -144,24 +144,9 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         prefix='model.',
     )
 
-    # Convert weights to desired dtype
-    for k, v in weights_state_dict.items():
-        if isinstance(v, torch.Tensor):
-            weights_state_dict[k] = v.to(dtype=dtype)
-
     # Handle the case if the model is a peft finetuned model, in this case, just save the adapters
-    if peft_model:
+    if is_peft:
         print("THIS IS THE PEFT CASE")
-        
-        # THESE VALUES ARE HARDCODED FOR NOW
-        # lora_config = LoraConfig(
-        #     r=256,   
-        #     lora_alpha=512,
-        #     target_modules=["q_proj", "v_proj"],
-        #     lora_dropout=0.05,
-        #     task_type="CAUSAL_LM",
-        #     peft_type="LORA"
-        # )
 
         # for model_path = smollm2-135m_lora-20250305_114026
         lora_config = LoraConfig(
@@ -173,274 +158,20 @@ def write_huggingface_pretrained_from_composer_checkpoint(
             peft_type="LORA",
         )
 
-        # added for debugging
-        checkpoint_path = hf_hub_download(
-            repo_id="LocalResearchGroup/smollm2-135m_lora-20250305_114026",
-            filename="native_checkpoints/ep0-ba5000-rank0.pt"
-        )
-
-        checkpoint = torch.load(checkpoint_path, weights_only=False)
-        print("HF Hub checkpoint loaded")
-
-        # compare checkpoint weights with `weights_state_dict`
-        diffs = []
-        for key in weights_state_dict.keys():
-            w1 = weights_state_dict[key].to(torch.bfloat16).to("cuda")
-            key = 'model.' + key
-            w2 = checkpoint['state']['model'][key].to(torch.bfloat16).to("cuda")
-            if not torch.allclose(w1, w2): 
-                print(key)
-                diffs.append(key)
-
-        print(f"len(diffs) b/w checkpoint and weights_state_dict: {len(diffs)}")
-
-        diffs = []
-        for key in checkpoint['state']['model'].keys():
-            w1 = checkpoint['state']['model'][key].to(torch.bfloat16).to("cuda")
-            key = key.removeprefix('model.')
-            w2 = weights_state_dict[key].to(torch.bfloat16).to("cuda")
-            if not torch.allclose(w1, w2): 
-                print(key)
-                diffs.append(key)
-
-        print(f"len(diffs) b/w checkpoint and weights_state_dict: {len(diffs)}")
-        
-        # added for debugging
-        def are_rope_embeddings_equal(embedding1, embedding2):
-            # Check configuration parameters
-            if embedding1.rope_type != embedding2.rope_type:
-                return False
-        
-            # Compare max sequence length settings
-            if (embedding1.max_seq_len_cached != embedding2.max_seq_len_cached or
-                embedding1.original_max_seq_len != embedding2.original_max_seq_len):
-                return False
-        
-            # Compare buffers (most important part)
-            if not torch.allclose(embedding1.inv_freq, embedding2.inv_freq):
-                return False
-        
-            # Compare scaling factors
-            if embedding1.attention_scaling != embedding2.attention_scaling:
-                return False
-        
-            return True
-            
-        def compare_base_models(base_model1, base_model2):
-            layer_names = {
-                "self_attn": ["q_proj", "k_proj", "v_proj", "o_proj"],
-                "mlp": ["gate_proj", "up_proj", "down_proj"]
-            }
-            flag = True
-            diffs = []
-        
-            # embed tokens
-            if not torch.allclose(base_model1.model.embed_tokens.weight, base_model2.model.embed_tokens.weight): 
-                flag = False
-                diffs.append(("embed_tokens"))
-        
-            # Compare LlamaDecoderLayer
-            for layer_idx in range(30):
-                for module in layer_names.keys():
-                    module1 = getattr(base_model1.model.layers[layer_idx], module)
-                    module2 = getattr(base_model2.model.layers[layer_idx], module)
-                    for layer_name in layer_names[module]:
-                        layer1 = getattr(module1, layer_name)
-                        layer2 = getattr(module2, layer_name)
-        
-                        if not torch.allclose(layer1.weight, layer2.weight):
-                            flag = False
-                            diffs.append((layer_idx, module, layer_name))
-                
-                # Compare layernorms
-                if not torch.allclose(
-                    base_model1.model.layers[layer_idx].input_layernorm.weight,
-                    base_model2.model.layers[layer_idx].input_layernorm.weight): 
-                    flag = False
-                    diffs.append((layer_idx, "input_layer_norm"))
-        
-                if not torch.allclose(
-                    base_model1.model.layers[layer_idx].post_attention_layernorm.weight,
-                    base_model2.model.layers[layer_idx].post_attention_layernorm.weight): 
-                    flag = False 
-                    diffs.append((layer_idx, "post_attention_layernorm"))
-        
-            # Compare final norm
-            if not torch.allclose(base_model1.model.norm.weight, base_model2.model.norm.weight): 
-                flag = False
-                diffs.append(("norm"))
-        
-            # Compare Rotary Embeddings
-            if not are_rope_embeddings_equal(base_model1.model.rotary_emb, base_model2.model.rotary_emb): 
-                flag = False
-                diffs.append(("rotary_emb"))
-        
-            # Compare final head
-            if not torch.allclose(base_model1.lm_head.weight, base_model2.lm_head.weight): 
-                flag = False
-                diffs.append(("lm_head"))
-            
-            return flag, diffs
-
-        def compare_adapters(adapters1, adapters2):
-            layer_names = {
-                "self_attn": ["q_proj", "k_proj", "v_proj", "o_proj"],
-                "mlp": ["gate_proj", "up_proj", "down_proj"]
-            }
-            
-            flag = True
-            diffs = []
-        
-            # embed tokens
-            if not torch.allclose(adapters1.base_model.model.model.embed_tokens.weight, adapters2.base_model.model.model.embed_tokens.weight):
-                flag = False
-                diffs.append(("embed_tokens"))
-        
-            # Compare LlamaDecoderLayer
-            for layer_idx in range(30):
-                for module in layer_names.keys():
-                    module1 = getattr(adapters1.base_model.model.model.layers[layer_idx], module)
-                    module2 = getattr(adapters2.base_model.model.model.layers[layer_idx], module)
-                    for layer_name in layer_names[module]:
-                        layer1 = getattr(module1, layer_name)
-                        layer2 = getattr(module2, layer_name)
-                        lora_A1 = getattr(layer1, "lora_A")
-                        lora_B1 = getattr(layer1, "lora_B")
-                        lora_A2 = getattr(layer2, "lora_A")
-                        lora_B2 = getattr(layer2, "lora_B")
-        
-                        # base layer comparison
-                        if not torch.allclose(layer1.base_layer.weight, layer2.base_layer.weight):
-                            flag = False
-                            diffs.append((layer_idx, module, layer_name, "base_layer"))
-        
-                        # lora adapter comparison
-                        if not torch.allclose(lora_A1.default.weight, lora_A2.default.weight):
-                            flag = False
-                            diffs.append((layer_idx, module, layer_name, "lora_A"))
-        
-                        if not torch.allclose(lora_B1.default.weight, lora_B2.default.weight):
-                            flag = False
-                            diffs.append((layer_idx, module, layer_name, "lora_B"))
-        
-                # Compare layernorms
-                if not torch.allclose(
-                    adapters1.base_model.model.model.layers[layer_idx].input_layernorm.weight,
-                    adapters2.base_model.model.model.layers[layer_idx].input_layernorm.weight):
-                    flag = False
-                    diffs.append((layer_idx, "input_layer_norm"))
-        
-                if not torch.allclose(
-                    adapters1.base_model.model.model.layers[layer_idx].post_attention_layernorm.weight,
-                    adapters2.base_model.model.model.layers[layer_idx].post_attention_layernorm.weight):
-                    flag = False
-                    diffs.append((layer_idx, "post_attention_layernorm"))
-        
-            # Compare final norm
-            if not torch.allclose(adapters1.base_model.model.model.norm.weight, adapters2.base_model.model.model.norm.weight):
-                flag = False
-                diffs.append(("norm"))
-        
-            # Compare Rotary Embeddings
-            if not are_rope_embeddings_equal(adapters1.base_model.model.model.rotary_emb, adapters2.base_model.model.model.rotary_emb):
-                flag = False
-                diffs.append(("rotary_emb"))
-        
-            # Compare final head
-            if not torch.allclose(adapters1.base_model.model.lm_head.weight, adapters2.base_model.model.lm_head.weight):
-                flag = False
-                diffs.append(("lm_head"))
-        
-            return flag, diffs
-
-        #base_model = AutoModelForCausalLM.from_config(hf_config)
-        #base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M")
-        
-        base_model_cfg1 = AutoModelForCausalLM.from_config(hf_config).to(torch.bfloat16)
-        base_model_cfg2 = AutoModelForCausalLM.from_config(hf_config).to(torch.bfloat16)
-        base_model1 = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M", torch_dtype=torch.bfloat16)
-        base_model2 = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M", torch_dtype=torch.bfloat16)
-        flag, diffs = compare_base_models(base_model1, base_model_cfg1)
-        print(f"Compare base_model1 and base_model_cfg1, len(diffs): {len(diffs)}")
-        flag, diffs = compare_base_models(base_model2, base_model_cfg2)
-        print(f"Compare base_model2 and base_model_cfg2, len(diffs): {len(diffs)}")
+        base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M", torch_dtype=torch.bfloat16)
 
         # create a PeftModel for each combination of checkpoint/weights_state_dict and base_model/base_model_cfg
-        peft_wsd_fpt = get_peft_model(base_model1, lora_config)
-        peft_wsd_fpt.load_state_dict(weights_state_dict, strict=False)
-
-        peft_ckpt_fpt = get_peft_model(base_model2, lora_config)
-        if "state" in checkpoint:
-            state_dict = checkpoint["state"]["model"]
-            # Remove 'model.' prefix if present
-            state_dict = {k.removeprefix('model.'): v for k, v in state_dict.items()}
-            # Load the weights into the model
-            peft_ckpt_fpt.load_state_dict(state_dict, strict=False)
-            
-        peft_wsd_cfg = get_peft_model(base_model_cfg1, lora_config)
-        peft_wsd_cfg.load_state_dict(weights_state_dict, strict=False)
-
-        peft_ckpt_cfg = get_peft_model(base_model_cfg2, lora_config)
-        if "state" in checkpoint:
-            state_dict = checkpoint["state"]["model"]
-            # Remove 'model.' prefix if present
-            state_dict = {k.removeprefix('model.'): v for k, v in state_dict.items()}
-            # Load the weights into the model
-            peft_ckpt_cfg.load_state_dict(state_dict, strict=False)
-
+        peft_model = get_peft_model(base_model, lora_config)
+        peft_model.load_state_dict(weights_state_dict, strict=False)
         
-        flag, diffs = compare_adapters(peft_wsd_fpt, peft_ckpt_fpt)
-        print(f"peft_wsd_fpt & peft_ckpt_fpt, len(diffs): {len(diffs)}")
-
-        flag, diffs = compare_adapters(peft_wsd_cfg, peft_ckpt_cfg)
-        print(f"peft_wsd_cfg & peft_ckpt_cfg, len(diffs): {len(diffs)}")
-
-        flag, diffs = compare_adapters(peft_wsd_fpt, peft_wsd_cfg)
-        print(f"peft_wsd_fpt & peft_wsd_cfg, len(diffs): {len(diffs)}")
-
-        flag, diffs = compare_adapters(peft_ckpt_fpt, peft_ckpt_cfg)
-        print(f"peft_ckpt_fpt & peft_ckpt_cfg, len(diffs): {len(diffs)}")
-
-        # compare HF Hub adapters to each of the four peft models
-        base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M", torch_dtype=torch.bfloat16)
-        ckpt_hub_adapters = PeftModel.from_pretrained(base_model, "LocalResearchGroup/smollm2-135m_lora-20250305_114026-custom-adapter")
-
-        flag, diffs = compare_adapters(peft_wsd_fpt, ckpt_hub_adapters)
-        print(f"peft_wsd_fpt & ckpt_hub_adapters, len(diffs): {len(diffs)}")
-
-        flag, diffs = compare_adapters(peft_wsd_cfg, ckpt_hub_adapters)
-        print(f"peft_wsd_cfg & ckpt_hub_adapters, len(diffs): {len(diffs)}")
-
-        flag, diffs = compare_adapters(peft_ckpt_fpt, ckpt_hub_adapters)
-        print(f"peft_ckpt_fpt & ckpt_hub_adapters, len(diffs): {len(diffs)}")
-        
-        flag, diffs = compare_adapters(peft_ckpt_cfg, ckpt_hub_adapters)
-        print(f"peft_ckpt_cfg & ckpt_hub_adapters, len(diffs): {len(diffs)}")
-
-        print("peft_ckpt_fpt")
-        print(peft_ckpt_fpt)
-
-        print("peft_wsd_fpt")
-        print(peft_wsd_fpt)
-
-        print('checkpoint["state"]["model"].keys():')
-        print(checkpoint["state"]["model"].keys())
-
-        print("weights_state_dict.keys():")
-        print(weights_state_dict.keys())
-
-        # Save the state dict to a local file
-        torch.save(weights_state_dict, "weights_state_dict.pt")
-        
-        # Upload the file
-        upload_file(
-            path_or_fileobj="weights_state_dict.pt",
-            path_in_repo="weights_state_dict.pt",
-            repo_id="LocalResearchGroup/smollm2-135m_lora-20250305_114026"
-        )
-        
-        #peft_model.save_pretrained(Path(output_path) / "adapters")
+        peft_model.save_pretrained(Path(output_path) / "adapters")
     else:
+        
+        # Convert weights to desired dtype
+        for k, v in weights_state_dict.items():
+            if isinstance(v, torch.Tensor):
+                weights_state_dict[k] = v.to(dtype=dtype)
+                
         # Save weights
         torch.save(weights_state_dict, Path(output_path) / 'pytorch_model.bin')
 
