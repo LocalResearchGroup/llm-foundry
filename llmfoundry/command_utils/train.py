@@ -553,8 +553,12 @@ def train(cfg: DictConfig) -> Trainer:
 
     compile_config = train_cfg.compile_config
 
-    # added by Vishal: print out model weights' dtyp
-    print(model)
+    # added by Vishal: print out model weights' dtype
+    print(f"model.dtype:{model.dtype}")
+    print(f"q_proj base layer dtype:{model.model.base_model.model.model.layers[0].self_attn.q_proj.base_layer.weight.dtype}")
+    print(f"q_proj lora_A dtype:{model.model.base_model.model.model.layers[0].self_attn.q_proj.lora_A.default.weight.dtype}")
+    print(f"q_proj lora_B dtype:{model.model.base_model.model.model.layers[0].self_attn.q_proj.lora_B.default.weight.dtype}")
+    
     # Build the Trainer
     log.info('Building trainer...')
     trainer = Trainer(
