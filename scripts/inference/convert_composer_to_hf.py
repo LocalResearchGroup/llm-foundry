@@ -298,15 +298,15 @@ def _convert_composer_to_hf(args: Namespace) -> None:
 
     delattr(loaded_hf_model.config, '_name_or_path')
 
-    loaded_hf_model.save_pretrained(local_folder_path)
+    if not is_peft: loaded_hf_model.save_pretrained(local_folder_path)
 
-    print(f'Loading tokenizer from {local_folder_path}')
-
-    tokenizer = load_tokenizer(
-        local_folder_path,
-        trust_remote_code=args.trust_remote_code,
-    )
-    tokenizer.save_pretrained(local_folder_path)
+    if not is_peft: 
+        print(f'Loading tokenizer from {local_folder_path}')
+        tokenizer = load_tokenizer(
+            local_folder_path,
+            trust_remote_code=args.trust_remote_code,
+        )
+        tokenizer.save_pretrained(local_folder_path)
 
     # Only need to edit files for MPT because it has custom code
     if config.model_type == 'mpt':
