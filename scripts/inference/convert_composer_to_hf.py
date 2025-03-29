@@ -166,8 +166,10 @@ def write_huggingface_pretrained_from_composer_checkpoint(
             TRAIN_CONFIG_KEYS,
             transforms='all',
         )
-        print(train_cfg.model["pretrained_model_name_or_path"])
-        print(train_cfg.model["peft_config"])
+        pretrained_model_name_or_path = train_cfg.model["pretrained_model_name_or_path"]
+        print(pretrained_model_name_or_path)
+        peft_config_dict = train_cfg.model["peft_config"]
+        print(peft_config_dict)
 
         # for model_path = smollm2-135m_lora-20250305_114026
         lora_config = LoraConfig(
@@ -178,6 +180,19 @@ def write_huggingface_pretrained_from_composer_checkpoint(
             task_type="CAUSAL_LM",
             peft_type="LORA",
         )
+
+        peft_type = peft_config_dict.get('peft_type', '')
+        if peft_type.upper() != 'LORA':
+            raise ValueError(
+                f'Only LORA is supported for peft_type, but got {peft_type}.',
+            )
+        task_type = peft_config_dict.get('task_type', '')
+        if task_type.upper() != 'CAUSAL_LM':
+            raise ValueError(
+                f'Only CAUSAL_LM is supported for task_type, but got {task_type}.',
+            )
+        peft_config = LoraConfig(**peft_config_dict)
+        print(peft_config)
 
         base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M", torch_dtype=torch.bfloat16)
 
