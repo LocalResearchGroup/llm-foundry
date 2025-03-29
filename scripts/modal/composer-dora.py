@@ -2,7 +2,7 @@ import modal
 import pathlib
 from modal import Image, App, Secret, Volume
 
-app = App("weight-changes-composer-dora")
+app = App("composer-dora-lora")
 image = Image.from_dockerfile("Dockerfile", gpu='l4')
 
 image = image.add_local_file("composer_aim_logger.py", "/root/composer_aim_logger.py")
@@ -28,13 +28,17 @@ def _train():
     from peft.utils.integrations import dequantize_module_weight
     from composer_aim_logger import AimLogger
     from composer.utils.reproducibility import seed_all
+    import datetime
+    from composer.algorithms import GradientClipping
+    from composer.optim.scheduler import CosineAnnealingWithWarmupScheduler
+    
 
     seed=17
     seed_all(seed)
 
     model_nm = "HuggingFaceTB/SmolLM2-135M"
 
-    aim_logger = AimLogger(repo=".aim", experiment_name="vishal_composer_dora_smollm2-135m_5000ba")
+    aim_logger = AimLogger(repo=".aim", experiment_name="vishal_composer_dora_smollm2-135m_1000ba")
 
     def process_example(question, answer, tokenizer, max_length=2048):
         question_text = f"Question: {question}\n"
@@ -161,7 +165,7 @@ def _train():
     )
     
     # Add diagnostics
-    original_forward = add_dora_diagnostics(model)
+    #original_forward = add_dora_diagnostics(model)
     
     # Create Composer model
     print("Building model...")
@@ -177,25 +181,31 @@ def _train():
     # save_folder: /model-checkpoints/smollm2-135m_lora-20250305_114026/native_checkpoints
     # Model path: /model-checkpoints/smollm2-135m_lora-20250305_114026
     # model_path = Path(model_path).name = smollm2-135m_lora-20250305_114026
+    
+    run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    gc = GradientClipping(clipping_type="norm", clipping_threshold=1)
+
     trainer = Trainer(
         model=composer_model,
         train_dataloader=train_dataloader,
-        max_duration="5000ba",
-        save_interval="5000ba",
-        optimizers=DecoupledAdamW(composer_model.parameters(), lr=1e-4),
+        max_duration="1000ba",
+        save_interval="1000ba",
+        optimizers=DecoupledAdamW(composer_model.parameters(), lr=6e-4, betas=(0.9, 0.95), eps=1e-08, weight_decay=0),
         device="gpu",
         precision="amp_bf16",
         loggers=[aim_logger],
-        save_folder="/model-checkpoints/smollm2-135m_dora_composer-20250305-160000/native_checkpoints",
-        save_filename="ep0-ba5000-rank0.pt",
-        seed=seed
+        save_folder=f"/model-checkpoints/smollm2-135m_dora_composer-{run_ts}/native_checkpoints",
+        save_filename="ep0-ba1000-rank0.pt",
+        seed=seed,
+        algorithms=[gc],
+        schedulers=CosineAnnealingWithWarmupScheduler(t_warmup="100ba", alpha_f=0.1)
     )
     
     print("Starting DoRA training with HuggingFace dataset...")
     trainer.fit()
     
     # Restore original forward
-    Linear.forward = original_forward
+    #Linear.forward = original_forward
 
 @app.local_entrypoint()
 def main():
