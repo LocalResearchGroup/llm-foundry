@@ -166,8 +166,8 @@ def write_huggingface_pretrained_from_composer_checkpoint(
             TRAIN_CONFIG_KEYS,
             transforms='all',
         )
-        print(train_cfg.model.pretrained_model_name_or_path)
-        print(train_cfg.model.peft_config)
+        print(train_cfg.model["pretrained_model_name_or_path"])
+        print(train_cfg.model["peft_config"])
 
         # for model_path = smollm2-135m_lora-20250305_114026
         lora_config = LoraConfig(
