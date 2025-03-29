@@ -16,14 +16,19 @@ model:
   config_overrides:
     max_position_embeddings: ${variables.max_seq_len}
   peft_config:
-    r: 256
+    r: 64
     peft_type: LORA
     task_type: CAUSAL_LM
-    lora_alpha: 512
+    lora_alpha: 128
     lora_dropout: 0.05
     target_modules:
       - q_proj
       - v_proj
+      - k_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj
     use_rslora: false
     use_dora: false
   use_flash_attention_2: true  # Moved outside of config_overrides
