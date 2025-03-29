@@ -149,6 +149,14 @@ def write_huggingface_pretrained_from_composer_checkpoint(
     if is_peft:
         print("THIS IS THE PEFT CASE")
         print(train_yaml)
+        om.clear_resolver('oc.env')
+        with open(train_yaml) as f:
+            yaml_cfg = om.load(f)
+        if args_list:
+            cli_cfg = om.from_cli(args_list)
+            yaml_cfg = om.merge(yaml_cfg, cli_cfg)
+        assert isinstance(yaml_cfg, DictConfig)
+        print(yaml_cfg)
 
         # for model_path = smollm2-135m_lora-20250305_114026
         lora_config = LoraConfig(
