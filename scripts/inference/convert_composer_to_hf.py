@@ -161,7 +161,7 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         assert isinstance(yaml_cfg, DictConfig)
 
         logged_cfg, train_cfg = make_dataclass_and_log_config(
-            cfg,
+            yaml_cfg,
             TrainConfig,
             TRAIN_CONFIG_KEYS,
             transforms='all',
