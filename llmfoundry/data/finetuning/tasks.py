@@ -1196,3 +1196,36 @@ def messages_format_preprocessor(inp: dict) -> ChatFormattedDict:
     except Exception as e:
         raise UnableToProcessPromptResponseError(inp) from e
     return {'messages': messages}
+
+
+@dataset_constructor.register('meta-math/MetaMathQA')
+def meta_math_format_preprocessor(inp: dict) -> ChatFormattedDict:
+    """Convert MetaMathQA format to our chat format."""
+    try:
+        prompt = inp['query']
+        response = inp['response']
+
+        transitions = (' ', '\n', '\t')
+        if not (
+            prompt.endswith(transitions) or response.startswith(transitions)
+        ):
+            response = ' ' + response
+    except Exception as e:
+        raise UnableToProcessPromptResponseError(inp) from e
+    return {'prompt': prompt, 'response': response}
+
+@dataset_constructor.register('ise-uiuc/Magicoder-Evol-Instruct-110K')
+def magicoder_format_preprocessor(inp: dict) -> ChatFormattedDict:
+    """Convert MetaMathQA format to our chat format."""
+    try:
+        prompt = inp['instruction']
+        response = inp['response']
+
+        transitions = (' ', '\n', '\t')
+        if not (
+            prompt.endswith(transitions) or response.startswith(transitions)
+        ):
+            response = ' ' + response
+    except Exception as e:
+        raise UnableToProcessPromptResponseError(inp) from e
+    return {'prompt': prompt, 'response': response}
