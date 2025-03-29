@@ -27,6 +27,8 @@ from hf_generate import str2bool
 
 from peft import get_peft_model, LoraConfig, PeftModel
 from huggingface_hub import hf_hub_download, upload_file
+from omegaconf import DictConfig
+from omegaconf import OmegaConf as om
 
 def write_huggingface_pretrained_from_composer_checkpoint(
     checkpoint_path: Union[Path, str],
