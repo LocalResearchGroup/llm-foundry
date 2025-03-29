@@ -29,6 +29,11 @@ from peft import get_peft_model, LoraConfig, PeftModel
 from huggingface_hub import hf_hub_download, upload_file
 from omegaconf import DictConfig
 from omegaconf import OmegaConf as om
+from llmfoundry.utils.config_utils import (
+    TRAIN_CONFIG_KEYS,
+    TrainConfig,
+    make_dataclass_and_log_config,
+)
 
 def write_huggingface_pretrained_from_composer_checkpoint(
     checkpoint_path: Union[Path, str],
@@ -150,12 +155,18 @@ def write_huggingface_pretrained_from_composer_checkpoint(
     # Handle the case if the model is a peft finetuned model, in this case, just save the adapters
     if is_peft:
         print("THIS IS THE PEFT CASE")
-        print(train_yaml)
         om.clear_resolver('oc.env')
         with open(train_yaml) as f:
             yaml_cfg = om.load(f)
         assert isinstance(yaml_cfg, DictConfig)
-        print(yaml_cfg)
+
+        logged_cfg, train_cfg = make_dataclass_and_log_config(
+            cfg,
+            TrainConfig,
+            TRAIN_CONFIG_KEYS,
+            transforms='all',
+        )
+        print(train_cfg)
 
         # for model_path = smollm2-135m_lora-20250305_114026
         lora_config = LoraConfig(
