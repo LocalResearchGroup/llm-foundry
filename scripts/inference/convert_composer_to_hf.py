@@ -298,9 +298,9 @@ def _convert_composer_to_hf(args: Namespace) -> None:
 
     delattr(loaded_hf_model.config, '_name_or_path')
 
-    if not is_peft: loaded_hf_model.save_pretrained(local_folder_path)
+    if not args.is_peft: loaded_hf_model.save_pretrained(local_folder_path)
 
-    if not is_peft: 
+    if not args.is_peft: 
         print(f'Loading tokenizer from {local_folder_path}')
         tokenizer = load_tokenizer(
             local_folder_path,
