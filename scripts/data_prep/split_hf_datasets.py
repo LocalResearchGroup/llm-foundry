@@ -3,6 +3,8 @@ from argparse import ArgumentParser, Namespace, BooleanOptionalAction
 from datasets import load_dataset, load_from_disk, DatasetDict
 from huggingface_hub import HfApi, login
 from pathlib import Path
+
+from convert_finetuning_dataset import convert_finetuning_dataset_from_args
 import os
 
 def save_to_parquet(combined: DatasetDict, out_ds_path: Path):
@@ -48,6 +50,7 @@ def push_ablations(raw_datasets, ablations, hf_repo, config_name, private, shard
         
         dsdict.push_to_hub(hf_repo, config_name=label, private=private, max_shard_size=shard_size)
 
+
 def pull_n_push(
     hf_ds_tgt,
     hf_ds_src,
@@ -81,8 +84,6 @@ def pull_n_push(
         out_ds_path = Path(hf_ds_tgt)
         out_ds_path.mkdir(parents=True, exist_ok=True)
         data_files = save_to_parquet(dsd, out_ds_path.absolute())
-        # print(f"Loading parquet training/val from {str(out_ds_path)}\n\n\n")
-        # dsd = load_dataset(str(out_ds_path))
 
     push_ablations(dsd, ablations, hf_ds_tgt, ds_name, private, shard_size)
 
@@ -91,9 +92,7 @@ def pull_n_push(
 
 def filter_tulu(dataset):
     print(f"Original dataset rows {len(dataset)}")
-    # filter out messages of lenght = 2 user+assistant
-    # FIXME: extra checks finding [None] * 512 batch?
-    dataset = dataset.filter(lambda r: r["source"] is not None and "aya" not in r["source"] and len(r["messages"]) == 2 and r["messages"] is not None and r["messages"][0] is not None and r["messages"][1] is not None)
+    dataset = dataset.filter(lambda r: r["source"] is not None and "aya" not in r["source"] and len(r["messages"]) == 2)
     print("tulu", dataset.features)
     dataset = dataset.remove_columns(["source", "dataset"])
     def extract_qa(messages):
@@ -116,12 +115,13 @@ def process_numina(dataset):
     return dataset
 
 def upload_token_folder(local_path, target_repo):
-    print(f"upload_token_folder({str(local_path.absolute())=}, {target_repo=})")
+    print(f"upload_token_folder({str(local_path.relative_to("."))=}, {target_repo=})")
     api = HfApi()
-    api.upload_large_folder(
+    api.upload_folder(
         folder_path=local_path,
         repo_id=target_repo,
         repo_type="dataset",
+        path_in_repo=str(local_path.relative_to("."))
     )
 
 def create_pretraining_tokens(args, datasets, tokenizer='HuggingFaceTB/SmolLM2-135M'):
@@ -140,7 +140,7 @@ def create_pretraining_tokens(args, datasets, tokenizer='HuggingFaceTB/SmolLM2-1
                     dataset=d["target"],
                     data_subset=ablation,
                     splits=['train', 'test'],
-                    out_root=f'tokenized-{s}-{ablation}',
+                    out_root=f'tokenized/{s}/{ablation}',
                     compression="zstd",
                     concat_tokens=None,
                     tokenizer=tokenizer,
@@ -151,21 +151,35 @@ def create_pretraining_tokens(args, datasets, tokenizer='HuggingFaceTB/SmolLM2-1
                     num_workers=None,
                 )
             else:
-                print(f"\nskipping {s} as it is an instruct dataset and doesn't containt text column")
-                print("use data_prep/convert_finetuning_dataset.py instead")
-                print(f"{d=}")
+                print(f"\nconvert_finetuning_dataset_from_args")
+                convert_finetuning_dataset_from_args(
+                    d["target"],
+                    f"{ablation}",  # data_subset
+                    ['train', 'test'],
+                    d["preproc"],
+                    [],
+                    False,
+                    f'tokenized/{s}/{ablation}',  # out_root
+                    None,
+                    "zstd",
+                    None,  # num_workers
+                    "HuggingFaceTB/SmolLM2-135M",  # tokenizer
+                    None,
+                    2048,  # max_seq_len
+                    "none",  # target_prompts
+                    "last",  # target_responses
+                    False,  # encoder_decoder
+                )
 
 def create_upload(args, datasets):
     # upload all tokenized folders to corresponding repo/folder
     for s in args.source:
         d = datasets[s]
         for ablation in d["ablations"]:
-            if s == "finemath":
-                local_path = Path(".") / f"tokenized-{s}-{ablation}"
-                target_repo = d["target"]
-                upload_token_folder(local_path, target_repo)
-        else:
-            print(f"skipping upload of tokens for {s}")
+            target_repo = d["target"]
+            local_path = Path(".") / f"tokenized/{s}/{ablation}"
+            print(f"\nUploading {ablation} to {target_repo} from {str(local_path)}\n")
+            upload_token_folder(local_path, target_repo)
 
 
 def upload_splits(args, datas):
@@ -188,12 +202,14 @@ def main(args):
             "target": f"{args.target_repo}/split-tulu-3-sft-olmo-2-mixture",
             "after_pull": filter_tulu,
             "ablations": ("full", "100k", "10k", "1k"),
+            "preproc":"preproc:pre_tulu",
         },
         "numina": {
             "src": "AI-MO/NuminaMath-CoT",
             "target": f"{args.target_repo}/split-NuminaMath-CoT",
             "after_pull": process_numina,
             "ablations": ("full", "100k", "10k", "1k"),
+            "preproc":"preproc:pre_numina",
         },
         "finemath" :{
             "src": "HuggingFaceTB/finemath",
@@ -231,9 +247,7 @@ def parse_args() -> Namespace:
     
     parser.add_argument('--split', action=BooleanOptionalAction, default=True, help="split generation")
     parser.add_argument('--tokenize', action=BooleanOptionalAction, default=True, help="generate tokenization for splits")
-    # parser.add_argument('--tokenize-instruct', action=BooleanOptionalAction, default=True, help="generate tokenization for splits")
     parser.add_argument('--upload', action=BooleanOptionalAction, default=True, help="upload tokenization folders")
-    # parser.add_argument('--upload-instruct-tokens', action=BooleanOptionalAction, default=True, help="upload tokenization folders")
     
     parsed = parser.parse_args()
     return parsed
