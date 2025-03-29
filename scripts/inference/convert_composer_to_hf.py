@@ -166,20 +166,19 @@ def write_huggingface_pretrained_from_composer_checkpoint(
             TRAIN_CONFIG_KEYS,
             transforms='all',
         )
+        
         pretrained_model_name_or_path = train_cfg.model["pretrained_model_name_or_path"]
-        print(pretrained_model_name_or_path)
         peft_config_dict = train_cfg.model["peft_config"]
-        print(peft_config_dict)
 
         # for model_path = smollm2-135m_lora-20250305_114026
-        lora_config = LoraConfig(
-            r=64,
-            lora_alpha=128,
-            target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-            lora_dropout=0.05,
-            task_type="CAUSAL_LM",
-            peft_type="LORA",
-        )
+        # lora_config = LoraConfig(
+        #     r=64,
+        #     lora_alpha=128,
+        #     target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        #     lora_dropout=0.05,
+        #     task_type="CAUSAL_LM",
+        #     peft_type="LORA",
+        # )
 
         peft_type = peft_config_dict.get('peft_type', '')
         if peft_type.upper() != 'LORA':
@@ -191,15 +190,11 @@ def write_huggingface_pretrained_from_composer_checkpoint(
             raise ValueError(
                 f'Only CAUSAL_LM is supported for task_type, but got {task_type}.',
             )
-        peft_config = LoraConfig(**peft_config_dict)
-        print(peft_config)
-
-        base_model = AutoModelForCausalLM.from_pretrained("HuggingFaceTB/SmolLM2-135M", torch_dtype=torch.bfloat16)
-
-        # create a PeftModel for each combination of checkpoint/weights_state_dict and base_model/base_model_cfg
-        peft_model = get_peft_model(base_model, lora_config)
-        peft_model.load_state_dict(weights_state_dict, strict=False)
         
+        peft_config = LoraConfig(**peft_config_dict)
+        base_model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path, torch_dtype=dtype)
+        peft_model = get_peft_model(base_model, peft_config)
+        peft_model.load_state_dict(weights_state_dict, strict=False)
         peft_model.save_pretrained(Path(output_path) / "adapters")
     else:
         
