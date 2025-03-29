@@ -1215,7 +1215,7 @@ def meta_math_format_preprocessor(inp: dict) -> ChatFormattedDict:
     return {'prompt': prompt, 'response': response}
 
 @dataset_constructor.register('ise-uiuc/Magicoder-Evol-Instruct-110K')
-def meta_math_format_preprocessor(inp: dict) -> ChatFormattedDict:
+def magicoder_format_preprocessor(inp: dict) -> ChatFormattedDict:
     """Convert MetaMathQA format to our chat format."""
     try:
         prompt = inp['instruction']
