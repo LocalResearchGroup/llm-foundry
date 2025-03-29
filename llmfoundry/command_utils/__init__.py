@@ -3,6 +3,10 @@
 from llmfoundry.command_utils.data_prep.convert_dataset_hf import (
     convert_dataset_hf,
     convert_dataset_hf_from_args,
+    DataSplitConstants,
+    DatasetConstants,
+    add_dataset_config,
+    CONSTS,
 )
 from llmfoundry.command_utils.data_prep.convert_dataset_json import (
     convert_dataset_json,
@@ -45,6 +49,10 @@ __all__ = [
     'eval_from_yaml',
     'convert_dataset_hf',
     'convert_dataset_hf_from_args',
+    'add_dataset_config',
+    'DataSplitConstants',
+    'DatasetConstants',
+    'CONSTS',
     'convert_dataset_json',
     'convert_dataset_json_from_args',
     'convert_delta_to_contrastive_mds',
