@@ -185,7 +185,7 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         base_model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path, torch_dtype=dtype)
         peft_model = get_peft_model(base_model, peft_config)
         peft_model.load_state_dict(weights_state_dict, strict=False)
-        peft_model.save_pretrained(Path(output_path) / "adapters")
+        peft_model.save_pretrained(Path(output_path))
     else:
         
         # Convert weights to desired dtype
