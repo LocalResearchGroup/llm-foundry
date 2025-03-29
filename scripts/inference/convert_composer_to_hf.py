@@ -35,6 +35,7 @@ def write_huggingface_pretrained_from_composer_checkpoint(
     output_precision: str = 'fp32',
     local_checkpoint_save_location: Optional[Union[Path, str]] = None,
     is_peft: bool = False,
+    train_yaml: str = None,
 ) -> tuple[PretrainedConfig, Optional[PreTrainedTokenizerBase]]:
     """Convert a Composer checkpoint to a pretrained HF checkpoint folder.
 
@@ -147,6 +148,7 @@ def write_huggingface_pretrained_from_composer_checkpoint(
     # Handle the case if the model is a peft finetuned model, in this case, just save the adapters
     if is_peft:
         print("THIS IS THE PEFT CASE")
+        print(train_yaml)
 
         # for model_path = smollm2-135m_lora-20250305_114026
         lora_config = LoraConfig(
@@ -214,6 +216,13 @@ def parse_args() -> Namespace:
         default=False, 
         help="True if the model being converted is a peft finetuned model"
     )
+
+    parser.add_argument(
+        "--train_yaml",
+        type=str, 
+        help="Path to the training YAML"
+    )
+    
     return parser.parse_args()
 
 
@@ -231,6 +240,7 @@ def _convert_composer_to_hf(args: Namespace) -> None:
         output_precision=args.output_precision,
         local_checkpoint_save_location=args.local_checkpoint_save_location,
         is_peft=args.is_peft,
+        train_yaml=args.train_yaml
     )
 
     dtype = {
