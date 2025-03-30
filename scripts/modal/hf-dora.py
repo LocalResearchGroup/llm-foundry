@@ -15,7 +15,7 @@ MODEL_CHECKPOINT_VOLUME_MOUNT_PATH = pathlib.Path("/model-checkpoints")
              concurrency_limit=1, volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME})
 def _train():
     import wandb
-    from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, Trainer
+    from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, Trainer, AdamW, get_cosine_schedule_with_warmup
     from peft import LoraConfig, get_peft_model
     from datasets import load_dataset
     from composer.utils.reproducibility import seed_all
@@ -118,25 +118,30 @@ def _train():
         output_dir="/content",
         per_device_train_batch_size=10,
         per_device_eval_batch_size=10,
-        max_steps=5000,
+        max_steps=1000,
         eval_strategy="no",
         save_strategy="no",
-        learning_rate=1e-4,
+        learning_rate=6e-4,
         report_to="wandb",   
         logging_steps=1, 
-        seed=seed
+        seed=seed,
+        max_grad_norm=1.0
     )
+
+    optimizer = AdamW(model.parameters(), lr=6e-4, betas=(0.9, 0.95), eps=1e-08, weight_decay=0)
+    scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=100, num_training_steps=1000)
 
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=tokenized_dataset
+        train_dataset=tokenized_dataset,
+        optimizers=(optimizer, scheduler)
     )
 
     wandb.init(
         entity="local-research-group",
         project="hf-trainer-smollm2-135m",
-        name="smollm2-135m-dora-5000ba",
+        name="smollm2-135m-dora-1000ba",
     )
     
     trainer.train()
