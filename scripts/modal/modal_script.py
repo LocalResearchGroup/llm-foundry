@@ -27,7 +27,7 @@ app = App("quick-start")
 image = Image.from_dockerfile("Dockerfile", gpu='l4')
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
-             concurrency_limit=1)
+             max_containers=1)
 def get_stats():
     import subprocess
     
@@ -50,7 +50,7 @@ def get_stats():
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")], 
               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def convert_c4_small_dataset():
     import subprocess
     import os
@@ -81,7 +81,7 @@ def convert_c4_small_dataset():
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")], 
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def view_model_checkpoints(save_folder: str=None):
     import os
     print("\nModel checkpoint files and sizes:")
@@ -179,7 +179,7 @@ def run_aim_server(run_folder: str):
 @app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m.yaml"):
     import subprocess, time
 
@@ -203,7 +203,7 @@ def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-1
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
     """Convert a model checkpoint to a HuggingFace format."""
     import subprocess, os
@@ -237,7 +237,7 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
 
 # @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
 #               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-#               concurrency_limit=1)
+#               max_containers=1)
 # def push_to_hf(checkpoint_path: str):
 #     from huggingface_hub import create_repo, upload_folder
 #     from pathlib import Path
@@ -256,7 +256,7 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def evaluate_model(checkpoint_path: str):
     import subprocess, os
     from pathlib import Path
@@ -287,7 +287,7 @@ def evaluate_model(checkpoint_path: str):
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
     import subprocess, os
     from pathlib import Path
@@ -323,7 +323,7 @@ def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: str = "model", private: bool = True):
     """Upload model checkpoint to HuggingFace Hub."""
     from huggingface_hub import HfApi
@@ -348,7 +348,7 @@ def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: s
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def pull_hf_to_folder():
     import subprocess
     import os
