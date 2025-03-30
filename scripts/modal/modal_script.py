@@ -411,6 +411,31 @@ def process_datasets():
     if result.stderr:
         print("Process dataset  errors:", result.stderr)
 
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
+              concurrency_limit=1)
+def pull_hf_to_folder(checkpoint_path: str, prompts: list[str]|str|None=None):
+    import subprocess
+    import os
+    
+    # Change to llm-foundry/scripts directory at the start
+    os.chdir("/llm-foundry/scripts")
+    print(f"Working directory: {os.getcwd()}")
+    
+    # Step 1: pull all tokens
+    print("Downloading all repos...")
+    data_prep_cmd = [
+        PYTHON_PATH,  # Use the correct Python interpreter
+        "data_prep/download_repo.py",
+    ]
+    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Download data errors:", result.stderr)
+    
+    DATASETS_VOLUME.commit()
+
+
 @app.local_entrypoint()
 def main():
     from pathlib import Path
