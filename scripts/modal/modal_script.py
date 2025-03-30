@@ -347,9 +347,9 @@ def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: s
 
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
-              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
+              volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
               concurrency_limit=1)
-def pull_hf_to_folder(checkpoint_path: str, prompts: list[str]|str|None=None):
+def pull_hf_to_folder():
     import subprocess
     import os
     
