@@ -413,7 +413,7 @@ def process_datasets():
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def pull_hf_to_folder():
     import subprocess
     import os
