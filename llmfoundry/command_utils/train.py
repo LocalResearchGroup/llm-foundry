@@ -63,6 +63,9 @@ from llmfoundry.utils.registry_utils import import_file
 
 log = logging.getLogger(__name__)
 
+from composer import State
+from composer.loggers import Logger
+
 
 def validate_config(train_config: TrainConfig):
     """Validates compatible model and dataloader selection."""
@@ -558,6 +561,31 @@ def train(cfg: DictConfig) -> Trainer:
     print(f"q_proj base layer dtype before training:{model.model.base_model.model.model.layers[0].self_attn.q_proj.base_layer.weight.dtype}")
     print(f"q_proj lora_A dtype before training:{model.model.base_model.model.model.layers[0].self_attn.q_proj.lora_A.default.weight.dtype}")
     print(f"q_proj lora_B dtype before training:{model.model.base_model.model.model.layers[0].self_attn.q_proj.lora_B.default.weight.dtype}")
+
+    class WeightDtypeMonitor(Callback):
+        def __init__(self, backward_log_interval=5):
+            self.backward_log_interval = backward_log_interval
+        
+        def fit_start(self, state: State, logger: Logger) -> None:
+            self._log_dtypes(state, logger, "fit_start")
+        
+        def after_backward(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.backward_log_interval == 0:
+                self._log_dtypes(state, logger, f"backward_{state.timestamp.batch.value}")
+        
+        def epoch_end(self, state: State, logger: Logger) -> None:
+            self._log_dtypes(state, logger, f"epoch_{state.timestamp.epoch.value}")
+        
+        def _log_dtypes(self, state: State, logger: Logger, prefix: str) -> None:
+            model = state.model
+            logger.log_metrics({
+                f"dtype/{prefix}/lm_head": str(model.model.base_model.model.lm_head.weight.dtype),
+                f"dtype/{prefix}/q_proj_base": str(model.model.base_model.model.model.layers[0].self_attn.q_proj.base_layer.weight.dtype),
+                f"dtype/{prefix}/q_proj_lora_A": str(model.model.base_model.model.model.layers[0].self_attn.q_proj.lora_A.default.weight.dtype),
+                f"dtype/{prefix}/q_proj_lora_B": str(model.model.base_model.model.model.layers[0].self_attn.q_proj.lora_B.default.weight.dtype)
+            })
+
+    callbacks.append(WeightDtypeMonitor(backward_log_interval=5))
     
     # Build the Trainer
     log.info('Building trainer...')
