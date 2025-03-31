@@ -573,15 +573,10 @@ def train(cfg: DictConfig) -> Trainer:
             self._log_model_weight_dtypes(state, "fit_start")
             self._save_logs()
             
-        def after_backward(self, state: State, logger: Logger) -> None:
-            if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_gradient_dtypes(state, f"batch_{state.timestamp.batch.value}")
-                self._save_logs()
-
         def epoch_start(self, state: State, logger: Logger) -> None:
             self._log_model_weight_dtypes(state, f"epoch_{state.timestamp.epoch.value}_start")
             self._save_logs()
-            
+        
         def before_dataloader(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
                 self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_before_dataloader")
@@ -591,6 +586,53 @@ def train(cfg: DictConfig) -> Trainer:
             if state.timestamp.batch.value % self.log_interval == 0:
                 self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_after_dataloader")
                 self._save_logs()
+                
+        def batch_start(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_start")
+                self._save_logs()
+                
+        def before_forward(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_before_forward")
+                self._log_input_dtypes(state, f"batch_{state.timestamp.batch.value}_before_forward")
+                self._save_logs()
+                
+        def after_forward(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_after_forward")
+                self._log_output_dtypes(state, f"batch_{state.timestamp.batch.value}_after_forward")
+                self._save_logs()
+                
+        def before_loss(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_before_loss")
+                self._save_logs()
+                
+        def after_loss(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_after_loss")
+                self._log_loss_dtype(state, f"batch_{state.timestamp.batch.value}_after_loss")
+                self._save_logs()
+                
+        def before_backward(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_before_backward")
+                self._save_logs()
+                
+        def after_backward(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_gradient_dtypes(state, f"batch_{state.timestamp.batch.value}_after_backward")
+                self._save_logs()
+                
+        def batch_end(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_end")
+                self._save_logs()
+                
+        def epoch_end(self, state: State, logger: Logger) -> None:
+            self._log_model_weight_dtypes(state, f"epoch_{state.timestamp.epoch.value}_end")
+            self._save_logs()
             
         def _log_model_weight_dtypes(self, state: State, event_name: str) -> None:
             model = state.model
@@ -608,6 +650,28 @@ def train(cfg: DictConfig) -> Trainer:
                 else:
                     grad_dtype_dict[name] = "None"
             self.dtype_logs[f"{event_name}_gradients"] = grad_dtype_dict
+            
+        def _log_input_dtypes(self, state: State, event_name: str) -> None:
+            input_dtype_dict = {}
+            for i, batch in enumerate(state.batch):
+                if hasattr(batch, 'dtype'):
+                    input_dtype_dict[f"input_{i}"] = str(batch.dtype)
+            self.dtype_logs[f"{event_name}_inputs"] = input_dtype_dict
+            
+        def _log_output_dtypes(self, state: State, event_name: str) -> None:
+            output_dtype_dict = {}
+            if hasattr(state, 'outputs'):
+                if isinstance(state.outputs, (list, tuple)):
+                    for i, output in enumerate(state.outputs):
+                        if hasattr(output, 'dtype'):
+                            output_dtype_dict[f"output_{i}"] = str(output.dtype)
+                elif hasattr(state.outputs, 'dtype'):
+                    output_dtype_dict["output"] = str(state.outputs.dtype)
+            self.dtype_logs[f"{event_name}_outputs"] = output_dtype_dict
+            
+        def _log_loss_dtype(self, state: State, event_name: str) -> None:
+            if hasattr(state, 'loss') and hasattr(state.loss, 'dtype'):
+                self.dtype_logs[f"{event_name}_loss"] = str(state.loss.dtype)
                 
         def _save_logs(self) -> None:
             os.makedirs(self.save_path, exist_ok=True)
