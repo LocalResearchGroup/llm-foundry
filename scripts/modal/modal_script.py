@@ -358,10 +358,11 @@ def pull_hf_to_folder():
     print(f"Working directory: {os.getcwd()}")
     
     # Step 1: pull all tokens
-    print("Downloading all repos...")
+    print(f"Downloading repos to {DATASETS_VOLUME_MOUNT_PATH}/snapshot...")
     data_prep_cmd = [
         PYTHON_PATH,  # Use the correct Python interpreter
         "data_prep/download_repo.py",
+        "--out", f"{DATASETS_VOLUME_MOUNT_PATH}/snapshot",
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -398,3 +399,5 @@ def main():
     time.sleep(1)
 
     generate_responses.remote(model_path)
+
+    pull_hf_to_folder.remote() if False else None
