@@ -65,7 +65,8 @@ log = logging.getLogger(__name__)
 
 from composer import State
 from composer.loggers import Logger
-
+import json
+from pathlib import Path
 
 def validate_config(train_config: TrainConfig):
     """Validates compatible model and dataloader selection."""
@@ -561,97 +562,30 @@ def train(cfg: DictConfig) -> Trainer:
     print(f"q_proj base layer dtype before training:{model.model.base_model.model.model.layers[0].self_attn.q_proj.base_layer.weight.dtype}")
     print(f"q_proj lora_A dtype before training:{model.model.base_model.model.model.layers[0].self_attn.q_proj.lora_A.default.weight.dtype}")
     print(f"q_proj lora_B dtype before training:{model.model.base_model.model.model.layers[0].self_attn.q_proj.lora_B.default.weight.dtype}")
-    
-    class DtypeMonitor(Callback):
-        def __init__(self, log_interval=5):
-            self.log_interval = log_interval
-            self.hooks = []
-        
-        def fit_start(self, state: State, logger: Logger) -> None:
-            self._log_weight_dtypes(state, logger, "fit_start")
-        
-        def before_forward(self, state: State, logger: Logger) -> None:
-            if state.timestamp.batch.value % self.log_interval == 0:
-                # Log input tensor dtypes
-                if isinstance(state.batch, dict) and 'input_ids' in state.batch:
-                    logger.log_metrics({
-                        "dtype/input/input_ids": str(state.batch['input_ids'].dtype)
-                    })
-                
-                # Register hooks to capture activation dtypes
-                layer = state.model.model.base_model.model.model.layers[0].self_attn
-                
-                def hook_fn(name):
-                    def _hook(module, inputs, outputs):
-                        # Log input activation dtype
-                        if isinstance(inputs, tuple) and len(inputs) > 0:
-                            logger.log_metrics({f"dtype/activation/{name}_input": str(inputs[0].dtype)})
-                        
-                        # Log output activation dtype
-                        if isinstance(outputs, torch.Tensor):
-                            logger.log_metrics({f"dtype/activation/{name}_output": str(outputs.dtype)})
-                        elif isinstance(outputs, tuple) and len(outputs) > 0:
-                            logger.log_metrics({f"dtype/activation/{name}_output": str(outputs[0].dtype)})
-                    return _hook
-                
-                # Clear old hooks
-                for hook in self.hooks:
-                    hook.remove()
-                self.hooks = []
-                
-                # Register new hooks
-                self.hooks.append(layer.q_proj.register_forward_hook(hook_fn("q_proj")))
-                self.hooks.append(layer.register_forward_hook(hook_fn("self_attn")))
-        
-        def after_forward(self, state: State, logger: Logger) -> None:
-            if state.timestamp.batch.value % self.log_interval == 0:
-                # Log model output dtype
-                if isinstance(state.outputs, torch.Tensor):
-                    logger.log_metrics({
-                        "dtype/computation/output": str(state.outputs.dtype)
-                    })
-        
-        def after_loss(self, state: State, logger: Logger) -> None:
-            if state.timestamp.batch.value % self.log_interval == 0:
-                # Log loss dtype
-                if isinstance(state.loss, torch.Tensor):
-                    logger.log_metrics({
-                        "dtype/computation/loss": str(state.loss.dtype)
-                    })
-                elif isinstance(state.loss, dict) and 'total' in state.loss:
-                    logger.log_metrics({
-                        "dtype/computation/loss": str(state.loss['total'].dtype)
-                    })
-        
-        def after_backward(self, state: State, logger: Logger) -> None:
-            if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_weight_dtypes(state, logger, f"backward_{state.timestamp.batch.value}")
-                
-                # Check gradient dtypes
-                model = state.model
-                lora_A = model.model.base_model.model.model.layers[0].self_attn.q_proj.lora_A.default
-                if hasattr(lora_A, 'weight') and lora_A.weight.grad is not None:
-                    logger.log_metrics({
-                        "dtype/gradient/q_proj_lora_A": str(lora_A.weight.grad.dtype)
-                    })
-        
-        def epoch_end(self, state: State, logger: Logger) -> None:
-            self._log_weight_dtypes(state, logger, f"epoch_{state.timestamp.epoch.value}")
-            # Remove any remaining hooks
-            for hook in self.hooks:
-                hook.remove()
-            self.hooks = []
-        
-        def _log_weight_dtypes(self, state: State, logger: Logger, prefix: str) -> None:
-            model = state.model
-            logger.log_metrics({
-                f"dtype/{prefix}/lm_head": str(model.model.base_model.model.lm_head.weight.dtype),
-                f"dtype/{prefix}/q_proj_base": str(model.model.base_model.model.model.layers[0].self_attn.q_proj.base_layer.weight.dtype),
-                f"dtype/{prefix}/q_proj_lora_A": str(model.model.base_model.model.model.layers[0].self_attn.q_proj.lora_A.default.weight.dtype),
-                f"dtype/{prefix}/q_proj_lora_B": str(model.model.base_model.model.model.layers[0].self_attn.q_proj.lora_B.default.weight.dtype)
-            })
 
-    callbacks.append(DtypeMonitor())
+    class DtypeLogger(Callback):
+        def __init__(self, save_path="/model-checkpoints/dtype_tracking"):
+            self.save_path = Path(save_path)
+            self.dtype_logs = {}
+            
+        def fit_start(self, state: State, logger: Logger) -> None:
+            self._log_model_weight_dtypes(state, "fit_start")
+            self._save_logs()
+            
+        def _log_model_weight_dtypes(self, state: State, event_name: str) -> None:
+            model = state.model
+            weights_dtype_dict = {}
+            for name, param in model.named_parameters():
+                weights_dtype_dict[name] = str(param.dtype)
+            self.dtype_logs[f"{event_name}_weights"] = weights_dtype_dict
+    
+        def _save_logs(self) -> None:
+            os.makedirs(self.save_path, exist_ok=True)
+            log_file = self.save_path / "dtype_logs.json"
+            with open(log_file, 'w') as f:
+                json.dump(self.dtype_logs, f, indent=2)
+
+    callbacks.append(DtypeLogger())
     
     # Build the Trainer
     log.info('Building trainer...')
