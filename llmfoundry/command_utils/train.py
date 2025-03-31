@@ -577,6 +577,20 @@ def train(cfg: DictConfig) -> Trainer:
             if state.timestamp.batch.value % self.log_interval == 0:
                 self._log_gradient_dtypes(state, f"batch_{state.timestamp.batch.value}")
                 self._save_logs()
+
+        def epoch_start(self, state: State, logger: Logger) -> None:
+            self._log_model_weight_dtypes(state, f"epoch_{state.timestamp.epoch.value}_start")
+            self._save_logs()
+            
+        def before_dataloader(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_before_dataloader")
+                self._save_logs()
+                
+        def after_dataloader(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_after_dataloader")
+                self._save_logs()
             
         def _log_model_weight_dtypes(self, state: State, event_name: str) -> None:
             model = state.model
