@@ -8,27 +8,23 @@ def main(args):
     datasets = {
         "tulu": {
             "target": f"{args.repo}/split-tulu-3-sft-olmo-2-mixture",
-            "ablations": ("full", "100k", "10k", "1k"),
         },
         "numina": {
             "target": f"{args.repo}/split-NuminaMath-CoT",
-            "ablations": ("full", "100k", "10k", "1k"),
         },
         "finemath" :{
             "target": f"{args.repo}/split-finemath",
-            "ablations": ("full", "1M", "100k", "10k", "1k"),
         }
     }
-    datas_list = args.dataset
     
-    from pprint import pp
-    pp(datasets)
-    for ds in datas_list:
-        print(f"downloading {datasets[ds]["target"]=} to download-{ds}-tokenized\n")
+    for ds in args.dataset:
+        ld = f"{args.out}/{ds}"
+        datadown = datasets[ds]["target"]
+        print(f"downloading {datadown=} to {ld=}\n")
         local_dir = api.snapshot_download(
-            repo_id=datasets[ds]["target"],
+            repo_id=datadown,
             repo_type="dataset",
-            local_dir=f"download-{ds}-tokenized",
+            local_dir=ld,
         )
 
 def parse_args() -> Namespace:
@@ -48,6 +44,12 @@ def parse_args() -> Namespace:
         "--repo",
         default="LocalResearchGroup",
         help="repo containing tokenizations",
+    )
+
+    parser.add_argument(
+        "--out",
+        default=".",
+        help="local download folder",
     )
         
     parsed = parser.parse_args()
