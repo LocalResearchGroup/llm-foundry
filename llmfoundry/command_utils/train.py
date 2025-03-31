@@ -564,13 +564,19 @@ def train(cfg: DictConfig) -> Trainer:
     print(f"q_proj lora_B dtype before training:{model.model.base_model.model.model.layers[0].self_attn.q_proj.lora_B.default.weight.dtype}")
 
     class DtypeLogger(Callback):
-        def __init__(self, save_path="/model-checkpoints/dtype_tracking"):
+        def __init__(self, save_path="/model-checkpoints/dtype_tracking", log_interval=10):
             self.save_path = Path(save_path)
             self.dtype_logs = {}
+            self.log_interval = log_interval
             
         def fit_start(self, state: State, logger: Logger) -> None:
             self._log_model_weight_dtypes(state, "fit_start")
             self._save_logs()
+            
+        def after_backward(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_gradient_dtypes(state, f"batch_{state.timestamp.batch.value}")
+                self._save_logs()
             
         def _log_model_weight_dtypes(self, state: State, event_name: str) -> None:
             model = state.model
@@ -579,13 +585,23 @@ def train(cfg: DictConfig) -> Trainer:
                 weights_dtype_dict[name] = str(param.dtype)
             self.dtype_logs[f"{event_name}_weights"] = weights_dtype_dict
     
+        def _log_gradient_dtypes(self, state: State, event_name: str) -> None:
+            model = state.model
+            grad_dtype_dict = {}
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    grad_dtype_dict[name] = str(param.grad.dtype)
+                else:
+                    grad_dtype_dict[name] = "None"
+            self.dtype_logs[f"{event_name}_gradients"] = grad_dtype_dict
+                
         def _save_logs(self) -> None:
             os.makedirs(self.save_path, exist_ok=True)
             log_file = self.save_path / "dtype_logs.json"
             with open(log_file, 'w') as f:
                 json.dump(self.dtype_logs, f, indent=2)
 
-    callbacks.append(DtypeLogger())
+    callbacks.append(DtypeLogger(log_interval=1))
     
     # Build the Trainer
     log.info('Building trainer...')
