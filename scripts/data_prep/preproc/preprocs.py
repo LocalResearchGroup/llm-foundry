@@ -21,3 +21,8 @@ def pre_tulu(inp: dict):
 @dataset_constructor.register(f"{HF_REPO}/split-NuminaMath-CoT")
 def pre_numina(inp: dict):
     return {'prompt': inp['problem'], 'response': inp['solution']}
+
+
+@dataset_constructor.register(f"{HF_REPO}/split-glaive-code-assistant-v3")
+def pre_glaive(inp: dict):
+    return {'prompt': inp['question'], 'response': inp['answer']}
