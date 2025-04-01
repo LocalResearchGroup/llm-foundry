@@ -632,16 +632,35 @@ def train(cfg: DictConfig) -> Trainer:
                     
                     # Define a closure to capture the current layer_idx
                     def make_patched_forward(layer_idx, orig_forward):
-                        def patched_forward(self_attn, *args, **kwargs):
-                            # Check if hidden_states is in kwargs
-                            if 'hidden_states' in kwargs and hasattr(kwargs['hidden_states'], 'dtype'):
-                                self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input"] = str(kwargs['hidden_states'].dtype)
-                            # Also check if it might be the first positional argument
-                            elif len(args) > 0 and hasattr(args[0], 'dtype'):
-                                self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input"] = str(args[0].dtype)
+                        def patched_forward(
+                            self_attn,
+                            hidden_states=None,
+                            attention_mask=None,
+                            position_ids=None,
+                            past_key_value=None,
+                            output_attentions=None,
+                            use_cache=None,
+                            cache_position=None,
+                            position_embeddings=None,
+                            **kwargs
+                        ):
+                            # Log the hidden_states dtype
+                            if hidden_states is not None and hasattr(hidden_states, 'dtype'):
+                                self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input"] = str(hidden_states.dtype)
                             
-                            # Call the original forward method with the same arguments
-                            return orig_forward(self_attn, *args, **kwargs)
+                            # Call the original forward method with explicit arguments
+                            return orig_forward(
+                                self_attn,
+                                hidden_states=hidden_states,
+                                attention_mask=attention_mask,
+                                position_ids=position_ids,
+                                past_key_value=past_key_value,
+                                output_attentions=output_attentions,
+                                use_cache=use_cache,
+                                cache_position=cache_position,
+                                position_embeddings=position_embeddings,
+                                **kwargs
+                            )
                         
                         return patched_forward
                     
