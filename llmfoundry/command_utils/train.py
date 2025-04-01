@@ -607,78 +607,18 @@ def train(cfg: DictConfig) -> Trainer:
                 model = state.model.model.base_model.model
                 transformer_model = model.model  # This is the transformer part
                 batch_id = state.timestamp.batch.value
-
-                def self_attn_hook_fn(layer_idx):
-                    def _hook(module, inputs, outputs):
-                        # More detailed input structure analysis
-                        input_structure = str(type(inputs))
-                        if isinstance(inputs, tuple):
-                            input_structure += f" with {len(inputs)} elements"
-                            for i, item in enumerate(inputs):
-                                input_structure += f"\n  - Element {i}: {type(item)}"
-                                if hasattr(item, 'shape') and hasattr(item, 'dtype'):
-                                    input_structure += f" shape={item.shape}, dtype={item.dtype}"
-                                elif isinstance(item, tuple) or isinstance(item, list):
-                                    input_structure += f" with {len(item)} sub-elements"
-                        
-                        # More detailed output structure analysis
-                        output_structure = str(type(outputs))
-                        if isinstance(outputs, tuple):
-                            output_structure += f" with {len(outputs)} elements"
-                            for i, item in enumerate(outputs):
-                                output_structure += f"\n  - Element {i}: {type(item)}"
-                                if hasattr(item, 'shape') and hasattr(item, 'dtype'):
-                                    output_structure += f" shape={item.shape}, dtype={item.dtype}"
-                                elif isinstance(item, tuple) or isinstance(item, list):
-                                    output_structure += f" with {len(item)} sub-elements"
-                        elif hasattr(outputs, 'shape') and hasattr(outputs, 'dtype'):
-                            output_structure += f" shape={outputs.shape}, dtype={outputs.dtype}"
-                        
-                        # Store detailed debug info
-                        self.dtype_logs[f"batch_{batch_id}_debug_layer_{layer_idx}_self_attn_input_structure"] = input_structure
-                        self.dtype_logs[f"batch_{batch_id}_debug_layer_{layer_idx}_self_attn_output_structure"] = output_structure
-                        
-                        # Try to extract dtypes based on common patterns
-                        try:
-                            if isinstance(inputs, tuple) and len(inputs) > 0:
-                                for i, item in enumerate(inputs):
-                                    if hasattr(item, 'dtype'):
-                                        self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input_{i}"] = str(item.dtype)
-                        except Exception as e:
-                            self.dtype_logs[f"batch_{batch_id}_error_layer_{layer_idx}_self_attn_input"] = str(e)
-                            
-                        # For outputs
-                        try:
-                            if isinstance(outputs, tuple) and len(outputs) > 0:
-                                for i, item in enumerate(outputs):
-                                    if hasattr(item, 'dtype'):
-                                        self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_output_{i}"] = str(item.dtype)
-                            elif hasattr(outputs, 'dtype'):
-                                self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_output"] = str(outputs.dtype)
-                        except Exception as e:
-                            self.dtype_logs[f"batch_{batch_id}_error_layer_{layer_idx}_self_attn_output"] = str(e)
-                    
-                    return _hook
                 
                 def hook_fn(layer_name, module_name):
                     def _hook(module, inputs, outputs):
-                        # Log input activation dtype - more robust checking
-                        if inputs:  # Check if inputs exist
-                            if isinstance(inputs, tuple) and len(inputs) > 0:
-                                if hasattr(inputs[0], 'dtype'):
-                                    self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_input"] = str(inputs[0].dtype)
-                                # Try to catch dictionary inputs or other structures
-                                elif isinstance(inputs[0], dict) and 'hidden_states' in inputs[0]:
-                                    self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_input"] = str(inputs[0]['hidden_states'].dtype)
+                        # Log input activation dtype
+                        if isinstance(inputs, tuple) and len(inputs) > 0:
+                            self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_input"] = str(inputs[0].dtype)
                         
-                        # Log output activation dtype - more robust checking
-                        if outputs is not None:
-                            if isinstance(outputs, torch.Tensor):
-                                self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs.dtype)
-                            elif isinstance(outputs, tuple) and len(outputs) > 0 and hasattr(outputs[0], 'dtype'):
-                                self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs[0].dtype)
-                            elif isinstance(outputs, dict) and 'hidden_states' in outputs:
-                                self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs['hidden_states'].dtype)
+                        # Log output activation dtype
+                        if isinstance(outputs, torch.Tensor):
+                            self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs.dtype)
+                        elif isinstance(outputs, tuple) and len(outputs) > 0:
+                            self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs[0].dtype)
                     return _hook
                 
                 # Register hook for lm_head
