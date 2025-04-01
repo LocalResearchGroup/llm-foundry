@@ -605,6 +605,7 @@ def train(cfg: DictConfig) -> Trainer:
                 
                 # Get the model
                 model = state.model.model.base_model.model.model
+                print(state.model)
                 batch_id = state.timestamp.batch.value
                 
                 def hook_fn(layer_name, module_name):
