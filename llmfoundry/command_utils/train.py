@@ -610,40 +610,51 @@ def train(cfg: DictConfig) -> Trainer:
 
                 def self_attn_hook_fn(layer_idx):
                     def _hook(module, inputs, outputs):
-                        # Debug information
+                        # More detailed input structure analysis
                         input_structure = str(type(inputs))
-                        if isinstance(inputs, tuple) and len(inputs) > 0:
-                            input_structure += f" with first element type: {type(inputs[0])}"
+                        if isinstance(inputs, tuple):
+                            input_structure += f" with {len(inputs)} elements"
+                            for i, item in enumerate(inputs):
+                                input_structure += f"\n  - Element {i}: {type(item)}"
+                                if hasattr(item, 'shape') and hasattr(item, 'dtype'):
+                                    input_structure += f" shape={item.shape}, dtype={item.dtype}"
+                                elif isinstance(item, tuple) or isinstance(item, list):
+                                    input_structure += f" with {len(item)} sub-elements"
                         
+                        # More detailed output structure analysis
                         output_structure = str(type(outputs))
-                        if isinstance(outputs, tuple) and len(outputs) > 0:
-                            output_structure += f" with first element type: {type(outputs[0])}"
+                        if isinstance(outputs, tuple):
+                            output_structure += f" with {len(outputs)} elements"
+                            for i, item in enumerate(outputs):
+                                output_structure += f"\n  - Element {i}: {type(item)}"
+                                if hasattr(item, 'shape') and hasattr(item, 'dtype'):
+                                    output_structure += f" shape={item.shape}, dtype={item.dtype}"
+                                elif isinstance(item, tuple) or isinstance(item, list):
+                                    output_structure += f" with {len(item)} sub-elements"
+                        elif hasattr(outputs, 'shape') and hasattr(outputs, 'dtype'):
+                            output_structure += f" shape={outputs.shape}, dtype={outputs.dtype}"
                         
-                        # Store debug info
+                        # Store detailed debug info
                         self.dtype_logs[f"batch_{batch_id}_debug_layer_{layer_idx}_self_attn_input_structure"] = input_structure
                         self.dtype_logs[f"batch_{batch_id}_debug_layer_{layer_idx}_self_attn_output_structure"] = output_structure
                         
-                        # Try various ways to extract the dtype
-                        # For inputs
+                        # Try to extract dtypes based on common patterns
                         try:
                             if isinstance(inputs, tuple) and len(inputs) > 0:
-                                if hasattr(inputs[0], 'dtype'):
-                                    self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input"] = str(inputs[0].dtype)
+                                for i, item in enumerate(inputs):
+                                    if hasattr(item, 'dtype'):
+                                        self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input_{i}"] = str(item.dtype)
                         except Exception as e:
                             self.dtype_logs[f"batch_{batch_id}_error_layer_{layer_idx}_self_attn_input"] = str(e)
                             
                         # For outputs
                         try:
-                            # Common output format for attention
                             if isinstance(outputs, tuple) and len(outputs) > 0:
-                                if hasattr(outputs[0], 'dtype'):
-                                    self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_output"] = str(outputs[0].dtype)
-                            # If it's just a tensor
-                            elif isinstance(outputs, torch.Tensor):
+                                for i, item in enumerate(outputs):
+                                    if hasattr(item, 'dtype'):
+                                        self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_output_{i}"] = str(item.dtype)
+                            elif hasattr(outputs, 'dtype'):
                                 self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_output"] = str(outputs.dtype)
-                            # If it's a custom object with an attribute
-                            elif hasattr(outputs, 'hidden_states') and hasattr(outputs.hidden_states, 'dtype'):
-                                self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_output"] = str(outputs.hidden_states.dtype)
                         except Exception as e:
                             self.dtype_logs[f"batch_{batch_id}_error_layer_{layer_idx}_self_attn_output"] = str(e)
                     
