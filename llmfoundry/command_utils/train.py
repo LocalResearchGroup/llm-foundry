@@ -610,15 +610,23 @@ def train(cfg: DictConfig) -> Trainer:
                 
                 def hook_fn(layer_name, module_name):
                     def _hook(module, inputs, outputs):
-                        # Log input activation dtype
-                        if isinstance(inputs, tuple) and len(inputs) > 0:
-                            self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_input"] = str(inputs[0].dtype)
+                        # Log input activation dtype - more robust checking
+                        if inputs:  # Check if inputs exist
+                            if isinstance(inputs, tuple) and len(inputs) > 0:
+                                if hasattr(inputs[0], 'dtype'):
+                                    self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_input"] = str(inputs[0].dtype)
+                                # Try to catch dictionary inputs or other structures
+                                elif isinstance(inputs[0], dict) and 'hidden_states' in inputs[0]:
+                                    self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_input"] = str(inputs[0]['hidden_states'].dtype)
                         
-                        # Log output activation dtype
-                        if isinstance(outputs, torch.Tensor):
-                            self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs.dtype)
-                        elif isinstance(outputs, tuple) and len(outputs) > 0:
-                            self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs[0].dtype)
+                        # Log output activation dtype - more robust checking
+                        if outputs is not None:
+                            if isinstance(outputs, torch.Tensor):
+                                self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs.dtype)
+                            elif isinstance(outputs, tuple) and len(outputs) > 0 and hasattr(outputs[0], 'dtype'):
+                                self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs[0].dtype)
+                            elif isinstance(outputs, dict) and 'hidden_states' in outputs:
+                                self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs['hidden_states'].dtype)
                     return _hook
                 
                 # Register hook for lm_head
