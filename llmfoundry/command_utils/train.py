@@ -633,36 +633,13 @@ def train(cfg: DictConfig) -> Trainer:
                     # Define a closure to capture the current layer_idx
                     def make_patched_forward(layer_idx, orig_forward):
                         def patched_forward(self_attn, *args, **kwargs):
-                            # Log the arguments
-                            args_info = str([type(arg) for arg in args])
-                            kwargs_info = str(list(kwargs.keys()))
-                            print(args_info)
-                            print(kwargs_info)
-                            
-                            # Store debug info
-                            self.dtype_logs[f"batch_{batch_id}_debug_layer_{layer_idx}_self_attn_args"] = args_info
-                            self.dtype_logs[f"batch_{batch_id}_debug_layer_{layer_idx}_self_attn_kwargs"] = kwargs_info
-                            
-                            # If hidden_states is in args and kwargs, remove from one of them
-                            if 'hidden_states' in kwargs and len(args) > 0:
-                                # Log this conflict
-                                self.dtype_logs[f"batch_{batch_id}_debug_layer_{layer_idx}_self_attn_conflict"] = "hidden_states in both args and kwargs"
-                                
-                                # Just log the dtype and don't modify the call
-                                if hasattr(kwargs['hidden_states'], 'dtype'):
-                                    self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input"] = str(kwargs['hidden_states'].dtype)
-                                
-                                # Let's try using just the original forward method to avoid conflicts
-                                return orig_forward(self_attn, *args, **kwargs)
-                            
-                            # If no conflict, log the dtype if available
+                            # Log the hidden_states dtype
                             if 'hidden_states' in kwargs and hasattr(kwargs['hidden_states'], 'dtype'):
                                 self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input"] = str(kwargs['hidden_states'].dtype)
-                            elif len(args) > 0 and hasattr(args[0], 'dtype'):
-                                self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input"] = str(args[0].dtype)
                             
-                            # Call the original forward method
-                            return orig_forward(self_attn, *args, **kwargs)
+                            # Call the original method as a bound method
+                            # This ensures 'self_attn' is correctly passed as 'self'
+                            return orig_forward.__get__(self_attn, type(self_attn))(**kwargs)
                         
                         return patched_forward
                     
