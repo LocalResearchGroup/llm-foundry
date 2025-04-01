@@ -633,11 +633,14 @@ def train(cfg: DictConfig) -> Trainer:
                     # Define a closure to capture the current layer_idx
                     def make_patched_forward(layer_idx, orig_forward):
                         def patched_forward(self_attn, *args, **kwargs):
-                            # Log the hidden_states dtype (main input to self-attention)
+                            # Check if hidden_states is in kwargs
                             if 'hidden_states' in kwargs and hasattr(kwargs['hidden_states'], 'dtype'):
                                 self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input"] = str(kwargs['hidden_states'].dtype)
+                            # Also check if it might be the first positional argument
+                            elif len(args) > 0 and hasattr(args[0], 'dtype'):
+                                self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input"] = str(args[0].dtype)
                             
-                            # Call the original forward method
+                            # Call the original forward method with the same arguments
                             return orig_forward(self_attn, *args, **kwargs)
                         
                         return patched_forward
