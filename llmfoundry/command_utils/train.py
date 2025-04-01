@@ -630,8 +630,6 @@ def train(cfg: DictConfig) -> Trainer:
                 
                 # Register hooks for each transformer layer
                 for layer_idx, layer in enumerate(transformer_model.layers): 
-                    self.hooks.append(layer.self_attn.register_forward_hook(self_attn_hook_fn(layer_idx)))
-        
                     # Self-attention components
                     self.hooks.append(layer.self_attn.register_forward_hook(hook_fn(f"layer_{layer_idx}", "self_attn")))
                     self.hooks.append(layer.self_attn.q_proj.register_forward_hook(hook_fn(f"layer_{layer_idx}", "q_proj")))
