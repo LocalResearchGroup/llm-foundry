@@ -603,26 +603,47 @@ def train(cfg: DictConfig) -> Trainer:
                     hook.remove()
                 self.hooks = []
                 
-                # Register hooks to capture activation dtypes
-                layer = state.model.model.base_model.model.model.layers[0].self_attn
+                # Get the model
+                model = state.model.model.base_model.model.model
                 batch_id = state.timestamp.batch.value
                 
-                def hook_fn(name):
+                def hook_fn(layer_name, module_name):
                     def _hook(module, inputs, outputs):
                         # Log input activation dtype
                         if isinstance(inputs, tuple) and len(inputs) > 0:
-                            self.dtype_logs[f"batch_{batch_id}_activation_{name}_input"] = str(inputs[0].dtype)
+                            self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_input"] = str(inputs[0].dtype)
                         
                         # Log output activation dtype
                         if isinstance(outputs, torch.Tensor):
-                            self.dtype_logs[f"batch_{batch_id}_activation_{name}_output"] = str(outputs.dtype)
+                            self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs.dtype)
                         elif isinstance(outputs, tuple) and len(outputs) > 0:
-                            self.dtype_logs[f"batch_{batch_id}_activation_{name}_output"] = str(outputs[0].dtype)
+                            self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs[0].dtype)
                     return _hook
                 
-                # Register new hooks
-                self.hooks.append(layer.q_proj.register_forward_hook(hook_fn("q_proj")))
-                self.hooks.append(layer.register_forward_hook(hook_fn("self_attn")))
+                # Register hook for embedding layer
+                self.hooks.append(model.embed_tokens.register_forward_hook(hook_fn("embeddings", "embed_tokens")))
+                
+                # Register hooks for each transformer layer
+                for layer_idx, layer in enumerate(model.layers):
+                    # Self-attention components
+                    self.hooks.append(layer.self_attn.register_forward_hook(hook_fn(f"layer_{layer_idx}", "self_attn")))
+                    self.hooks.append(layer.self_attn.q_proj.register_forward_hook(hook_fn(f"layer_{layer_idx}", "q_proj")))
+                    self.hooks.append(layer.self_attn.k_proj.register_forward_hook(hook_fn(f"layer_{layer_idx}", "k_proj")))
+                    self.hooks.append(layer.self_attn.v_proj.register_forward_hook(hook_fn(f"layer_{layer_idx}", "v_proj")))
+                    self.hooks.append(layer.self_attn.o_proj.register_forward_hook(hook_fn(f"layer_{layer_idx}", "o_proj")))
+                    
+                    # MLP components
+                    self.hooks.append(layer.mlp.register_forward_hook(hook_fn(f"layer_{layer_idx}", "mlp")))
+                    self.hooks.append(layer.mlp.gate_proj.register_forward_hook(hook_fn(f"layer_{layer_idx}", "gate_proj")))
+                    self.hooks.append(layer.mlp.up_proj.register_forward_hook(hook_fn(f"layer_{layer_idx}", "up_proj")))
+                    self.hooks.append(layer.mlp.down_proj.register_forward_hook(hook_fn(f"layer_{layer_idx}", "down_proj")))
+                    
+                    # Layer norms
+                    self.hooks.append(layer.input_layernorm.register_forward_hook(hook_fn(f"layer_{layer_idx}", "input_layernorm")))
+                    self.hooks.append(layer.post_attention_layernorm.register_forward_hook(hook_fn(f"layer_{layer_idx}", "post_attention_layernorm")))
+                
+                # Final layer norm
+                self.hooks.append(model.norm.register_forward_hook(hook_fn("final", "norm")))
                 
                 self._save_logs()
                 
