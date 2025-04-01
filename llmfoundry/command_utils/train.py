@@ -604,8 +604,8 @@ def train(cfg: DictConfig) -> Trainer:
                 self.hooks = []
                 
                 # Get the model
-                model = state.model.model.base_model.model.model
-                print(state.model)
+                model = state.model.model.base_model.model
+                transformer_model = model.model  # This is the transformer part
                 batch_id = state.timestamp.batch.value
                 
                 def hook_fn(layer_name, module_name):
@@ -621,11 +621,15 @@ def train(cfg: DictConfig) -> Trainer:
                             self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs[0].dtype)
                     return _hook
                 
+                # Register hook for lm_head
+                if hasattr(model, 'lm_head'):
+                    self.hooks.append(model.lm_head.register_forward_hook(hook_fn("output", "lm_head")))
+                
                 # Register hook for embedding layer
-                self.hooks.append(model.embed_tokens.register_forward_hook(hook_fn("embeddings", "embed_tokens")))
+                self.hooks.append(transformer_model.embed_tokens.register_forward_hook(hook_fn("embeddings", "embed_tokens")))
                 
                 # Register hooks for each transformer layer
-                for layer_idx, layer in enumerate(model.layers):
+                for layer_idx, layer in enumerate(transformer_model.layers):   
                     # Self-attention components
                     self.hooks.append(layer.self_attn.register_forward_hook(hook_fn(f"layer_{layer_idx}", "self_attn")))
                     self.hooks.append(layer.self_attn.q_proj.register_forward_hook(hook_fn(f"layer_{layer_idx}", "q_proj")))
@@ -644,7 +648,7 @@ def train(cfg: DictConfig) -> Trainer:
                     self.hooks.append(layer.post_attention_layernorm.register_forward_hook(hook_fn(f"layer_{layer_idx}", "post_attention_layernorm")))
                 
                 # Final layer norm
-                self.hooks.append(model.norm.register_forward_hook(hook_fn("final", "norm")))
+                self.hooks.append(transformer_model.norm.register_forward_hook(hook_fn("final", "norm")))
                 
                 self._save_logs()
                 
