@@ -607,6 +607,47 @@ def train(cfg: DictConfig) -> Trainer:
                 model = state.model.model.base_model.model
                 transformer_model = model.model  # This is the transformer part
                 batch_id = state.timestamp.batch.value
+
+                def self_attn_hook_fn(layer_idx):
+                    def _hook(module, inputs, outputs):
+                        # Debug information
+                        input_structure = str(type(inputs))
+                        if isinstance(inputs, tuple) and len(inputs) > 0:
+                            input_structure += f" with first element type: {type(inputs[0])}"
+                        
+                        output_structure = str(type(outputs))
+                        if isinstance(outputs, tuple) and len(outputs) > 0:
+                            output_structure += f" with first element type: {type(outputs[0])}"
+                        
+                        # Store debug info
+                        self.dtype_logs[f"batch_{batch_id}_debug_layer_{layer_idx}_self_attn_input_structure"] = input_structure
+                        self.dtype_logs[f"batch_{batch_id}_debug_layer_{layer_idx}_self_attn_output_structure"] = output_structure
+                        
+                        # Try various ways to extract the dtype
+                        # For inputs
+                        try:
+                            if isinstance(inputs, tuple) and len(inputs) > 0:
+                                if hasattr(inputs[0], 'dtype'):
+                                    self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input"] = str(inputs[0].dtype)
+                        except Exception as e:
+                            self.dtype_logs[f"batch_{batch_id}_error_layer_{layer_idx}_self_attn_input"] = str(e)
+                            
+                        # For outputs
+                        try:
+                            # Common output format for attention
+                            if isinstance(outputs, tuple) and len(outputs) > 0:
+                                if hasattr(outputs[0], 'dtype'):
+                                    self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_output"] = str(outputs[0].dtype)
+                            # If it's just a tensor
+                            elif isinstance(outputs, torch.Tensor):
+                                self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_output"] = str(outputs.dtype)
+                            # If it's a custom object with an attribute
+                            elif hasattr(outputs, 'hidden_states') and hasattr(outputs.hidden_states, 'dtype'):
+                                self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_output"] = str(outputs.hidden_states.dtype)
+                        except Exception as e:
+                            self.dtype_logs[f"batch_{batch_id}_error_layer_{layer_idx}_self_attn_output"] = str(e)
+                    
+                    return _hook
                 
                 def hook_fn(layer_name, module_name):
                     def _hook(module, inputs, outputs):
@@ -637,7 +678,9 @@ def train(cfg: DictConfig) -> Trainer:
                 self.hooks.append(transformer_model.embed_tokens.register_forward_hook(hook_fn("embeddings", "embed_tokens")))
                 
                 # Register hooks for each transformer layer
-                for layer_idx, layer in enumerate(transformer_model.layers):   
+                for layer_idx, layer in enumerate(transformer_model.layers): 
+                    self.hooks.append(layer.self_attn.register_forward_hook(self_attn_hook_fn(layer_idx)))
+        
                     # Self-attention components
                     self.hooks.append(layer.self_attn.register_forward_hook(hook_fn(f"layer_{layer_idx}", "self_attn")))
                     self.hooks.append(layer.self_attn.q_proj.register_forward_hook(hook_fn(f"layer_{layer_idx}", "q_proj")))
