@@ -568,6 +568,7 @@ def train(cfg: DictConfig) -> Trainer:
             self.save_path = Path(save_path)
             self.dtype_logs = {}
             self.log_interval = log_interval
+            self.hooks = []
             
         def fit_start(self, state: State, logger: Logger) -> None:
             self._log_model_weight_dtypes(state, "fit_start")
@@ -596,12 +597,45 @@ def train(cfg: DictConfig) -> Trainer:
             if state.timestamp.batch.value % self.log_interval == 0:
                 self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_before_forward")
                 self._log_input_dtypes(state, f"batch_{state.timestamp.batch.value}_before_forward")
+                
+                # Clear old hooks
+                for hook in self.hooks:
+                    hook.remove()
+                self.hooks = []
+                
+                # Register hooks to capture activation dtypes
+                layer = state.model.model.base_model.model.model.layers[0].self_attn
+                batch_id = state.timestamp.batch.value
+                
+                def hook_fn(name):
+                    def _hook(module, inputs, outputs):
+                        # Log input activation dtype
+                        if isinstance(inputs, tuple) and len(inputs) > 0:
+                            self.dtype_logs[f"batch_{batch_id}_activation_{name}_input"] = str(inputs[0].dtype)
+                        
+                        # Log output activation dtype
+                        if isinstance(outputs, torch.Tensor):
+                            self.dtype_logs[f"batch_{batch_id}_activation_{name}_output"] = str(outputs.dtype)
+                        elif isinstance(outputs, tuple) and len(outputs) > 0:
+                            self.dtype_logs[f"batch_{batch_id}_activation_{name}_output"] = str(outputs[0].dtype)
+                    return _hook
+                
+                # Register new hooks
+                self.hooks.append(layer.q_proj.register_forward_hook(hook_fn("q_proj")))
+                self.hooks.append(layer.register_forward_hook(hook_fn("self_attn")))
+                
                 self._save_logs()
                 
         def after_forward(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
                 self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_after_forward")
                 self._log_output_dtypes(state, f"batch_{state.timestamp.batch.value}_after_forward")
+                
+                # Clear hooks after forward pass
+                for hook in self.hooks:
+                    hook.remove()
+                self.hooks = []
+                
                 self._save_logs()
                 
         def before_loss(self, state: State, logger: Logger) -> None:
