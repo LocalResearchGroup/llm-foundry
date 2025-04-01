@@ -124,7 +124,7 @@ def upload_token_folder(local_path, target_repo):
         path_in_repo=str(local_path.relative_to("."))
     )
 
-def create_pretraining_tokens(args, datasets, tokenizer='HuggingFaceTB/SmolLM2-135M'):
+def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-135M"):
     # import configurations to tokenize new dataset splits
     import tokenize_split
     from llmfoundry.command_utils import convert_dataset_hf_from_args, DatasetConstants, DataSplitConstants, add_dataset_config, CONSTS
@@ -139,14 +139,14 @@ def create_pretraining_tokens(args, datasets, tokenizer='HuggingFaceTB/SmolLM2-1
                 convert_dataset_hf_from_args(
                     dataset=d["target"],
                     data_subset=ablation,
-                    splits=['train', 'test'],
-                    out_root=f'tokenized/{s}/{ablation}',
+                    splits=["train", "test"],
+                    out_root=f"tokenized/{s}/{ablation}",
                     compression="zstd",
                     concat_tokens=None,
                     tokenizer=tokenizer,
                     tokenizer_kwargs=None,
                     bos_text=None,
-                    eos_text='<|endoftext|>',
+                    eos_text="<|endoftext|>",
                     no_wrap=False,
                     num_workers=None,
                 )
@@ -155,11 +155,11 @@ def create_pretraining_tokens(args, datasets, tokenizer='HuggingFaceTB/SmolLM2-1
                 convert_finetuning_dataset_from_args(
                     d["target"],
                     f"{ablation}",  # data_subset
-                    ['train', 'test'],
+                    ["train", "test"],
                     d["preproc"],
                     [],
                     False,
-                    f'tokenized/{s}/{ablation}',  # out_root
+                    f"tokenized/{s}/{ablation}",  # out_root
                     None,
                     "zstd",
                     None,  # num_workers
@@ -216,7 +216,13 @@ def main(args):
             "ds_name": "finemath-4plus",
             "target": f"{args.target_repo}/split-finemath",
             "ablations": ("full", "1M", "100k", "10k", "1k"),
-        }
+        },
+        "glaive": {
+            "src": "glaiveai/glaive-code-assistant-v3",
+            "target": f"{args.target_repo}/split-glaive-code-assistant-v3",
+            "ablations": ("full", "1M", "100k", "10k", "1k"),
+            "preproc":"preproc:pre_glaive",
+        },
     }
     if args.split:
         d = upload_splits(args, datasets)
@@ -230,13 +236,13 @@ def parse_args() -> Namespace:
     """Parse commandline arguments."""
     parser = ArgumentParser(
         description=
-        'Split to train/test 1M, 100k, 10k, 1k and tokenize',
+        "Split to train/test 1M, 100k, 10k, 1k and tokenize",
     )
     parser.add_argument(
-        '--source',
-        nargs='+',
-        choices=['tulu', 'numina', 'finemath'],
-        default=['tulu', 'numina', 'finemath'],
+        "--source",
+        nargs="+",
+        choices=["tulu", "numina", "finemath", "glaive",],
+        default=["tulu", "numina", "finemath", "glaive",],
     )
 
     parser.add_argument(
@@ -245,9 +251,9 @@ def parse_args() -> Namespace:
         help="target repo to upload splits and tokenizations",
     )
     
-    parser.add_argument('--split', action=BooleanOptionalAction, default=True, help="split generation")
-    parser.add_argument('--tokenize', action=BooleanOptionalAction, default=True, help="generate tokenization for splits")
-    parser.add_argument('--upload', action=BooleanOptionalAction, default=True, help="upload tokenization folders")
+    parser.add_argument("--split", action=BooleanOptionalAction, default=True, help="split generation")
+    parser.add_argument("--tokenize", action=BooleanOptionalAction, default=True, help="generate tokenization for splits")
+    parser.add_argument("--upload", action=BooleanOptionalAction, default=True, help="upload tokenization folders")
     
     parsed = parser.parse_args()
     return parsed
