@@ -636,6 +636,8 @@ def train(cfg: DictConfig) -> Trainer:
                             # Log the arguments
                             args_info = str([type(arg) for arg in args])
                             kwargs_info = str(list(kwargs.keys()))
+                            print(args_info)
+                            print(kwargs_info)
                             
                             # Store debug info
                             self.dtype_logs[f"batch_{batch_id}_debug_layer_{layer_idx}_self_attn_args"] = args_info
