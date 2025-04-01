@@ -608,6 +608,9 @@ def train(cfg: DictConfig) -> Trainer:
                 transformer_model = model.model  # This is the transformer part
                 batch_id = state.timestamp.batch.value
                 
+                # Store original forward methods to restore later
+                self.original_forward_methods = {}
+                
                 def hook_fn(layer_name, module_name):
                     def _hook(module, inputs, outputs):
                         # Log input activation dtype
@@ -621,6 +624,27 @@ def train(cfg: DictConfig) -> Trainer:
                             self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs[0].dtype)
                     return _hook
                 
+                # Monkey patch self-attention modules
+                for layer_idx, layer in enumerate(transformer_model.layers):
+                    # Store the original forward method
+                    original_forward = layer.self_attn.forward
+                    self.original_forward_methods[layer_idx] = original_forward
+                    
+                    # Define a closure to capture the current layer_idx
+                    def make_patched_forward(layer_idx, orig_forward):
+                        def patched_forward(self_attn, *args, **kwargs):
+                            # Log the hidden_states dtype (main input to self-attention)
+                            if 'hidden_states' in kwargs and hasattr(kwargs['hidden_states'], 'dtype'):
+                                self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input"] = str(kwargs['hidden_states'].dtype)
+                            
+                            # Call the original forward method
+                            return orig_forward(self_attn, *args, **kwargs)
+                        
+                        return patched_forward
+                    
+                    # Replace the forward method
+                    layer.self_attn.forward = make_patched_forward(layer_idx, original_forward).__get__(layer.self_attn, type(layer.self_attn))
+                
                 # Register hook for lm_head
                 if hasattr(model, 'lm_head'):
                     self.hooks.append(model.lm_head.register_forward_hook(hook_fn("output", "lm_head")))
@@ -630,7 +654,7 @@ def train(cfg: DictConfig) -> Trainer:
                 
                 # Register hooks for each transformer layer
                 for layer_idx, layer in enumerate(transformer_model.layers): 
-                    # Self-attention components
+                    # Self-attention components - we still register hooks for outputs
                     self.hooks.append(layer.self_attn.register_forward_hook(hook_fn(f"layer_{layer_idx}", "self_attn")))
                     self.hooks.append(layer.self_attn.q_proj.register_forward_hook(hook_fn(f"layer_{layer_idx}", "q_proj")))
                     self.hooks.append(layer.self_attn.k_proj.register_forward_hook(hook_fn(f"layer_{layer_idx}", "k_proj")))
@@ -657,7 +681,17 @@ def train(cfg: DictConfig) -> Trainer:
                 self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_after_forward")
                 self._log_output_dtypes(state, f"batch_{state.timestamp.batch.value}_after_forward")
                 
-                # Clear hooks after forward pass
+                # Restore original forward methods
+                if hasattr(self, 'original_forward_methods'):
+                    model = state.model.model.base_model.model
+                    transformer_model = model.model
+                    
+                    for layer_idx, original_forward in self.original_forward_methods.items():
+                        transformer_model.layers[layer_idx].self_attn.forward = original_forward
+                    
+                    self.original_forward_methods = {}
+                
+                # Clear hooks
                 for hook in self.hooks:
                     hook.remove()
                 self.hooks = []
