@@ -677,14 +677,23 @@ def train(cfg: DictConfig) -> Trainer:
                 
         def after_backward(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
+                # Log gradient dtypes as before
                 self._log_gradient_dtypes(state, f"batch_{state.timestamp.batch.value}_after_backward")
+                
+                # Track weight dtypes before optimizer step
+                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_before_optim_step")
+                
+                # Log optimizer state dtypes
+                self._log_optimizer_state_dtypes(state, f"batch_{state.timestamp.batch.value}")
+                
                 self._save_logs()
                 
         def batch_end(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_end")
+                # Track weight dtypes after optimizer step to detect precision changes
+                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_after_optim_step")
                 self._save_logs()
-                
+
         def epoch_end(self, state: State, logger: Logger) -> None:
             self._log_model_weight_dtypes(state, f"epoch_{state.timestamp.epoch.value}_end")
             self._save_logs()
@@ -727,6 +736,28 @@ def train(cfg: DictConfig) -> Trainer:
         def _log_loss_dtype(self, state: State, event_name: str) -> None:
             if hasattr(state, 'loss') and hasattr(state.loss, 'dtype'):
                 self.dtype_logs[f"{event_name}_loss"] = str(state.loss.dtype)
+                
+        def _log_optimizer_state_dtypes(self, state: State, event_name: str) -> None:
+            optimizer_state_dict = {}
+            
+            if hasattr(state, 'optimizers') and state.optimizers is not None:
+                # Handle single optimizer or list of optimizers
+                optimizers = state.optimizers if isinstance(state.optimizers, list) else [state.optimizers]
+                
+                for opt_idx, optimizer in enumerate(optimizers):
+                    # Get optimizer state dict
+                    opt_state = optimizer.state_dict()
+                    
+                    # Check if 'state' exists in the optimizer state dict
+                    if 'state' in opt_state:
+                        for param_id, param_state in opt_state['state'].items():
+                            for state_name, state_value in param_state.items():
+                                if isinstance(state_value, torch.Tensor):
+                                    # Store dtype of optimizer state tensors (momentum buffers, etc.)
+                                    key = f"optimizer_{opt_idx}_param_{param_id}_{state_name}"
+                                    optimizer_state_dict[key] = str(state_value.dtype)
+            
+            self.dtype_logs[f"{event_name}_optimizer_states"] = optimizer_state_dict
                 
         def _save_logs(self) -> None:
             os.makedirs(self.save_path, exist_ok=True)
