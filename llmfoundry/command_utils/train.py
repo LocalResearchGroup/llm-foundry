@@ -615,13 +615,13 @@ def train(cfg: DictConfig) -> Trainer:
                     def _hook(module, inputs, outputs):
                         # Log input activation dtype
                         if isinstance(inputs, tuple) and len(inputs) > 0:
-                            self.dtype_logs["log"][f"activation_input:{module_name}:{layer_name}"] = str(inputs[0].dtype)
+                            self.dtype_logs["log"][f"forward:{module_name}:{layer_name}:activation_input"] = str(inputs[0].dtype)
                         
                         # Log output activation dtype
                         if isinstance(outputs, torch.Tensor):
-                            self.dtype_logs["log"][f"activation_output:{module_name}:{layer_name}"] = str(outputs.dtype)
+                            self.dtype_logs["log"][f"forward:{module_name}:{layer_name}:activation_output"] = str(outputs.dtype)
                         elif isinstance(outputs, tuple) and len(outputs) > 0:
-                            self.dtype_logs["log"][f"activation_output:{module_name}:{layer_name}"] = str(outputs[0].dtype)
+                            self.dtype_logs["log"][f"forward:{module_name}:{layer_name}:activation_output"] = str(outputs[0].dtype)
                     return _hook
                 
                 # Monkey patch self-attention modules
@@ -635,7 +635,7 @@ def train(cfg: DictConfig) -> Trainer:
                         def patched_forward(self_attn, *args, **kwargs):
                             # Log the hidden_states dtype
                             if 'hidden_states' in kwargs and hasattr(kwargs['hidden_states'], 'dtype'):
-                                self.dtype_logs["log"][f"activation_input:self_attn:layer_{layer_idx}"] = str(kwargs['hidden_states'].dtype)
+                                self.dtype_logs["log"][f"forward:self_attn:layer_{layer_idx}:activation_input"] = str(kwargs['hidden_states'].dtype)
                             
                             # Call the original method as a bound method
                             # This ensures 'self_attn' is correctly passed as 'self'
@@ -702,11 +702,14 @@ def train(cfg: DictConfig) -> Trainer:
             
         def _log_model_weight_dtypes(self, state: State, event_name: str) -> None:
             model = state.model
-            for name, param in model.named_parameters(): self.dtype_logs["log"][f"{event_name}:{name}:weights"] = str(param.dtype)
+            for name, param in model.named_parameters(): 
+                name = name.removeprefix("model.base_model.model.model.")
+                self.dtype_logs["log"][f"{event_name}:{name}:weights"] = str(param.dtype)
     
         def _log_gradient_dtypes(self, state: State, event_name: str) -> None:
             model = state.model
             for name, param in model.named_parameters():
+                name = name.removeprefix("model.base_model.model.model.")
                 if param.grad is not None: self.dtype_logs['log'][f"{event_name}:{name}:gradients"] = str(param.grad.dtype)
                 else: self.dtype_logs['log'][f"{event_name}:{name}:gradients"] = "None"
     
