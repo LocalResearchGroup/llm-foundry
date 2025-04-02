@@ -575,28 +575,28 @@ def train(cfg: DictConfig) -> Trainer:
             self._save_logs()
             
         def epoch_start(self, state: State, logger: Logger) -> None:
-            self._log_model_weight_dtypes(state, f"epoch_start}")
+            self._log_model_weight_dtypes(state, "epoch_start"}")
             self._save_logs()
         
         def before_dataloader(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"before_dataloader")
+                self._log_model_weight_dtypes(state, "before_dataloader")
                 self._save_logs()
                 
         def after_dataloader(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"after_dataloader")
+                self._log_model_weight_dtypes(state, "after_dataloader")
                 self._save_logs()
                 
         def batch_start(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"batch_start")
+                self._log_model_weight_dtypes(state, "batch_start")
                 self._save_logs()
                 
         def before_forward(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"before_forward")
-                self._log_input_dtypes(state, f"before_forward")
+                self._log_model_weight_dtypes(state, "before_forward")
+                self._log_input_dtypes(state, "before_forward")
                 
                 # Clear old hooks
                 for hook in self.hooks:
@@ -680,24 +680,24 @@ def train(cfg: DictConfig) -> Trainer:
         def after_backward(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
                 # Log gradient dtypes as before
-                self._log_gradient_dtypes(state, f"after_backward")
+                self._log_gradient_dtypes(state, "after_backward")
                 
                 # Track weight dtypes before optimizer step
-                self._log_model_weight_dtypes(state, f"before_optim_step")
+                self._log_model_weight_dtypes(state, "before_optim_step")
                 
                 # Log optimizer state dtypes
-                self._log_optimizer_state_dtypes(state, f"optimizer_step")
+                self._log_optimizer_state_dtypes(state, "optimizer_step")
                 
                 self._save_logs()
                         
         def batch_end(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
                 # Track weight dtypes after optimizer step to detect precision changes
-                self._log_model_weight_dtypes(state, f"after_optim_step")
+                self._log_model_weight_dtypes(state, "after_optim_step")
                 self._save_logs()
     
         def epoch_end(self, state: State, logger: Logger) -> None:
-            self._log_model_weight_dtypes(state, f"epoch_end")
+            self._log_model_weight_dtypes(state, "epoch_end")
             self._save_logs()
             
         def _log_model_weight_dtypes(self, state: State, event_name: str) -> None:
