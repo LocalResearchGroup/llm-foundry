@@ -566,7 +566,7 @@ def train(cfg: DictConfig) -> Trainer:
     class DtypeLogger(Callback):
         def __init__(self, save_path="/model-checkpoints/dtype_tracking", log_interval=10):
             self.save_path = Path(save_path)
-            self.dtype_logs = {}
+            self.dtype_logs = {'log': {}}
             self.log_interval = log_interval
             self.hooks = []
             
@@ -575,28 +575,28 @@ def train(cfg: DictConfig) -> Trainer:
             self._save_logs()
             
         def epoch_start(self, state: State, logger: Logger) -> None:
-            self._log_model_weight_dtypes(state, f"epoch_{state.timestamp.epoch.value}_start")
+            self._log_model_weight_dtypes(state, f"epoch_start}")
             self._save_logs()
         
         def before_dataloader(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_before_dataloader")
+                self._log_model_weight_dtypes(state, f"before_dataloader")
                 self._save_logs()
                 
         def after_dataloader(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_after_dataloader")
+                self._log_model_weight_dtypes(state, f"after_dataloader")
                 self._save_logs()
                 
         def batch_start(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_start")
+                self._log_model_weight_dtypes(state, f"batch_start")
                 self._save_logs()
                 
         def before_forward(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_before_forward")
-                self._log_input_dtypes(state, f"batch_{state.timestamp.batch.value}_before_forward")
+                self._log_model_weight_dtypes(state, f"before_forward")
+                self._log_input_dtypes(state, f"before_forward")
                 
                 # Clear old hooks
                 for hook in self.hooks:
@@ -615,13 +615,13 @@ def train(cfg: DictConfig) -> Trainer:
                     def _hook(module, inputs, outputs):
                         # Log input activation dtype
                         if isinstance(inputs, tuple) and len(inputs) > 0:
-                            self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_input"] = str(inputs[0].dtype)
+                            self.dtype_logs["log"][f"activation_input:{module_name}:{layer_name}"] = str(inputs[0].dtype)
                         
                         # Log output activation dtype
                         if isinstance(outputs, torch.Tensor):
-                            self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs.dtype)
+                            self.dtype_logs["log"][f"activation_output:{module_name}:{layer_name}"] = str(outputs.dtype)
                         elif isinstance(outputs, tuple) and len(outputs) > 0:
-                            self.dtype_logs[f"batch_{batch_id}_activation_{layer_name}_{module_name}_output"] = str(outputs[0].dtype)
+                            self.dtype_logs["log"][f"activation_output:{module_name}:{layer_name}"] = str(outputs[0].dtype)
                     return _hook
                 
                 # Monkey patch self-attention modules
@@ -635,7 +635,7 @@ def train(cfg: DictConfig) -> Trainer:
                         def patched_forward(self_attn, *args, **kwargs):
                             # Log the hidden_states dtype
                             if 'hidden_states' in kwargs and hasattr(kwargs['hidden_states'], 'dtype'):
-                                self.dtype_logs[f"batch_{batch_id}_activation_layer_{layer_idx}_self_attn_input"] = str(kwargs['hidden_states'].dtype)
+                                self.dtype_logs["log"][f"activation_input:self_attn:layer_{layer_idx}"] = str(kwargs['hidden_states'].dtype)
                             
                             # Call the original method as a bound method
                             # This ensures 'self_attn' is correctly passed as 'self'
@@ -677,109 +677,55 @@ def train(cfg: DictConfig) -> Trainer:
                 
                 self._save_logs()
                 
-        def after_forward(self, state: State, logger: Logger) -> None:
-            if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_after_forward")
-                self._log_output_dtypes(state, f"batch_{state.timestamp.batch.value}_after_forward")
-                
-                # Restore original forward methods
-                if hasattr(self, 'original_forward_methods'):
-                    model = state.model.model.base_model.model
-                    transformer_model = model.model
-                    
-                    for layer_idx, original_forward in self.original_forward_methods.items():
-                        transformer_model.layers[layer_idx].self_attn.forward = original_forward
-                    
-                    self.original_forward_methods = {}
-                
-                # Clear hooks
-                for hook in self.hooks:
-                    hook.remove()
-                self.hooks = []
-                
-                self._save_logs()
-                
-        def before_loss(self, state: State, logger: Logger) -> None:
-            if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_before_loss")
-                self._save_logs()
-                
-        def after_loss(self, state: State, logger: Logger) -> None:
-            if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_after_loss")
-                self._log_loss_dtype(state, f"batch_{state.timestamp.batch.value}_after_loss")
-                self._save_logs()
-                
-        def before_backward(self, state: State, logger: Logger) -> None:
-            if state.timestamp.batch.value % self.log_interval == 0:
-                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_before_backward")
-                self._save_logs()
-                
         def after_backward(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
                 # Log gradient dtypes as before
-                self._log_gradient_dtypes(state, f"batch_{state.timestamp.batch.value}_after_backward")
+                self._log_gradient_dtypes(state, f"after_backward")
                 
                 # Track weight dtypes before optimizer step
-                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_before_optim_step")
+                self._log_model_weight_dtypes(state, f"before_optim_step")
                 
                 # Log optimizer state dtypes
-                self._log_optimizer_state_dtypes(state, f"batch_{state.timestamp.batch.value}")
+                self._log_optimizer_state_dtypes(state, f"optimizer_step")
                 
                 self._save_logs()
-                
+                        
         def batch_end(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
                 # Track weight dtypes after optimizer step to detect precision changes
-                self._log_model_weight_dtypes(state, f"batch_{state.timestamp.batch.value}_after_optim_step")
+                self._log_model_weight_dtypes(state, f"after_optim_step")
                 self._save_logs()
-
+    
         def epoch_end(self, state: State, logger: Logger) -> None:
-            self._log_model_weight_dtypes(state, f"epoch_{state.timestamp.epoch.value}_end")
+            self._log_model_weight_dtypes(state, f"epoch_end")
             self._save_logs()
             
         def _log_model_weight_dtypes(self, state: State, event_name: str) -> None:
             model = state.model
-            weights_dtype_dict = {}
-            for name, param in model.named_parameters():
-                weights_dtype_dict[name] = str(param.dtype)
-            self.dtype_logs[f"{event_name}_weights"] = weights_dtype_dict
+            for name, param in model.named_parameters(): self.dtype_logs["log"][f"{event_name}:{name}:weights"] = str(param.dtype)
     
         def _log_gradient_dtypes(self, state: State, event_name: str) -> None:
             model = state.model
-            grad_dtype_dict = {}
             for name, param in model.named_parameters():
-                if param.grad is not None:
-                    grad_dtype_dict[name] = str(param.grad.dtype)
-                else:
-                    grad_dtype_dict[name] = "None"
-            self.dtype_logs[f"{event_name}_gradients"] = grad_dtype_dict
-            
+                if param.grad is not None: self.dtype_logs['log'][f"{event_name}:{name}:gradients"] = str(param.grad.dtype)
+                else: self.dtype_logs['log'][f"{event_name}:{name}:gradients"] = "None"
+    
         def _log_input_dtypes(self, state: State, event_name: str) -> None:
-            input_dtype_dict = {}
             for i, batch in enumerate(state.batch):
-                if hasattr(batch, 'dtype'):
-                    input_dtype_dict[f"input_{i}"] = str(batch.dtype)
-            self.dtype_logs[f"{event_name}_inputs"] = input_dtype_dict
+                if hasattr(batch, 'dtype'): self.dtype_logs["log"][f"{event_name}:{i}:inputs"] = str(batch.dtype)
             
         def _log_output_dtypes(self, state: State, event_name: str) -> None:
-            output_dtype_dict = {}
             if hasattr(state, 'outputs'):
                 if isinstance(state.outputs, (list, tuple)):
                     for i, output in enumerate(state.outputs):
-                        if hasattr(output, 'dtype'):
-                            output_dtype_dict[f"output_{i}"] = str(output.dtype)
-                elif hasattr(state.outputs, 'dtype'):
-                    output_dtype_dict["output"] = str(state.outputs.dtype)
-            self.dtype_logs[f"{event_name}_outputs"] = output_dtype_dict
-            
+                        if hasattr(output, 'dtype'): self.dtype_logs["log"][f"{event_name}:{i}:outputs"] = str(output.dtype)
+                elif hasattr(state.outputs, 'dtype'): self.dtype_logs["log"][f"{event_name}:outputs"] = str(state.outputs.dtype)
+        
         def _log_loss_dtype(self, state: State, event_name: str) -> None:
             if hasattr(state, 'loss') and hasattr(state.loss, 'dtype'):
-                self.dtype_logs[f"{event_name}_loss"] = str(state.loss.dtype)
+                self.dtype_logs["log"][f"{event_name}:loss"] = str(state.loss.dtype)
                 
         def _log_optimizer_state_dtypes(self, state: State, event_name: str) -> None:
-            optimizer_state_dict = {}
-            
             if hasattr(state, 'optimizers') and state.optimizers is not None:
                 # Handle single optimizer or list of optimizers
                 optimizers = state.optimizers if isinstance(state.optimizers, list) else [state.optimizers]
@@ -795,9 +741,7 @@ def train(cfg: DictConfig) -> Trainer:
                                 if isinstance(state_value, torch.Tensor):
                                     # Store dtype of optimizer state tensors (momentum buffers, etc.)
                                     key = f"optimizer_{opt_idx}_param_{param_id}_{state_name}"
-                                    optimizer_state_dict[key] = str(state_value.dtype)
-            
-            self.dtype_logs[f"{event_name}_optimizer_states"] = optimizer_state_dict
+                                    self.dtype_logs["log"][f"{event_name}:{key}:optimizer_states"] = str(state_value.dtype)
                 
         def _save_logs(self) -> None:
             os.makedirs(self.save_path, exist_ok=True)
