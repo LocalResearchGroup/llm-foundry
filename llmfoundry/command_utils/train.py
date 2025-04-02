@@ -575,7 +575,7 @@ def train(cfg: DictConfig) -> Trainer:
             self._save_logs()
             
         def epoch_start(self, state: State, logger: Logger) -> None:
-            self._log_model_weight_dtypes(state, "epoch_start"}")
+            self._log_model_weight_dtypes(state, "epoch_start")
             self._save_logs()
         
         def before_dataloader(self, state: State, logger: Logger) -> None:
