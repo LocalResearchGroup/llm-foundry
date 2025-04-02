@@ -596,7 +596,6 @@ def train(cfg: DictConfig) -> Trainer:
         def before_forward(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
                 self._log_model_weight_dtypes(state, "before_forward")
-                self._log_input_dtypes(state, "before_forward")
                 
                 # Clear old hooks
                 for hook in self.hooks:
@@ -677,6 +676,43 @@ def train(cfg: DictConfig) -> Trainer:
                 
                 self._save_logs()
                 
+        def after_forward(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, "after_forward")
+                
+                # Restore original forward methods
+                if hasattr(self, 'original_forward_methods'):
+                    model = state.model.model.base_model.model
+                    transformer_model = model.model
+                    
+                    for layer_idx, original_forward in self.original_forward_methods.items():
+                        transformer_model.layers[layer_idx].self_attn.forward = original_forward
+                    
+                    self.original_forward_methods = {}
+                
+                # Clear hooks
+                for hook in self.hooks:
+                    hook.remove()
+                self.hooks = []
+                
+                self._save_logs()
+                
+        def before_loss(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, "before_loss")
+                self._save_logs()
+                
+        def after_loss(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, "after_loss")
+                self._log_loss_dtype(state, "after_loss")
+                self._save_logs()
+                
+        def before_backward(self, state: State, logger: Logger) -> None:
+            if state.timestamp.batch.value % self.log_interval == 0:
+                self._log_model_weight_dtypes(state, "before_backward")
+                self._save_logs()
+                
         def after_backward(self, state: State, logger: Logger) -> None:
             if state.timestamp.batch.value % self.log_interval == 0:
                 # Log gradient dtypes as before
@@ -712,17 +748,6 @@ def train(cfg: DictConfig) -> Trainer:
                 name = name.removeprefix("model.base_model.model.model.")
                 if param.grad is not None: self.dtype_logs['log'][f"{event_name}:{name}:gradients"] = str(param.grad.dtype)
                 else: self.dtype_logs['log'][f"{event_name}:{name}:gradients"] = "None"
-    
-        def _log_input_dtypes(self, state: State, event_name: str) -> None:
-            for i, batch in enumerate(state.batch):
-                if hasattr(batch, 'dtype'): self.dtype_logs["log"][f"{event_name}:{i}:inputs"] = str(batch.dtype)
-            
-        def _log_output_dtypes(self, state: State, event_name: str) -> None:
-            if hasattr(state, 'outputs'):
-                if isinstance(state.outputs, (list, tuple)):
-                    for i, output in enumerate(state.outputs):
-                        if hasattr(output, 'dtype'): self.dtype_logs["log"][f"{event_name}:{i}:outputs"] = str(output.dtype)
-                elif hasattr(state.outputs, 'dtype'): self.dtype_logs["log"][f"{event_name}:outputs"] = str(state.outputs.dtype)
         
         def _log_loss_dtype(self, state: State, event_name: str) -> None:
             if hasattr(state, 'loss') and hasattr(state.loss, 'dtype'):
