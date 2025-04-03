@@ -1,9 +1,33 @@
-from modal import Image, App, Secret
+from modal import Image, App, Secret,Mount
 
 app = App("llama3-test")
 
 # Use the same docker image
 image = Image.from_dockerfile("Dockerfile")
+
+# Mount your local YAML directory
+# yaml_mount = Mount.from_local_dir(
+#     local_path="/home/mainuser/Desktop/llm-foundry/scripts/train/yamls/llama",  # Full path
+#     remote_path="/llm-foundry/scripts/train/yamls/llama"  # Path in container
+# )
+
+# Mount both the YAML directory and your llama module code
+image = image.add_local_dir(
+    local_path="/home/mainuser/Desktop/llm-foundry/scripts/train/yamls/llama", 
+    remote_path="/llm-foundry/scripts/train/yamls/llama"
+)
+
+# Mount your custom llama module implementation
+image = image.add_local_dir(
+    local_path="/home/mainuser/Desktop/llm-foundry/llmfoundry/models/llama", 
+    remote_path="/llm-foundry/llmfoundry/models/llama"
+)
+
+# Make sure __init__.py file exists
+image = image.add_local_file(
+    local_path="/home/mainuser/Desktop/llm-foundry/llmfoundry/models/__init__.py",
+    remote_path="/llm-foundry/llmfoundry/models/__init__.py"
+)
 
 def build_llama():
     """Create the Python script content for testing the Llama model."""
