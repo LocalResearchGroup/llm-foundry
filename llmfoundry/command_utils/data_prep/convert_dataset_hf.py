@@ -194,7 +194,7 @@ def build_hf_dataset(
         name=data_subset,
         split=split,
         streaming=True,
-        trust_remote_code=True
+        trust_remote_code=True,
     )
     if mode == ConcatMode.NO_CONCAT:
         dataset = NoConcatDataset(hf_dataset)
