@@ -34,9 +34,17 @@ def build_llama():
     
     import sys
     import torch
+    import os
     from omegaconf import OmegaConf
-    sys.path.append('/llm-foundry')
+    from huggingface_hub import login
 
+    sys.path.append('/llm-foundry')
+    hf_token = os.environ.get("HUGGINGFACE_TOKEN")
+    if hf_token:
+        print("Logging in to Hugging Face...")
+        login(token=hf_token)
+    else:
+        print("WARNING: No Hugging Face token found, access to gated models may fail.")
     try:
         # Load YAML config - use the existing file
         yaml_path = "/llm-foundry/scripts/train/yamls/llama/llama3-1b.yaml"
@@ -66,6 +74,12 @@ def build_llama():
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Moving model to {device}...")
         model = model.to(device)
+        
+        # Convert to bfloat16 for Flash Attention
+        print("Converting model to bfloat16...")
+        model = model.to(torch.bfloat16)
+
+
         # Set model to evaluation mode
         model.eval()
 
@@ -113,7 +127,8 @@ def build_llama():
         
     return True
 
-@app.function(gpu="l4", image=image, timeout=3600, secrets=[Secret.from_name("LRG")])
+@app.function(gpu="l4", image=image, timeout=3600, secrets=[Secret.from_name("LRG"),
+                                                            Secret.from_name("huggingface-secret")])
 def run_llama():
     import subprocess
     
