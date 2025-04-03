@@ -134,7 +134,7 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
         d = datasets[s]
         folder = d["target"].split("/")[1]
         for ablation in d["ablations"]:
-            if s == "finemath":
+            if s in ["finemath", "avelinapythonedu"]:
                 print("\ngenerating tokens for", s, ablation)
                 convert_dataset_hf_from_args(
                     dataset=d["target"],
@@ -223,6 +223,11 @@ def main(args):
             "ablations": ("full", "1M", "100k", "10k", "1k"),
             "preproc":"preproc:pre_glaive",
         },
+        "avelinapythonedu": {
+            "src": "Avelina/python-edu",
+            "target": f"{args.target_repo}/split-avelina-python-edu",
+            "ablations": ("full", "1M", "100k", "10k", "1k"),
+        },
     }
     if args.split:
         d = upload_splits(args, datasets)
@@ -241,8 +246,8 @@ def parse_args() -> Namespace:
     parser.add_argument(
         "--source",
         nargs="+",
-        choices=["tulu", "numina", "finemath", "glaive",],
-        default=["tulu", "numina", "finemath", "glaive",],
+        choices=["tulu", "numina", "finemath", "glaive", "avelinapythonedu",],
+        default=["tulu", "numina", "finemath", "glaive", "avelinapythonedu"],
     )
 
     parser.add_argument(
