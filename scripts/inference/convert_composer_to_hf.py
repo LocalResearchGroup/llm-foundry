@@ -87,6 +87,7 @@ def write_huggingface_pretrained_from_composer_checkpoint(
                                                                                 If the input ``checkpoint_path`` is already a local path, this will be a symlink.
                                                                                 Defaults to None, which will use a temporary file.
         is_peft (bool, optional): True if the model being converted is a peft finetuned model. Defaults to False.
+        train_yaml (str, optional): Path to YAML used during training.
     """
     dtype = {
         'fp32': torch.float32,
@@ -233,13 +234,13 @@ def parse_args() -> Namespace:
         "--is_peft",
         type=str2bool, 
         default=False, 
-        help="True if the model being converted is a peft finetuned model"
+        help="True if the model being converted is a peft finetuned model",
     )
 
     parser.add_argument(
         "--train_yaml",
         type=str, 
-        help="Path to the training YAML"
+        help="Path to the training YAML",
     )
     
     return parser.parse_args()
@@ -259,7 +260,7 @@ def _convert_composer_to_hf(args: Namespace) -> None:
         output_precision=args.output_precision,
         local_checkpoint_save_location=args.local_checkpoint_save_location,
         is_peft=args.is_peft,
-        train_yaml=args.train_yaml
+        train_yaml=args.train_yaml,
     )
 
     dtype = {
