@@ -23,12 +23,15 @@ def generate_constants(chars_per_sample, chars_per_token, label=None, splits=("f
     )
     return ds_const
 
-finemath = generate_constants(2163, 4)
-add_dataset_config("tyoc213/split-finemath", finemath)
-finemath = generate_constants(2163, 4)
-add_dataset_config("tyoc213/split-tulu-3-sft-olmo-2-mixture", finemath)
-finemath = generate_constants(2163, 4)
-add_dataset_config("tyoc213/split-NuminaMath-CoT", finemath)
+_finemath = generate_constants(2163, 4)
+HF_TARGET = "tyoc213"  # "LocalResearchGroup"
+add_dataset_config(f"{HF_TARGET}/split-finemath", _finemath)
+_tulu = generate_constants(2163, 4)
+add_dataset_config(f"{HF_TARGET}/split-tulu-3-sft-olmo-2-mixture", _tulu)
+_numina = generate_constants(2163, 4)
+add_dataset_config(f"{HF_TARGET}/split-NuminaMath-CoT", _numina)
+_pythonedu = generate_constants(2163, 4)
+add_dataset_config(f"{HF_TARGET}/split-avelina-python-edu", _pythonedu)
 
 
 # def do_xxx():
