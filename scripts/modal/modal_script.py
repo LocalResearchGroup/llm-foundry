@@ -8,11 +8,7 @@ from modal import Image, App, Secret, Volume
 import pathlib, datetime
 
 PYTHON_PATH = "/opt/conda/envs/llm-foundry/bin/python"
-TRAINING_GPU = "h100" # "a10g" "h100" # "l4"
-BATCH_SIZE = 20 # 20 for h100 4 for l4
-TRAIN_DURATION="100ba"
-EVAL_INTERVAL="100ba"
-SAVE_INTERVAL="100ba"    
+TRAINING_GPU = "h100" # "a10g" "h100" # "l4"  
 
 DATASET_BASE_PATH = "/datasets"
 DATASETS_VOLUME = Volume.from_name("lrg-datasets", create_if_missing=True)
@@ -20,6 +16,9 @@ DATASETS_VOLUME_MOUNT_PATH = pathlib.Path("/datasets")
 MODEL_CHECKPOINT_VOLUME = Volume.from_name("lrg-model-checkpoints", create_if_missing=True)
 MODEL_CHECKPOINT_VOLUME_MOUNT_PATH = pathlib.Path("/model-checkpoints")
 
+TRAIN_YAML = "train/yamls/finetune/smollm2-135m_lora.yaml"
+IS_PEFT = True
+OUTPUT_PRECISION = "bf16"
 
 app = App("quick-start")
 
@@ -127,18 +126,7 @@ def train_model(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m
         "composer",
         "train/train.py",
         yaml_path,  # Updated YAML path
-        f"loggers.aim.experiment_name=quickstart_{model_name}_modal",
-        f"loggers.aim.repo={run_folder}/.aim",
-        f"variables.data_local={DATASETS_VOLUME_MOUNT_PATH}/c4_small",
-        "train_loader.dataset.split=train_small",
-        "eval_loader.dataset.split=val_small",
-        f"max_duration={TRAIN_DURATION}",
-        f"eval_interval={EVAL_INTERVAL}", 
-        f"save_folder={save_folder}",  # Updated model name
-        f"save_interval={SAVE_INTERVAL}",
-        f"device_eval_batch_size={BATCH_SIZE}",  # Added batch size settings # 20 for h100 4 for l4
-        f"device_train_microbatch_size={BATCH_SIZE}",
-        f"global_train_batch_size={BATCH_SIZE}",
+        f"save_folder={save_folder}",
     ]
     result = subprocess.run(train_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -223,7 +211,9 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
         PYTHON_PATH, "inference/convert_composer_to_hf.py",
         "--composer_path", composer_checkpoint_path,
         "--hf_output_path", hf_output_path,
-        "--output_precision", "bf16",
+        "--output_precision", f{OUTPUT_PRECISION}",
+        "--is_peft", f"{IS_PEFT}",
+        "--train_yaml", f"{TRAIN_YAML}"
     ]
     if upload_to_hf: convert_cmd.extend(["--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"])
 
@@ -233,26 +223,6 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
         print("Conversion errors:", result.stderr)
     MODEL_CHECKPOINT_VOLUME.commit()
     print("Conversion complete!")
-
-
-# @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
-#               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-#               concurrency_limit=1)
-# def push_to_hf(checkpoint_path: str):
-#     from huggingface_hub import create_repo, upload_folder
-#     from pathlib import Path
-    
-#     model_path = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path
-#     model_name = model_path.name
-#     repo_id = f"LocalResearchGroup/{model_name}"
-    
-#     print(f"Creating repository: {repo_id}")
-#     create_repo(repo_id, repo_type="model", private=True, exist_ok=True)
-
-#     upload_folder(folder_path=model_path, repo_id=repo_id)
-    
-#     print(f"Folder uploaded to: https://huggingface.co/{repo_id}")
-  
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
