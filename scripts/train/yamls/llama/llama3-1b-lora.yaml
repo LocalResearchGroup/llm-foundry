@@ -6,14 +6,17 @@ variables:
   global_seed: 17
   max_seq_len: 2048
   run_name: llama3-lora-test
-  model_name_or_path: meta-llama/Llama-3.2-1B
+  model_name_or_path: meta-llama/Llama-3.2-1B 
 
 max_seq_len: ${variables.max_seq_len}
 run_name: ${variables.run_name}
 
 
 model:
-  name: hf_causal_lm
+  name: hf_causal_lm #llama3_1b 
+  #import_path: train.custom_plugin.model_registry #train.custom_plugin.model_registry 
+  #import_path: scripts.train.model_registry 
+  #import_path: llmfoundry.models.llama  # Points to your custom module
   pretrained_model_name_or_path: ${variables.model_name_or_path}
   use_flash_attention_2: true
   peft_config:
@@ -58,6 +61,8 @@ eval_loader:
     shuffle_seed: ${variables.global_seed}
   drop_last: false
   num_workers: 1
+
+
 
 optimizer:
   name: decoupled_adamw

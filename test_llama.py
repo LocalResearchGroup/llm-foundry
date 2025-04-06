@@ -383,11 +383,11 @@ def run_llama():
         print("WARNING: No HF token found in environment")
         # Continue with public model instead of failing
     # Ensure we're using the right Python
-    python_path = "/opt/conda/envs/llm-foundry/bin/python"
+    PYTHON_PATH = "/opt/conda/envs/llm-foundry/bin/python"
     
     # Use the correct Python interpreter for imports
     import_check = subprocess.run(
-        [python_path, "-c", "import flash_attn; print(flash_attn.__version__)"],
+        [PYTHON_PATH, "-c", "import flash_attn; print(flash_attn.__version__)"],
         capture_output=True,
         text=True
     )
@@ -418,7 +418,7 @@ def run_llama():
     # Run using our entry script
     # os.chdir("/llm-foundry/scripts")
     # print("\nRunning training with custom model...")
-    # train_cmd = [python_path, entry_script, yaml_path, "/root/c4-data"]
+    # train_cmd = [PYTHON_PATH, entry_script, yaml_path, "/root/c4-data"]
     # result = subprocess.run(train_cmd, capture_output=True, text=True)
     # print(result.stdout)
     
@@ -426,7 +426,7 @@ def run_llama():
     print("\nPreparing data...")
     os.chdir("/llm-foundry/scripts")
     data_prep_cmd = [
-        python_path,
+        PYTHON_PATH,
         "data_prep/convert_dataset_hf.py",
         "--dataset", "allenai/c4",
         "--data_subset", "en",
@@ -474,7 +474,7 @@ def run_llama():
     print("\nRunning combined training script...")
     os.chdir("/llm-foundry/scripts")
     combined_cmd = [
-        python_path,
+        PYTHON_PATH,
         combined_script,
         yaml_path,
         "/root/c4-data"
@@ -489,7 +489,7 @@ def run_llama():
     # Step 3: Convert model to HuggingFace format
     print("\nConverting model to HuggingFace format...")
     convert_cmd = [
-        python_path, "inference/convert_composer_to_hf.py",
+        PYTHON_PATH, "inference/convert_composer_to_hf.py",
         "--composer_path", "/root/llama3-c4/latest-rank0.pt",  
         "--hf_output_path", "/root/llama3-c4-hf",
         "--output_precision", "bf16"
@@ -501,12 +501,28 @@ def run_llama():
     
     # Step 4: Evaluate the model on math problems
     print("\nEvaluating model on math problems...")
+    # eval_cmd = [
+    #     "composer",
+    #     "eval/eval.py",
+    #     "eval/yamls/hf_eval.yaml",
+    #     "icl_tasks=eval/yamls/tasks/c4.yaml",
+    #     "variables.model_name_or_path=/root/llama3-c4-hf"
+    # ]
+    # result = subprocess.run(eval_cmd, capture_output=True, text=True)
+    # print(result.stdout)
+    # if result.stderr:
+    #     print("Evaluation errors:", result.stderr)
+    
+    model_path = "/root/llama3-c4-hf"
+    save_path = "/root/eval_results"
+    os.makedirs(save_path, exist_ok=True)
     eval_cmd = [
-        "composer",
-        "eval/eval.py",
-        "eval/yamls/hf_eval.yaml",
-        "icl_tasks=eval/yamls/tasks/c4.yaml",
-        "variables.model_name_or_path=/root/llama3-c4-hf"
+    "composer",
+    "eval/eval.py",
+    "eval/yamls/hf_eval.yaml",
+    "icl_tasks=eval/yamls/copa.yaml",
+    f"variables.model_name_or_path={model_path}",
+    f"results_path={save_path}",  # Add results_path parameter
     ]
     result = subprocess.run(eval_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -515,16 +531,41 @@ def run_llama():
     
     # Step 5: Generate test responses for math problems
     print("\nGenerating test responses for math problems...")
+    # generate_cmd = [
+    #     PYTHON_PATH, "inference/hf_generate.py",
+    #     "--name_or_path", "/root/llama3-c4-hf",
+    #     "--max_new_tokens", "256",
+    #     "--temperature", "0.1",
+    #     "--top_p", "0.9",
+    #     "--prompts",
+    #     "Question: If a shirt originally costs $25 and is marked down by 20%, what is the new price of the shirt? Answer:",
+    #     "Question: A train travels at a speed of 60 mph. How far will it travel in 3.5 hours? Answer:"
+    # ]
+    #     print("\nGenerating test responses...")
+    prompts = None
+    if prompts is None:
+        prompts = [
+            "The answer to life, the universe, and happiness is",
+            "Here's a quick recipe for baking chocolate chip cookies: Start by",
+        ]
+    elif isinstance(prompts, str):
+        prompts = [prompts]
+    
+
+    print("\nGenerating test responses...")
     generate_cmd = [
-        python_path, "inference/hf_generate.py",
-        "--name_or_path", "/root/llama3-c4-hf",
+        PYTHON_PATH, "inference/hf_generate.py",
+        "--name_or_path", model_path,
         "--max_new_tokens", "256",
-        "--temperature", "0.1",
-        "--top_p", "0.9",
         "--prompts",
-        "Question: If a shirt originally costs $25 and is marked down by 20%, what is the new price of the shirt? Answer:",
-        "Question: A train travels at a speed of 60 mph. How far will it travel in 3.5 hours? Answer:"
+        *prompts,
     ]
+    result = subprocess.run(generate_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Generation errors:", result.stderr)
+    print("Generation complete!")
+
     result = subprocess.run(generate_cmd, capture_output=True, text=True)
     print(result.stdout)
     if result.stderr:
@@ -1027,7 +1068,7 @@ def main():
 #     test_script = test_registry()
 #     os.chdir("/llm-foundry/scripts")
 #     print("\nTesting registry...")
-#     test_result = subprocess.run([python_path, test_script], capture_output=True, text=True)
+#     test_result = subprocess.run([PYTHON_PATH, test_script], capture_output=True, text=True)
 #     print(test_result.stdout)
 #     if test_result.stderr:
 #         print(f"Test errors: {test_result.stderr}")

@@ -1,0 +1,33 @@
+variables:
+  # Use our custom model
+  model_name_or_path: /root/llama3-c4-hf
+  precision: bf16
+  max_seq_len: 2048
+
+precision: ${variables.precision}
+max_seq_len: ${variables.max_seq_len}
+
+models:
+-
+  model_name: ${variables.model_name_or_path}
+  model:
+    name: hf_causal_lm
+    pretrained_model_name_or_path: ${variables.model_name_or_path}
+    init_device: mixed
+    pretrained: true
+    use_flash_attention_2: true
+  tokenizer:
+    name: meta-llama/Llama-3.2-1B  # Use the original tokenizer to ensure compatibility
+    kwargs:
+      model_max_length: ${variables.max_seq_len}
+
+device_eval_batch_size: 2
+
+# FSDP config for model sharding
+fsdp_config:
+  sharding_strategy: FULL_SHARD
+  mixed_precision: FULL
+  forward_prefetch: True
+  limit_all_gathers: True
+
+icl_tasks: "eval/yamls/copa.yaml"
