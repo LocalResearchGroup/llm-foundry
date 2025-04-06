@@ -153,7 +153,7 @@ def create_combined_script():
     Instead of modifying the framework (which would be difficult and intrusive), 
     we're making our custom implementation look like what the framework expects.
     """
-    script_path = "/llm-foundry/scripts/train_patched_method.py"
+    script_path = "/llm-foundry/scripts/train_custom_loss.py"
     
     with open(script_path, "w") as f:
         f.write("""
@@ -174,9 +174,7 @@ sys.path.insert(0, '/llm-foundry/scripts')
 # Add the missing method from HuggingFace's implementation to our custom implementation
 if not hasattr(LlamaForCausalLM, 'prepare_inputs_for_generation'):
     print("Adding prepare_inputs_for_generation method to our custom LlamaForCausalLM")
-    # Get the method from HuggingFace's implementation
     prepare_inputs_for_generation = HFLlamaForCausalLM.prepare_inputs_for_generation
-    # Add it to our custom implementation
     LlamaForCausalLM.prepare_inputs_for_generation = prepare_inputs_for_generation
     print("Successfully added method")
 
@@ -279,9 +277,14 @@ try:
                 should_save_peft_only=should_save_peft_only
             )
             
+            # Store the original model specifically
+            self.hf_model = hf_model
+            self.model = hf_model.model
+            
             # Copy all attributes and methods from hf_model to self
             for key, value in vars(hf_model).items():
-                setattr(self, key, value)
+                if key not in ['hf_model', 'model']:  # Avoid circular references
+                    setattr(self, key, value)
             
             for name in dir(hf_model):
                 if not name.startswith('_'):
@@ -290,6 +293,36 @@ try:
                         setattr(self, name, attr)
                             
             print("CustomLlamaModel initialization complete")
+        
+        # Implement a custom loss function that handles both dict and tuple outputs
+        def loss(self, outputs, batch):
+            print(f"CustomLlamaModel.loss called with outputs type: {type(outputs)}")
+            
+            if isinstance(outputs, dict):
+                if 'loss' in outputs:
+                    return outputs['loss']
+            elif isinstance(outputs, tuple):
+                # Assuming the loss is the first element in the tuple if present
+                if len(outputs) > 0 and outputs[0] is not None:
+                    return outputs[0]
+            
+            # If we can't find the loss in the outputs, try to compute it
+            # This is a fallback and might not be needed if your model returns loss correctly
+            print("Computing loss from logits and labels")
+            
+            logits = outputs['logits'] if isinstance(outputs, dict) else outputs[0]
+            labels = batch['labels'] if isinstance(batch, dict) else batch[1]
+            
+            # Shift so that tokens < n predict n
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            
+            # Flatten the tokens
+            loss_fct = torch.nn.CrossEntropyLoss()
+            vocab_size = getattr(self.model, 'vocab_size', shift_logits.size(-1))
+            loss = loss_fct(shift_logits.view(-1, vocab_size), shift_labels.view(-1))
+            
+            return loss
     
     # Register our class
     registry.models.register("hf_causal_lm")(CustomLlamaModel)

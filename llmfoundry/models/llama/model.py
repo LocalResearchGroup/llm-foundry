@@ -74,12 +74,22 @@ class LlamaForCausalLM(nn.Module):
 
     def forward(
         self,
-        input_ids: torch.LongTensor,
+        input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
         labels: Optional[torch.LongTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
         return_dict: bool = True,
+        **kwargs
     ):
+        if inputs_embeds is not None and input_ids is None:
+            batch_size, seq_length = inputs_embeds.shape[0], inputs_embeds.shape[1]
+            input_ids = torch.ones(batch_size, seq_length, dtype=torch.long, device=inputs_embeds.device)
+        
         # Embedding
         hidden_states = self.embed_tokens(input_ids)
         
@@ -94,20 +104,30 @@ class LlamaForCausalLM(nn.Module):
         # Final normalization
         hidden_states = self.norm(hidden_states)
         
-        # LM head
+        # Language modeling head
         logits = self.lm_head(hidden_states)
         
-        # Calculate loss if labels provided
+        # Calculate loss if labels are provided
         loss = None
         if labels is not None:
             # Shift so that tokens < n predict n
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
-            loss = F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
             
-        if return_dict:
-            return {"logits": logits, "loss": loss}
-        return (loss, logits)
+            # Flatten the tokens
+            loss_fct = torch.nn.CrossEntropyLoss()
+            loss = loss_fct(shift_logits.view(-1, self.vocab_size), shift_labels.view(-1))
+        
+        if not return_dict:
+            output = (logits,) + (hidden_states,)
+            return (loss,) + output if loss is not None else output
+        
+        # Return dictionary-like object
+        return {
+            'loss': loss,
+            'logits': logits,
+            'hidden_states': hidden_states
+        }
 
     def generate(
         self, 
