@@ -151,58 +151,6 @@ def llama_generate(model,cfg):
 ###############
 
 
-def debug_file_paths():
-    """Debug function to inspect container file system"""
-    import os
-    import subprocess
-    
-    print("\n================ CONTAINER FILE SYSTEM DEBUGGING ================")
-    
-    # Check if key directories exist
-    key_paths = [
-        "/llm-foundry",
-        "/llm-foundry/scripts",
-        "/llm-foundry/scripts/train",
-        "/llm-foundry/scripts/train/yamls",
-        "/llm-foundry/scripts/train/yamls/llama",
-        "/llm-foundry/llmfoundry",
-        "/llm-foundry/llmfoundry/models",
-        "/llm-foundry/llmfoundry/models/llama"
-    ]
-    
-    for path in key_paths:
-        print(f"Does {path} exist? {os.path.exists(path)}")
-    
-    # Look for the specific file
-    adapter_script = "/llm-foundry/scripts/train/train_with_llama_adapter.py"
-    print(f"\nDoes {adapter_script} exist? {os.path.exists(adapter_script)}")
-    print("HIIIIIIIIIIIIIIII")
-    adapter_script2 = "/llm-foundry/llmfoundry/models/llama/composer_llama_adapter.py"
-    print(f"\nDoes {adapter_script2} exist? {os.path.exists(adapter_script)}")
-    # List script folder content
-    train_dir = "/llm-foundry/scripts/train"
-    if os.path.exists(train_dir):
-        print(f"\nContents of {train_dir}:")
-        try:
-            print(subprocess.check_output(["ls", "-la", train_dir]).decode())
-        except Exception as e:
-            print(f"Error listing directory: {e}")
-    
-    # Show mounted files with mount command
-    print("\nMount information:")
-    try:
-        print(subprocess.check_output(["mount"]).decode())
-    except Exception as e:
-        print(f"Error running mount command: {e}")
-    
-    # Check Modal-specific environment
-    print("\nModal-specific environment:")
-    modal_vars = [k for k in os.environ if "MODAL" in k]
-    for var in modal_vars:
-        print(f"  {var}={os.environ[var]}")
-    
-    print("\n================ END DEBUGGING ================\n")
-
 @app.function(
     gpu="a100", #"l4"
     image=image, 
@@ -394,6 +342,33 @@ def run_llama():
     #     "Question: A train travels at a speed of 60 mph. How far will it travel in 3.5 hours? Answer:"
     # ]
     #     print("\nGenerating test responses...")
+    from omegaconf import OmegaConf
+    cfg = OmegaConf.load(yaml_path)
+    print("Config loaded successfully")
+
+    # Extract tokenizer name
+    tokenizer_name = cfg.variables.tokenizer_name
+    print(f"Using tokenizer: {tokenizer_name}")
+
+    # Ensure tokenizer is saved alongside the model
+    def ensure_tokenizer_saved():
+        """Save the original tokenizer to the model directory"""
+        from transformers import AutoTokenizer
+        
+        # Define paths
+        model_path = "/root/llama3-c4-hf"
+        
+        print(f"Saving tokenizer {tokenizer_name} to {model_path}")
+        # Load the original tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        
+        # Save it to the model directory
+        tokenizer.save_pretrained(model_path)
+        print(f"Tokenizer saved successfully")
+        return True
+
+    # Save tokenizer
+    #ensure_tokenizer_saved()
     prompts = None
     if prompts is None:
         prompts = [
@@ -407,7 +382,7 @@ def run_llama():
     print("\nGenerating test responses...")
     generate_cmd = [
         PYTHON_PATH, "inference/hf_generate.py",
-        "--name_or_path", model_path,
+        "--name_or_path", "meta-llama/Llama-3.2-1B", # model_path,
         "--max_new_tokens", "256",
         "--prompts",
         *prompts,
@@ -959,3 +934,56 @@ def main():
     # if result.stderr:
     #     print("Training errors:", result.stderr)
     
+
+
+# def debug_file_paths():
+#     """Debug function to inspect container file system"""
+#     import os
+#     import subprocess
+    
+#     print("\n================ CONTAINER FILE SYSTEM DEBUGGING ================")
+    
+#     # Check if key directories exist
+#     key_paths = [
+#         "/llm-foundry",
+#         "/llm-foundry/scripts",
+#         "/llm-foundry/scripts/train",
+#         "/llm-foundry/scripts/train/yamls",
+#         "/llm-foundry/scripts/train/yamls/llama",
+#         "/llm-foundry/llmfoundry",
+#         "/llm-foundry/llmfoundry/models",
+#         "/llm-foundry/llmfoundry/models/llama"
+#     ]
+    
+#     for path in key_paths:
+#         print(f"Does {path} exist? {os.path.exists(path)}")
+    
+#     # Look for the specific file
+#     adapter_script = "/llm-foundry/scripts/train/train_with_llama_adapter.py"
+#     print(f"\nDoes {adapter_script} exist? {os.path.exists(adapter_script)}")
+#     print("HIIIIIIIIIIIIIIII")
+#     adapter_script2 = "/llm-foundry/llmfoundry/models/llama/composer_llama_adapter.py"
+#     print(f"\nDoes {adapter_script2} exist? {os.path.exists(adapter_script)}")
+#     # List script folder content
+#     train_dir = "/llm-foundry/scripts/train"
+#     if os.path.exists(train_dir):
+#         print(f"\nContents of {train_dir}:")
+#         try:
+#             print(subprocess.check_output(["ls", "-la", train_dir]).decode())
+#         except Exception as e:
+#             print(f"Error listing directory: {e}")
+    
+#     # Show mounted files with mount command
+#     print("\nMount information:")
+#     try:
+#         print(subprocess.check_output(["mount"]).decode())
+#     except Exception as e:
+#         print(f"Error running mount command: {e}")
+    
+#     # Check Modal-specific environment
+#     print("\nModal-specific environment:")
+#     modal_vars = [k for k in os.environ if "MODAL" in k]
+#     for var in modal_vars:
+#         print(f"  {var}={os.environ[var]}")
+    
+#     print("\n================ END DEBUGGING ================\n")
