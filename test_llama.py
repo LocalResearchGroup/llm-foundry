@@ -257,7 +257,7 @@ def run_llama():
         "--splits", "train_small", "val_small",  # Separate arguments, not comma-separated
         "--concat_tokens", "2048",
         "--tokenizer", "meta-llama/Llama-3.2-1B",
-        "--eos_text", "<|endoftext|>",
+        #"--eos_text", "<|endoftext|>",
         #"--timeout", "60"  # Increase timeout to 60 seconds
 
     ]
@@ -351,24 +351,54 @@ def run_llama():
     print(f"Using tokenizer: {tokenizer_name}")
 
     # Ensure tokenizer is saved alongside the model
-    def ensure_tokenizer_saved():
-        """Save the original tokenizer to the model directory"""
+    def fix_tokenizer_after_conversion(model_path:str):
+        """Ensure proper tokenizer is saved with converted model"""
+        import os
         from transformers import AutoTokenizer
         
-        # Define paths
-        model_path = "/root/llama3-c4-hf"
+        original_tokenizer_path = "meta-llama/Llama-3.2-1B"
+        #model_path = "/root/llama3-c4-hf"
         
-        print(f"Saving tokenizer {tokenizer_name} to {model_path}")
-        # Load the original tokenizer
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+        # Check if tokenizer files exist
+        tokenizer_files = ["tokenizer_config.json", "tokenizer.json"]
+        missing = [f for f in tokenizer_files if not os.path.exists(os.path.join(model_path, f))]
         
-        # Save it to the model directory
-        tokenizer.save_pretrained(model_path)
-        print(f"Tokenizer saved successfully")
+        if missing:
+            print(f"Missing tokenizer files: {missing}. Saving original tokenizer...")
+            # Load original tokenizer
+            tokenizer = AutoTokenizer.from_pretrained(original_tokenizer_path)
+            
+            # Save to model path, overwriting any existing files
+            tokenizer.save_pretrained(model_path)
+            print(f"Original tokenizer saved to {model_path}")
+        else:
+            print("Tokenizer files found. Testing tokenization...")
+            
+            # Test if the tokenizer works properly
+            saved_tokenizer = AutoTokenizer.from_pretrained(model_path)
+            original_tokenizer = AutoTokenizer.from_pretrained(original_tokenizer_path)
+            
+            # Compare tokenizers
+            test_text = "The answer to life, the universe, and happiness is"
+            saved_tokens = saved_tokenizer.encode(test_text)
+            original_tokens = original_tokenizer.encode(test_text)
+            
+            if saved_tokens != original_tokens:
+                print("WARNING: Saved tokenizer produces different tokens than original!")
+                print(f"Saved: {saved_tokens[:10]}...")
+                print(f"Original: {original_tokens[:10]}...")
+                print("Overwriting with original tokenizer...")
+                
+                # Save original tokenizer
+                original_tokenizer.save_pretrained(model_path)
+                print("Original tokenizer saved to replace inconsistent one")
+        
         return True
 
+    # Add this after your convert_cmd
+    fix_tokenizer_after_conversion(model_path)
     # Save tokenizer
-    #ensure_tokenizer_saved()
+    #save_tokenizer(model_path)
     prompts = None
     if prompts is None:
         prompts = [
@@ -382,7 +412,7 @@ def run_llama():
     print("\nGenerating test responses...")
     generate_cmd = [
         PYTHON_PATH, "inference/hf_generate.py",
-        "--name_or_path", "meta-llama/Llama-3.2-1B", # model_path,
+        "--name_or_path", model_path, #"meta-llama/Llama-3.2-1B", # model_path,
         "--max_new_tokens", "256",
         "--prompts",
         *prompts,
