@@ -153,7 +153,7 @@ def create_combined_script():
     Instead of modifying the framework (which would be difficult and intrusive), 
     we're making our custom implementation look like what the framework expects.
     """
-    script_path = "/llm-foundry/scripts/train_config_fix.py"
+    script_path = "/llm-foundry/scripts/train_patched_method.py"
     
     with open(script_path, "w") as f:
         f.write("""
@@ -165,16 +165,25 @@ from composer.models import HuggingFaceModel, ComposerModel
 from llmfoundry.models.llama import LlamaForCausalLM
 from llmfoundry import registry
 from llmfoundry.command_utils import train_from_yaml
-from transformers import AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, AutoConfig, LlamaForCausalLM as HFLlamaForCausalLM
 
 # Add paths to Python path
 sys.path.insert(0, '/llm-foundry')
 sys.path.insert(0, '/llm-foundry/scripts')
 
+# Add the missing method from HuggingFace's implementation to our custom implementation
+if not hasattr(LlamaForCausalLM, 'prepare_inputs_for_generation'):
+    print("Adding prepare_inputs_for_generation method to our custom LlamaForCausalLM")
+    # Get the method from HuggingFace's implementation
+    prepare_inputs_for_generation = HFLlamaForCausalLM.prepare_inputs_for_generation
+    # Add it to our custom implementation
+    LlamaForCausalLM.prepare_inputs_for_generation = prepare_inputs_for_generation
+    print("Successfully added method")
+
 # Create our custom class that uses LlamaForCausalLM
 try:
     from llmfoundry.models.hf.hf_causal_lm import ComposerHFCausalLM
-    from peft import LoraConfig  # Import proper PEFT configs
+    from peft import LoraConfig
     
     # Create a proper subclass with exact signature match
     class CustomLlamaModel(ComposerHFCausalLM):
@@ -247,7 +256,7 @@ try:
                         'target_modules': peft_config.get('target_modules', ['q_proj', 'k_proj', 'v_proj', 'o_proj']),
                         'bias': 'none',
                         'task_type': peft_config.get('task_type', 'CAUSAL_LM'),
-                        'base_model_name_or_path': pretrained_model_name_or_path  # This is required
+                        'base_model_name_or_path': pretrained_model_name_or_path
                     }
                     print(f"Creating LoraConfig with: {lora_config}")
                     peft_config = LoraConfig(**lora_config)
@@ -257,37 +266,30 @@ try:
             # Initialize ComposerModel base
             ComposerModel.__init__(self)
             
-            # Turn our model into a HuggingFaceModel
-            try:
-                hf_model = HuggingFaceModel(
-                    model=model,
-                    tokenizer=tokenizer,
-                    use_logits=use_logits,
-                    metrics=metrics,
-                    eval_metrics=eval_metrics,
-                    shift_labels=shift_labels,
-                    allow_embedding_resizing=allow_embedding_resizing,
-                    peft_config=peft_config,
-                    should_save_peft_only=should_save_peft_only
-                )
-                
-                # Copy all the attributes from hf_model to self
-                for key, value in vars(hf_model).items():
-                    setattr(self, key, value)
-                
-                # Get methods and properties
-                for name in dir(hf_model):
-                    if not name.startswith('_'):  # Skip private/internal methods
-                        attr = getattr(hf_model, name)
-                        if callable(attr) and not hasattr(self, name):
-                            setattr(self, name, attr)
+            # Create the HuggingFaceModel wrapper
+            hf_model = HuggingFaceModel(
+                model=model,
+                tokenizer=tokenizer,
+                use_logits=use_logits,
+                metrics=metrics,
+                eval_metrics=eval_metrics,
+                shift_labels=shift_labels,
+                allow_embedding_resizing=allow_embedding_resizing,
+                peft_config=peft_config,
+                should_save_peft_only=should_save_peft_only
+            )
+            
+            # Copy all attributes and methods from hf_model to self
+            for key, value in vars(hf_model).items():
+                setattr(self, key, value)
+            
+            for name in dir(hf_model):
+                if not name.startswith('_'):
+                    attr = getattr(hf_model, name)
+                    if callable(attr) and not hasattr(self, name):
+                        setattr(self, name, attr)
                             
-                print("CustomLlamaModel initialization complete")
-            except Exception as e:
-                print(f"Error initializing HuggingFaceModel: {e}")
-                import traceback
-                traceback.print_exc()
-                raise
+            print("CustomLlamaModel initialization complete")
     
     # Register our class
     registry.models.register("hf_causal_lm")(CustomLlamaModel)
