@@ -143,68 +143,77 @@ def llama_generate(model,cfg):
 
 
 ################
-def create_entry_script():
-    """Create a script that loads our registry before running training"""
-    entry_script_path = "/llm-foundry/scripts/train_with_custom_model.py"
+def create_combined_script():
+    """Create a script that first inspects existing hf_causal_lm"""
+    script_path = "/llm-foundry/scripts/train_class_combined.py"
     
-    with open(entry_script_path, "w") as f:
+    with open(script_path, "w") as f:
         f.write("""
 import sys
 import os
-import subprocess
-
-# Print debugging information
-print(f"Current working directory: {os.getcwd()}")
-print(f"Directory contents of /llm-foundry/scripts/train/custom_plugin:")
-try:
-    print(os.listdir("/llm-foundry/scripts/train/custom_plugin"))
-except Exception as e:
-    print(f"Error listing directory: {e}")
+import torch
+import inspect
+from composer.models import HuggingFaceModel, ComposerModel
+from llmfoundry.models.llama import LlamaForCausalLM
+from llmfoundry import registry
+from llmfoundry.command_utils import train_from_yaml
 
 # Add paths to Python path
-sys.path.append('/llm-foundry')
-sys.path.append('/llm-foundry/scripts')
+sys.path.insert(0, '/llm-foundry')
+sys.path.insert(0, '/llm-foundry/scripts')
 
-# First, explicitly import our custom registry
-print("Importing custom model registry...")
+# Get and examine the original class
 try:
-    # Direct import to verify the module is found
-    import train.custom_plugin.model_registry
-    print("Successfully imported train.custom_plugin.model_registry")
-    
-    # Check if it's registered
-    from llmfoundry import registry
-    models = list(registry.models.get_all().keys())
-    print(f"Available models: {models}")
-    if 'llama3_1b' in models:
-        print("llama3_1b is registered!")
-    else:
-        print("llama3_1b is NOT registered :(")
-        
-        # If not registered, try to register it explicitly
-        print("Trying to register llama3_1b explicitly...")
-        from train.custom_plugin.model_registry import build_llama3_1b
-        registry.models.register("llama3_1b")(build_llama3_1b)
-        models = list(registry.models.get_all().keys())
-        print(f"Updated available models: {models}")
+    from llmfoundry.models.hf.hf_causal_lm import ComposerHFCausalLM
+    print("Successfully imported ComposerHFCausalLM")
+    print(f"Base classes: {ComposerHFCausalLM.__bases__}")
+    print(f"Class docstring: {ComposerHFCausalLM.__doc__}")
+    print("Class attributes and methods:")
+    for name, value in inspect.getmembers(ComposerHFCausalLM):
+        if not name.startswith('_'):
+            print(f"  {name}: {type(value)}")
 except Exception as e:
-    print(f"Error importing custom model registry: {e}")
-    import traceback
-    traceback.print_exc()
+    print(f"Error importing ComposerHFCausalLM: {e}")
 
-# Now run the training script
+# Create our custom class that uses LlamaForCausalLM
+try:
+    from llmfoundry.models.hf.hf_causal_lm import ComposerHFCausalLM
+    
+    # Create a subclass
+    class CustomLlamaModel(ComposerHFCausalLM):
+        def __init__(self, pretrained_model_name_or_path, tokenizer, **kwargs):
+            print("Initializing CustomLlamaModel")
+            # Use our custom LlamaForCausalLM
+            model = LlamaForCausalLM.from_pretrained(
+                pretrained_model_name_or_path,
+                torch_dtype=torch.bfloat16,
+                **kwargs
+            )
+            print(f"Using custom LlamaForCausalLM: {type(model).__name__}")
+            # Call parent constructor with our model
+            super().__init__(model, tokenizer)
+    
+    # Register our class
+    registry.models.register("hf_causal_lm")(CustomLlamaModel)
+    print("Registered CustomLlamaModel as hf_causal_lm")
+except Exception as e:
+    print(f"Error creating CustomLlamaModel: {e}")
+
+# Parse command line arguments
 yaml_path = sys.argv[1]
 data_path = sys.argv[2]
 
 print(f"Running training with YAML: {yaml_path}")
 print(f"Data path: {data_path}")
 
-# Run the standard training script
-cmd = ["composer", "train/train.py", yaml_path, f"variables.data_local={data_path}"]
-subprocess.run(cmd)
+# Call the train function directly in this process
+print("Starting training...")
+args_list = [f"variables.data_local={data_path}"]
+train_from_yaml(yaml_path, args_list)
 """)
     
-    return entry_script_path
+    return script_path
+
 
 ###############
 
@@ -252,55 +261,7 @@ def run_llama():
     )
     print(f"Flash Attention version: {import_check.stdout}")
 
-    #####################
-#     def test_registry():
-#         """Create a test script to verify the registry"""
-#         os.makedirs("/llm-foundry/scripts/train/test_script", exist_ok=True)
-        
-#         with open("/llm-foundry/scripts/train/test_script/test_registry.py", "w") as f:
-#             f.write("""
-# import sys
-# sys.path.append('/llm-foundry')
-# sys.path.append('/llm-foundry/scripts') 
-# import importlib
-# print("Importing module...")
-# try:
-#     mod = importlib.import_module('train.custom_plugin.model_registry')
-#     print("Successfully imported module")
-# except Exception as e:
-#     print(f"Error importing module: {e}")
 
-# from llmfoundry import registry
-# print("Available models:", list(registry.models.get_all().keys()))
-# print("Looking for llama3_1b...")
-# try:
-#     builder = registry.models.get("llama3_1b")
-#     print(f"Found llama3_1b: {builder}")
-# except Exception as e:
-#     print(f"Error getting llama3_1b: {e}")
-# """)
-        
-#         return "/llm-foundry/scripts/train/test_script/test_registry.py"
-    
-#     # Run the test script
-#     test_script = test_registry()
-#     os.chdir("/llm-foundry/scripts")
-#     print("\nTesting registry...")
-#     test_result = subprocess.run([python_path, test_script], capture_output=True, text=True)
-#     print(test_result.stdout)
-#     if test_result.stderr:
-#         print(f"Test errors: {test_result.stderr}")
-
-
-    ####################
-
-    # # Create our monkey patch
-    # patch_path = create_custom_monkey_patch()
-    
-    # # Immediately import it to modify the registry
-    # import subprocess
-    # subprocess.run(["python", patch_path])
-    
 
     # ############ Working steps start############
     # # Step 0: Test Llama implementation: load and generate
@@ -317,18 +278,18 @@ def run_llama():
     # ############ Working steps end############
     
     # Create entry script
-    entry_script = create_entry_script()
+    #entry_script = create_entry_script()
 
     # Update YAML
     yaml_path = "/llm-foundry/scripts/train/yamls/llama/llama3-1b-lora.yaml"
 
     # Run using our entry script
-    os.chdir("/llm-foundry/scripts")
-    print("\nRunning training with custom model...")
-    train_cmd = [python_path, entry_script, yaml_path, "/root/c4-data"]
-    result = subprocess.run(train_cmd, capture_output=True, text=True)
-    print(result.stdout)
-    return
+    # os.chdir("/llm-foundry/scripts")
+    # print("\nRunning training with custom model...")
+    # train_cmd = [python_path, entry_script, yaml_path, "/root/c4-data"]
+    # result = subprocess.run(train_cmd, capture_output=True, text=True)
+    # print(result.stdout)
+    
     # Step 1: Prepare data - use C4 TODO: Clean up args to load from yaml
     print("\nPreparing data...")
     os.chdir("/llm-foundry/scripts")
@@ -351,27 +312,48 @@ def run_llama():
         print("Data prep errors:", result.stderr)
     
     # Step 2: Fine-tune model with LoRA
-    print("\nFine-tuning Llama-3 with LoRA...")
-    yaml_path = os.path.join("/llm-foundry/scripts/train/yamls/llama", "llama3-1b-lora.yaml")
-    check_and_create_custom_plugin()
+    # print("\nFine-tuning Llama-3 with LoRA...")
+    # yaml_path = os.path.join("/llm-foundry/scripts/train/yamls/llama", "llama3-1b-lora.yaml")
+    # #check_and_create_custom_plugin()
 
-    # Modify build_composer_model to automatically import our plugin
-    modify_build_composer_model()
-    os.chdir("/llm-foundry/scripts") 
-    train_cmd = [
-        "composer",
-        #"--import_module", "train.custom_plugin.model_registry",  # Import our module
-        "train/train.py",
+    # # Modify build_composer_model to automatically import our plugin
+    # #modify_build_composer_model()
+    # os.chdir("/llm-foundry/scripts") 
+    # train_cmd = [
+    #     "composer",
+    #     #"--import_module", "train.custom_plugin.model_registry",  # Import our module
+    #     "train/train.py",
+    #     yaml_path,
+    #     "variables.data_local=/root/c4-data",
+    #     #"model.name=llama3_1b"  # Override to use our registered model
+    # ]
+    # print(f"Running command: {' '.join(train_cmd)}")
+    # result = subprocess.run(train_cmd, capture_output=True, text=True)
+    # print(result.stdout)
+    # if result.stderr:
+    #     print("Training errors:", result.stderr)
+    
+
+
+    # Create the combined script
+    combined_script = create_combined_script()
+
+    # Run it directly
+    print("\nRunning combined training script...")
+    os.chdir("/llm-foundry/scripts")
+    combined_cmd = [
+        python_path,
+        combined_script,
         yaml_path,
-        "variables.data_local=/root/c4-data",
-        #"model.name=llama3_1b"  # Override to use our registered model
+        "/root/c4-data"
     ]
-    print(f"Running command: {' '.join(train_cmd)}")
-    result = subprocess.run(train_cmd, capture_output=True, text=True)
+    result = subprocess.run(combined_cmd, capture_output=True, text=True)
     print(result.stdout)
     if result.stderr:
-        print("Training errors:", result.stderr)
-    
+        print("Combined script errors:", result.stderr)
+
+
+
     # Step 3: Convert model to HuggingFace format
     print("\nConverting model to HuggingFace format...")
     convert_cmd = [
@@ -878,3 +860,53 @@ def main():
 
 
 # ###############
+
+    #####################
+#     def test_registry():
+#         """Create a test script to verify the registry"""
+#         os.makedirs("/llm-foundry/scripts/train/test_script", exist_ok=True)
+        
+#         with open("/llm-foundry/scripts/train/test_script/test_registry.py", "w") as f:
+#             f.write("""
+# import sys
+# sys.path.append('/llm-foundry')
+# sys.path.append('/llm-foundry/scripts') 
+# import importlib
+# print("Importing module...")
+# try:
+#     mod = importlib.import_module('train.custom_plugin.model_registry')
+#     print("Successfully imported module")
+# except Exception as e:
+#     print(f"Error importing module: {e}")
+
+# from llmfoundry import registry
+# print("Available models:", list(registry.models.get_all().keys()))
+# print("Looking for llama3_1b...")
+# try:
+#     builder = registry.models.get("llama3_1b")
+#     print(f"Found llama3_1b: {builder}")
+# except Exception as e:
+#     print(f"Error getting llama3_1b: {e}")
+# """)
+        
+#         return "/llm-foundry/scripts/train/test_script/test_registry.py"
+    
+#     # Run the test script
+#     test_script = test_registry()
+#     os.chdir("/llm-foundry/scripts")
+#     print("\nTesting registry...")
+#     test_result = subprocess.run([python_path, test_script], capture_output=True, text=True)
+#     print(test_result.stdout)
+#     if test_result.stderr:
+#         print(f"Test errors: {test_result.stderr}")
+
+
+    ####################
+
+    # # Create our monkey patch
+    # patch_path = create_custom_monkey_patch()
+    
+    # # Immediately import it to modify the registry
+    # import subprocess
+    # subprocess.run(["python", patch_path])
+    
