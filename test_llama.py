@@ -5,10 +5,11 @@ import torch
 import os
 from omegaconf import OmegaConf
 from huggingface_hub import login
+import time
 app = App("llama3-test")
 
 # Use the same docker image
-image = Image.from_dockerfile("Dockerfile")
+image = Image.from_dockerfile("Dockerfile")  
 # yaml_path = "/llm-foundry/scripts/train/yamls/llama/llama3-1b-lora.yaml"
 # print(f"Loading config from {yaml_path}")
 # cfg = OmegaConf.load(yaml_path)
@@ -175,7 +176,9 @@ def debug_file_paths():
     # Look for the specific file
     adapter_script = "/llm-foundry/scripts/train/train_with_llama_adapter.py"
     print(f"\nDoes {adapter_script} exist? {os.path.exists(adapter_script)}")
-    
+    print("HIIIIIIIIIIIIIIII")
+    adapter_script2 = "/llm-foundry/llmfoundry/models/llama/composer_llama_adapter.py"
+    print(f"\nDoes {adapter_script2} exist? {os.path.exists(adapter_script)}")
     # List script folder content
     train_dir = "/llm-foundry/scripts/train"
     if os.path.exists(train_dir):
@@ -242,7 +245,7 @@ def run_llama():
     print(f"Flash Attention version: {import_check.stdout}")
 
 
-    debug_file_paths(); return
+    #debug_file_paths(); return
     # ############ Working steps start############
     # # Step 0: Test Llama implementation: load and generate
     # yaml_path = "/llm-foundry/scripts/train/yamls/llama/llama3-1b-lora.yaml"
@@ -261,7 +264,7 @@ def run_llama():
     #entry_script = create_entry_script()
 
     # Update YAML
-    yaml_path = os.path.join("/llm-foundry/scripts/train/yamls/llama", "llama3-1b-lora.yaml")
+    #yaml_path = os.path.join("/llm-foundry/scripts/train/yamls/llama", "llama3-1b-lora.yaml")
     # Import the adapter to register our custom model
     # print("\nImporting custom adapter...")
     # import_cmd = [
@@ -293,6 +296,7 @@ def run_llama():
     # result = subprocess.run(train_cmd, capture_output=True, text=True)
     # print(result.stdout)
     
+    print(f"TIME: {time.time()}")
     # Step 1: Prepare data - use C4 TODO: Clean up args to load from yaml
     print("\nPreparing data...")
     os.chdir("/llm-foundry/scripts")
