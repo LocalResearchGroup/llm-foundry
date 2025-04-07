@@ -121,7 +121,7 @@ def upload_token_folder(local_path, target_repo):
         folder_path=local_path,
         repo_id=target_repo,
         repo_type="dataset",
-        path_in_repo=str(local_path.relative_to("."))
+        path_in_repo=str(local_path.relative_to(".")),
     )
 
 def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-135M"):

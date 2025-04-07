@@ -14,7 +14,7 @@ def main(args):
         },
         "finemath" :{
             "target": f"{args.repo}/split-finemath",
-        }
+        },
     }
     
     for ds in args.dataset:

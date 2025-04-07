@@ -358,11 +358,11 @@ def pull_hf_to_folder():
     print(f"Working directory: {os.getcwd()}")
     
     # Step 1: pull all tokens
-    print(f"Downloading repos to {DATASETS_VOLUME_MOUNT_PATH}/snapshot...")
+    print(f"Downloading repos to {DATASETS_VOLUME_MOUNT_PATH}/")
     data_prep_cmd = [
         PYTHON_PATH,  # Use the correct Python interpreter
         "data_prep/download_repo.py",
-        "--out", f"{DATASETS_VOLUME_MOUNT_PATH}/snapshot",
+        "--out", f"{DATASETS_VOLUME_MOUNT_PATH}/",
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -370,6 +370,27 @@ def pull_hf_to_folder():
         print("Download data errors:", result.stderr)
     
     DATASETS_VOLUME.commit()
+
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+              max_containers=1)
+def process_datasets():
+    import subprocess
+    import os
+    
+    # Change to llm-foundry/scripts directory at the start
+    os.chdir("/llm-foundry/scripts")
+    print(f"Working directory: {os.getcwd()}")
+    
+    # Step 1: pull all tokens
+    print(f"Processing datasets...")
+    data_prep_cmd = [
+        PYTHON_PATH,  # Use the correct Python interpreter
+        "data_prep/convert_dataset_hf.py",
+    ]
+    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Process dataset  errors:", result.stderr)
 
 
 @app.local_entrypoint()

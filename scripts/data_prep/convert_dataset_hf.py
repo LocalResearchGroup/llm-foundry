@@ -28,12 +28,13 @@ def generate_constants(chars_per_sample, chars_per_token, label=None, splits=("f
     )
     return ds_const
 
+HF_TARGET = "LocalResearchGroup"
 finemath = generate_constants(2163, 4)
-add_dataset_config("tyoc213/split-finemath", finemath)
+add_dataset_config(f"{HF_TARGET}/split-finemath", finemath)
 finemath = generate_constants(2163, 4)
-add_dataset_config("tyoc213/split-tulu-3-sft-olmo-2-mixture", finemath)
+add_dataset_config(f"{HF_TARGET}/split-tulu-3-sft-olmo-2-mixture", finemath)
 finemath = generate_constants(2163, 4)
-add_dataset_config("tyoc213/split-NuminaMath-CoT", finemath)
+add_dataset_config(f"{HF_TARGET}/split-NuminaMath-CoT", finemath)
 
 
 def parse_args() -> Namespace:

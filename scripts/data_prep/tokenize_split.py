@@ -24,7 +24,7 @@ def generate_constants(chars_per_sample, chars_per_token, label=None, splits=("f
     return ds_const
 
 _finemath = generate_constants(2163, 4)
-HF_TARGET = "tyoc213"  # "LocalResearchGroup"
+HF_TARGET = "LocalResearchGroup"
 add_dataset_config(f"{HF_TARGET}/split-finemath", _finemath)
 _tulu = generate_constants(2163, 4)
 add_dataset_config(f"{HF_TARGET}/split-tulu-3-sft-olmo-2-mixture", _tulu)
@@ -32,25 +32,3 @@ _numina = generate_constants(2163, 4)
 add_dataset_config(f"{HF_TARGET}/split-NuminaMath-CoT", _numina)
 _pythonedu = generate_constants(2163, 4)
 add_dataset_config(f"{HF_TARGET}/split-avelina-python-edu", _pythonedu)
-
-
-# def do_xxx():
-#     args = Namespace(dataset='tyoc213/split-finemath', data_subset='10k', splits=['train', 'test'], out_root='finemath-10k', compression=None, concat_tokens=None, tokenizer='HuggingFaceTB/SmolLM2-135M', tokenizer_kwargs=None, bos_text=None, eos_text='<|endoftext|>', no_wrap=False, num_workers=None)
-#     convert_dataset_hf_from_args(
-#         dataset=args.dataset,
-#         data_subset=args.data_subset,
-#         splits=args.splits,
-#         out_root=args.out_root,
-#         compression=args.compression,
-#         concat_tokens=args.concat_tokens,
-#         tokenizer=args.tokenizer,
-#         tokenizer_kwargs=args.tokenizer_kwargs,
-#         bos_text=args.bos_text,
-#         eos_text=args.eos_text,
-#         no_wrap=args.no_wrap,
-#         num_workers=args.num_workers,
-#     )
-
-
-# if __name__ == "__main__":
-#     do_xxx()
