@@ -381,11 +381,15 @@ def process_datasets():
     os.chdir("/llm-foundry/scripts")
     print(f"Working directory: {os.getcwd()}")
     
-    # Step 1: pull all tokens
+    # process all datasets: tulu, numina, finemath, glaive, avelinapythonedu
+    # 1. pull original, split and upload splits (`--no-split` to skip)
+    # 2. tokenize dataset(s) (`--no-tokenize` to skip)
+    # 3. upload (tokenized) folders (`--no-upload` to skip)
+    # `--source` can be 1 or the allowed list (dont pass to process all registered datasets)
     print(f"Processing datasets...")
     data_prep_cmd = [
         PYTHON_PATH,  # Use the correct Python interpreter
-        "data_prep/convert_dataset_hf.py",
+        "data_prep/split_hf_datasets.py",
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -421,4 +425,6 @@ def main():
 
     generate_responses.remote(model_path)
 
+    # dataset processing
+    process_datasets.remote() if False else None
     pull_hf_to_folder.remote() if False else None
