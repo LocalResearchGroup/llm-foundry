@@ -35,7 +35,7 @@ image = Image.from_dockerfile("Dockerfile", gpu='L4')
 image = image.add_local_file(TRAIN_YAML, f"/llm-foundry/scripts/train/yamls/finetune/{TRAIN_YAML}")
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
-             max_containers=1)
+             concurrency_limit=1)
 def get_stats():
     import subprocess
     
@@ -58,7 +58,7 @@ def get_stats():
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")], 
               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-              max_containers=1)
+              concurrency_limit=1)
 def convert_c4_small_dataset():
     import subprocess
     import os
@@ -127,7 +127,7 @@ def convert_finetuning_dataset():
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")], 
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              max_containers=1)
+              concurrency_limit=1)
 def view_model_checkpoints(save_folder: str=None):
     import os
     print("\nModel checkpoint files and sizes:")
@@ -214,7 +214,7 @@ def run_aim_server(run_folder: str):
 @app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-              max_containers=1)
+              concurrency_limit=1)
 def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m.yaml"):
 
     import subprocess, time
@@ -239,8 +239,13 @@ def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-1
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
+<<<<<<< HEAD
               max_containers=1)
 def convert_model_to_hf(checkpoint_path: str, yaml_path: str = "", upload_to_hf: bool = False, is_peft: bool = IS_PEFT):
+=======
+              concurrency_limit=1)
+def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
+>>>>>>> 4234231 (revert back to `concurrency_limit` for modal < 0.73.76)
     """Convert a model checkpoint to a HuggingFace format."""
     import subprocess, os
     from pathlib import Path
@@ -276,7 +281,7 @@ def convert_model_to_hf(checkpoint_path: str, yaml_path: str = "", upload_to_hf:
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              max_containers=1)
+              concurrency_limit=1)
 def evaluate_model(checkpoint_path: str):
     import subprocess, os
     from pathlib import Path
@@ -307,7 +312,7 @@ def evaluate_model(checkpoint_path: str):
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              max_containers=1)
+              concurrency_limit=1)
 def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
     import subprocess, os
     from pathlib import Path
@@ -343,7 +348,7 @@ def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              max_containers=1)
+              concurrency_limit=1)
 def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: str = "model", private: bool = True):
     """Upload model checkpoint to HuggingFace Hub."""
     from huggingface_hub import HfApi
@@ -413,7 +418,7 @@ def process_datasets():
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-              max_containers=1)
+              concurrency_limit=1)
 def pull_hf_to_folder():
     import subprocess
     import os
@@ -437,7 +442,7 @@ def pull_hf_to_folder():
     DATASETS_VOLUME.commit()
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
-              max_containers=1)
+              concurrency_limit=1)
 def process_datasets():
     import subprocess
     import os
