@@ -1,43 +1,50 @@
-# llama3-1b.yaml
+# llama3-1b-lora.yaml
 variables:
-  data_local: /root/c4-data
+  data_local: /datasets/c4_small
   data_remote: 
   tokenizer_name: meta-llama/Llama-3.2-1B
   global_seed: 17
   max_seq_len: 2048
   run_name: llama3-lora-test
-  model_name_or_path: meta-llama/Llama-3.2-1B 
+  model_name_or_path: meta-llama/Llama-3.2-1B
+  model_output_path: /root/llama3-c4-hf
 
 max_seq_len: ${variables.max_seq_len}
 run_name: ${variables.run_name}
 
-
+# Model
 model:
-  name: hf_causal_lm #llama3_1b 
-  #import_path: train.custom_plugin.model_registry #train.custom_plugin.model_registry 
-  #import_path: scripts.train.model_registry 
-  #import_path: llmfoundry.models.llama  # Points to your custom module
+  name: hf_causal_lm
   pretrained_model_name_or_path: ${variables.model_name_or_path}
-  use_flash_attention_2: true
+  config_overrides:
+    max_position_embeddings: ${variables.max_seq_len}
   peft_config:
-    peft_type: LORA  # Uppercase
     r: 8
-    lora_alpha: 16  # Added 'lora_' prefix
-    lora_dropout: 0.05  # Added 'lora_' prefix
-    # YAML list format
-    target_modules:  
+    peft_type: LORA
+    task_type: CAUSAL_LM
+    lora_alpha: 16
+    lora_dropout: 0.05
+    target_modules:
       - q_proj
       - k_proj
       - v_proj
       - o_proj
-    task_type: CAUSAL_LM
+  use_flash_attention_2: true
+  pretrained: true
+
 # Tokenizer
 tokenizer:
   name: ${variables.tokenizer_name}
   kwargs:
     model_max_length: ${variables.max_seq_len}
 
-# Data
+# loggers:
+#   aim:
+#     repo: '.aim'
+#     experiment_name: 'llama3_1b_lora_test'
+#     upload_on_close: true
+
+# Data loading
 train_loader:
   name: text
   dataset:
@@ -48,7 +55,7 @@ train_loader:
     max_seq_len: ${variables.max_seq_len}
     shuffle_seed: ${variables.global_seed}
   drop_last: true
-  num_workers: 1
+  num_workers: 8
 
 eval_loader:
   name: text
@@ -60,9 +67,12 @@ eval_loader:
     max_seq_len: ${variables.max_seq_len}
     shuffle_seed: ${variables.global_seed}
   drop_last: false
-  num_workers: 1
+  num_workers: 8
 
-
+scheduler:
+  name: cosine_with_warmup
+  t_warmup: 100ba
+  alpha_f: 0.1
 
 optimizer:
   name: decoupled_adamw
@@ -73,36 +83,31 @@ optimizer:
   eps: 1.0e-08
   weight_decay: 0.0
 
-scheduler:
-  name: cosine_with_warmup
-  t_warmup: 100ba
-  alpha_f: 0.1
-# scheduler:
-#   name: constant
-#   interval: step
-
-
-
 algorithms:
   gradient_clipping:
     clipping_type: norm
     clipping_threshold: 1.0
 
-max_duration: 10ba
-eval_interval: 0
+max_duration: 2ba #4800ba
+eval_interval: 10ba #500ba # only eval at the end with 0
 eval_first: false
-eval_subset_num_batches: -1
-global_train_batch_size: 1
+eval_subset_num_batches: 10 #-1
+global_train_batch_size: 2 #256
 
 # System
 seed: ${variables.global_seed}
-device_eval_batch_size: 1
-device_train_microbatch_size: 1
+device_eval_batch_size: 1 #16
+device_train_microbatch_size: 1 #16
 precision: amp_bf16
 
-# Saving
-save_folder: /root/llama3-c4
-save_interval: 5ba
+# FSDP
+fsdp_config:
+  sharding_strategy: FULL_SHARD
+  mixed_precision: PURE
+  activation_checkpointing: false
+  activation_checkpointing_reentrant: false
+  activation_cpu_offload: false
+  limit_all_gathers: truetrain/yamls/llama/llama3-1b-lora.yaml
 
 # Logging
 progress_bar: true
@@ -114,15 +119,4 @@ callbacks:
     window_size: 10
   lr_monitor: {}
   memory_monitor: {}
-
-
-# max_duration: 10ba
-# eval_interval: 0
-# save_folder: /root/llama3-c4
-# save_interval: 5ba
-# global_train_batch_size: 1
-# device_train_microbatch_size: 1
-# device_eval_batch_size: 1
-# precision: amp_bf16
-
-#TODO: add loggers!
+  runtime_estimator: {}

@@ -23,7 +23,16 @@ data_path = sys.argv[2]
 print(f"Running training with YAML: {yaml_path}")
 print(f"Data path: {data_path}")
 
-# Call train_from_yaml with the data path
-print("Starting training...")
+# Set up args list with data path
 args_list = [f"variables.data_local={data_path}"]
+
+# Add any additional CLI arguments
+if len(sys.argv) > 3:
+    additional_args = sys.argv[3:]
+    print(f"Received {len(additional_args)} additional arguments")
+    args_list.extend(additional_args)
+
+# Call train_from_yaml with all arguments
+print("Starting training...")
+print(f"Full arguments list: {args_list}")
 train_from_yaml(yaml_path, args_list)
