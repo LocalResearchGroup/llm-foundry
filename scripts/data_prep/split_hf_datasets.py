@@ -7,6 +7,10 @@ from pathlib import Path
 from convert_finetuning_dataset import convert_finetuning_dataset_from_args
 import os
 
+import dataset_constants_split_config
+from llmfoundry.command_utils import convert_dataset_hf_from_args
+
+
 def save_to_parquet(combined: DatasetDict, out_ds_path: Path):
     data_files = {}
     for split, dataset in combined.items():
@@ -127,9 +131,7 @@ def upload_token_folder(local_path, target_repo):
 
 def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-135M"):
     # import configurations to tokenize new dataset splits
-    import tokenize_split
-    from llmfoundry.command_utils import convert_dataset_hf_from_args, DatasetConstants, DataSplitConstants, add_dataset_config, CONSTS
-
+    
     for s in args.source:
         
         d = datasets[s]
@@ -143,7 +145,7 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
                     splits=["train", "test"],
                     out_root=f"tokenized/{s}/{ablation}",
                     compression="zstd",
-                    concat_tokens=None,
+                    concat_tokens=True,
                     tokenizer=tokenizer,
                     tokenizer_kwargs=None,
                     bos_text=None,
@@ -166,11 +168,12 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
                     None,  # num_workers
                     "HuggingFaceTB/SmolLM2-135M",  # tokenizer
                     None,
-                    2048,  # max_seq_len
+                    20480,  # max_seq_len
                     "none",  # target_prompts
                     "last",  # target_responses
                     False,  # encoder_decoder
                 )
+
 
 def create_upload(args, datasets):
     # upload all tokenized folders to corresponding repo/folder
@@ -231,6 +234,7 @@ def main(args):
             "ablations": ("full", "1M", "100k", "10k", "1k"),
         },
     }
+    dataset_constants_split_config.register_new_datasets(args.target_repo)
     if args.split:
         print(f"spliting: {args.source}")
         d = upload_splits(args, datasets)
@@ -263,11 +267,11 @@ def parse_args() -> Namespace:
         default="LocalResearchGroup",
         help="target repo to upload splits and tokenizations",
     )
-    
+
     parser.add_argument("--split", action=BooleanOptionalAction, default=True, help="split generation")
     parser.add_argument("--tokenize", action=BooleanOptionalAction, default=True, help="generate tokenization for splits")
     parser.add_argument("--upload", action=BooleanOptionalAction, default=True, help="upload tokenization folders")
-    
+
     parsed = parser.parse_args()
     return parsed
 
