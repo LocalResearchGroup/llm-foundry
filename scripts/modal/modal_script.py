@@ -211,7 +211,7 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
         PYTHON_PATH, "inference/convert_composer_to_hf.py",
         "--composer_path", composer_checkpoint_path,
         "--hf_output_path", hf_output_path,
-        "--output_precision", f{OUTPUT_PRECISION}",
+        "--output_precision", f"{OUTPUT_PRECISION}",
         "--is_peft", f"{IS_PEFT}",
         "--train_yaml", f"{TRAIN_YAML}"
     ]
