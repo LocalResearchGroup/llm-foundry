@@ -1,5 +1,4 @@
-from llmfoundry.command_utils import convert_dataset_hf_from_args, DatasetConstants, DataSplitConstants, add_dataset_config, CONSTS
-from llmfoundry.command_utils import convert_dataset_hf_from_args, DatasetConstants, DataSplitConstants, add_dataset_config, CONSTS
+from llmfoundry.command_utils import DatasetConstants, DataSplitConstants, add_dataset_config
 
 def generate_constants(chars_per_sample, chars_per_token, label=None, splits=("full", 1, 10, 100, 1000)):
     ds_const = DatasetConstants(
@@ -23,12 +22,15 @@ def generate_constants(chars_per_sample, chars_per_token, label=None, splits=("f
     )
     return ds_const
 
-_finemath = generate_constants(2163, 4)
-HF_TARGET = "LocalResearchGroup"
-add_dataset_config(f"{HF_TARGET}/split-finemath", _finemath)
-_tulu = generate_constants(2163, 4)
-add_dataset_config(f"{HF_TARGET}/split-tulu-3-sft-olmo-2-mixture", _tulu)
-_numina = generate_constants(2163, 4)
-add_dataset_config(f"{HF_TARGET}/split-NuminaMath-CoT", _numina)
-_pythonedu = generate_constants(2163, 4)
-add_dataset_config(f"{HF_TARGET}/split-avelina-python-edu", _pythonedu)
+
+def register_new_datasets(target = "LocalResearchGroup"):
+    _finemath = generate_constants(12163, 4)
+    add_dataset_config(f"{target}/split-finemath", _finemath)
+    _tulu = generate_constants(12163, 4)
+    add_dataset_config(f"{target}/split-tulu-3-sft-olmo-2-mixture", _tulu)
+    _numina = generate_constants(12163, 4)
+    add_dataset_config(f"{target}/split-NuminaMath-CoT", _numina)
+    _pythonedu = generate_constants(12163, 4)
+    add_dataset_config(f"{target}/split-avelina-python-edu", _pythonedu)
+    _glaive = generate_constants(12163, 4)
+    add_dataset_config(f"{target}/split-glaive-code-assistant-v3", _glaive)
