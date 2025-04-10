@@ -15,6 +15,12 @@ def main(args):
         "finemath" :{
             "target": f"{args.repo}/split-finemath",
         },
+        "glaive" : {
+            "target": f"{args.repo}/split-glaive-code-assistant-v3",
+        },
+        "avelinapythonedu": {
+            "target": f"{args.repo}/split-avelina-python-edu",
+        },
     }
     
     for ds in args.dataset:
