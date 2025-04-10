@@ -37,13 +37,13 @@ def parse_args() -> Namespace:
     """Parse commandline arguments."""
     parser = ArgumentParser(
         description=
-        'Downloads tokenized versions of train/test 1M, 100k, 10k, 1k',
+        "Downloads tokenized versions of train/test 1M, 100k, 10k, 1k",
     )
     parser.add_argument(
-        '--dataset',
-        nargs='+',
-        choices=['tulu', 'numina', 'finemath'],
-        default=['tulu', 'numina', 'finemath'],
+        "--dataset",
+        nargs="+",
+        choices=["tulu", "numina", "finemath", "glaive", "avelinapythonedu"],
+        default=["tulu", "numina", "finemath", "glaive", "avelinapythonedu"],
     )
 
     parser.add_argument(
