@@ -119,7 +119,7 @@ def process_numina(dataset):
     return dataset
 
 def upload_token_folder(local_path, target_repo):
-    print(f"upload_token_folder({str(local_path.relative_to("."))}, {target_repo})")
+    print(f"upload_token_folder({str(local_path.relative_to('.'))}, {target_repo})")
     api = HfApi()
     r = api.upload_folder(
         folder_path=local_path,
@@ -128,6 +128,7 @@ def upload_token_folder(local_path, target_repo):
         path_in_repo=str(local_path.relative_to(".")),
     )
     print(f"token uploaded result: {r}")
+
 
 def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-135M"):
     # import configurations to tokenize new dataset splits
