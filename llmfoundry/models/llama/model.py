@@ -57,7 +57,7 @@ class LlamaForCausalLM(nn.Module):
             use_unpadded_rope=use_unpadded_rope,
             use_flash_attn=use_flash_attn,
         )
-        
+        self.config = config
         # Embedding layer
         self.embed_tokens = nn.Embedding(vocab_size, hidden_size, padding_idx=None)
         
@@ -199,69 +199,110 @@ class LlamaForCausalLM(nn.Module):
 
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path: str, **kwargs) -> "LlamaForCausalLM":
-        """Load from Hugging Face checkpoint."""
-        # Load HF model
-        model_output = HFLlamaForCausalLM.from_pretrained(
-        pretrained_model_name_or_path, 
-        torch_dtype=torch.bfloat16,  # Force bfloat16 
-        low_cpu_mem_usage=True,
-        return_dict=False)
+    def from_pretrained(cls, pretrained_model_name_or_path, config=None, **kwargs):
+        """Load model from HuggingFace Hub or local path."""
+        print(f"Loading model from {pretrained_model_name_or_path}")
         
-        # Handle tuple return - some HF methods return (model, loading_info)
-        if isinstance(model_output, tuple):
-            hf_model = model_output[0]
+        # Extract custom params
+        config_overrides = kwargs.pop('config_overrides', None)
+        use_pretrained = kwargs.pop('pretrained', True)
+        use_flash_attention_2 = kwargs.pop('use_flash_attention_2', False)
+        
+        # Filter out custom parameters that HF models don't accept
+        for param in ['should_save_peft_only', 'shift_labels', 'peft_config', 'init_device']:
+            if param in kwargs:
+                kwargs.pop(param)
+        
+        # Load or use the provided config
+        if config is None:
+            from transformers import LlamaConfig
+            config = LlamaConfig.from_pretrained(pretrained_model_name_or_path)
+        
+        # Apply config overrides if provided
+        if config_overrides:
+            print(f"Applying config_overrides: {config_overrides}")
+            for key, value in config_overrides.items():
+                print(f"  Setting {key} = {value}")
+                setattr(config, key, value)
+        
+        # Load HuggingFace model if using pretrained weights
+        if use_pretrained:
+            # Set flash attention if requested
+            if use_flash_attention_2:
+                print("Enabling Flash Attention 2")
+                kwargs['attn_implementation'] = 'flash_attention_2'
+            
+            # Load HF model with clean kwargs
+            print("Loading weights from pretrained model")
+            hf_model = HFLlamaForCausalLM.from_pretrained(
+                pretrained_model_name_or_path,
+                config=config,
+                **kwargs
+            )
         else:
-            hf_model = model_output
+            print("Initializing model with random weights (pretrained=False)")
+            hf_model = HFLlamaForCausalLM(config)
         
-        # Extract config from HF model
-        hf_config = hf_model.config
-        
-        # Create our model with matching architecture
+        # Initialize our custom model
+        print("Creating custom LlamaForCausalLM instance")
         model = cls(
-            hidden_size=hf_config.hidden_size,
-            num_attention_heads=hf_config.num_attention_heads,
-            num_key_value_heads=getattr(hf_config, "num_key_value_heads", hf_config.num_attention_heads),
-            num_hidden_layers=hf_config.num_hidden_layers,
-            intermediate_size=hf_config.intermediate_size,
-            vocab_size=hf_config.vocab_size,
-            max_position_embeddings=hf_config.max_position_embeddings,
-            rms_norm_eps=hf_config.rms_norm_eps,
-            rope_theta=getattr(hf_config, "rope_theta", 10000.0),
-            use_unpadded_rope=kwargs.get("use_unpadded_rope", True),
-            use_flash_attn=kwargs.get("use_flash_attn", True),
+            hidden_size=config.hidden_size,
+            num_attention_heads=config.num_attention_heads,
+            num_key_value_heads=getattr(config, 'num_key_value_heads', config.num_attention_heads),
+            num_hidden_layers=config.num_hidden_layers,
+            intermediate_size=getattr(config, 'intermediate_size', config.hidden_size * 4),
+            vocab_size=config.vocab_size,
+            max_position_embeddings=config.max_position_embeddings,
+            rms_norm_eps=getattr(config, 'rms_norm_eps', 1e-5),
+            rope_theta=getattr(config, 'rope_theta', 500000.0),
+            use_flash_attn=use_flash_attention_2,
         )
         
-        # Map weights from HF model to our model
-        # First ensure the architecture matches
-        assert len(model.layers) == len(hf_model.model.layers), "Layer count mismatch"
+        # Copy weights from HF model to custom model
+        if use_pretrained:
+            print("Copying weights from HF model to custom model")
+            model._copy_weights_from_hf_llama(hf_model)
         
-        # Map embedding weights
-        model.embed_tokens.weight.data.copy_(hf_model.model.embed_tokens.weight.data)
-        model.lm_head.weight.data.copy_(hf_model.lm_head.weight.data)
+        # Set config on the model
+        model.config = config
+        print("Model loading complete")
         
-        # Map final norm
-        model.norm.weight.data.copy_(hf_model.model.norm.weight.data)
-        
-        # Map each layer's weights
-        for layer_idx, (our_layer, hf_layer) in enumerate(zip(model.layers, hf_model.model.layers)):
-             print(f"Copying weights for layer {layer_idx}/{len(model.layers)}")
-             # Attention weights
-             our_layer.self_attn.q_proj.weight.data.copy_(hf_layer.self_attn.q_proj.weight.data)
-             our_layer.self_attn.k_proj.weight.data.copy_(hf_layer.self_attn.k_proj.weight.data)
-             our_layer.self_attn.v_proj.weight.data.copy_(hf_layer.self_attn.v_proj.weight.data)
-             our_layer.self_attn.o_proj.weight.data.copy_(hf_layer.self_attn.o_proj.weight.data)
-             
-             # MLP weights
-             our_layer.mlp.gate_proj.weight.data.copy_(hf_layer.mlp.gate_proj.weight.data)
-             our_layer.mlp.up_proj.weight.data.copy_(hf_layer.mlp.up_proj.weight.data)
-             our_layer.mlp.down_proj.weight.data.copy_(hf_layer.mlp.down_proj.weight.data)
-             
-             # Layer norms
-             our_layer.input_layernorm.weight.data.copy_(hf_layer.input_layernorm.weight.data)
-             our_layer.post_attention_layernorm.weight.data.copy_(hf_layer.post_attention_layernorm.weight.data)
-            
         return model
+
+    def _copy_weights_from_hf_llama(self, hf_model):
+        """Copy weights from HuggingFace model to our custom implementation"""
+        # This method needs to be implemented based on your specific model structure
+        # Here's a simplified version - you'll need to adapt this to your architecture
+        
+        # Copy embedding weights
+        if hasattr(self, 'embed_tokens') and hasattr(hf_model, 'model'):
+            self.embed_tokens.weight.data.copy_(hf_model.model.embed_tokens.weight.data)
+        
+        # Copy layer weights
+        for i, (our_layer, hf_layer) in enumerate(zip(self.layers, hf_model.model.layers)):
+            print(f"Copying weights for layer {i}/{len(self.layers)}")
+            
+            # Copy attention weights
+            our_layer.self_attn.q_proj.weight.data.copy_(hf_layer.self_attn.q_proj.weight.data)
+            our_layer.self_attn.k_proj.weight.data.copy_(hf_layer.self_attn.k_proj.weight.data)
+            our_layer.self_attn.v_proj.weight.data.copy_(hf_layer.self_attn.v_proj.weight.data)
+            our_layer.self_attn.o_proj.weight.data.copy_(hf_layer.self_attn.o_proj.weight.data)
+            
+            # Copy MLP weights
+            our_layer.mlp.gate_proj.weight.data.copy_(hf_layer.mlp.gate_proj.weight.data)
+            our_layer.mlp.up_proj.weight.data.copy_(hf_layer.mlp.up_proj.weight.data)
+            our_layer.mlp.down_proj.weight.data.copy_(hf_layer.mlp.down_proj.weight.data)
+            
+            # Copy layer norms
+            our_layer.input_layernorm.weight.data.copy_(hf_layer.input_layernorm.weight.data)
+            our_layer.post_attention_layernorm.weight.data.copy_(hf_layer.post_attention_layernorm.weight.data)
+        
+        # Copy final layer norm and lm head
+        if hasattr(self, 'norm') and hasattr(hf_model.model, 'norm'):
+            self.norm.weight.data.copy_(hf_model.model.norm.weight.data)
+        
+        if hasattr(self, 'lm_head') and hasattr(hf_model, 'lm_head'):
+            self.lm_head.weight.data.copy_(hf_model.lm_head.weight.data)
 
     @classmethod
     def from_config(cls, config: dict) -> "LlamaForCausalLM":
@@ -307,3 +348,26 @@ class LlamaForCausalLM(nn.Module):
             return sum(p.numel() for p in self.get_trainable_params())
         else:
             return sum(p.numel() for p in self.parameters())
+    def prepare_inputs_for_generation(self, input_ids, past_key_values=None, attention_mask=None, **kwargs):
+        # This is what we're patching in from HuggingFace's implementation
+        # But having it directly in the class is cleaner
+        
+        if past_key_values is not None:
+            input_ids = input_ids[:, -1:]
+
+        # First, handle position_ids
+        position_ids = kwargs.get("position_ids", None)
+        
+        if attention_mask is not None and position_ids is None:
+            # Create position_ids based on input_ids
+            position_ids = attention_mask.long().cumsum(-1) - 1
+            position_ids.masked_fill_(attention_mask == 0, 1)
+            position_ids = position_ids[:, -input_ids.shape[1]:]
+        
+        return {
+            "input_ids": input_ids,
+            "past_key_values": past_key_values,
+            "attention_mask": attention_mask,
+            "position_ids": position_ids,
+            **kwargs,
+        }
