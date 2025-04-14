@@ -84,8 +84,11 @@ def get_hf_token():
 
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
-             max_containers=1)
+@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, 
+              secrets=[Secret.from_name("LRG"), Secret.from_name("huggingface-secret")],
+              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
+                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+              max_containers=1)
 def get_stats():
     import subprocess
     
@@ -111,8 +114,7 @@ def get_stats():
     timeout=3600,
     secrets=[Secret.from_name("LRG"), Secret.from_name("huggingface-secret")],
     volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-    max_containers=1
-)
+    max_containers=1)
 def convert_c4_small_dataset():
     import subprocess
     import os
@@ -248,10 +250,15 @@ def run_aim_server(run_folder: str):
     return process
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, secrets=[Secret.from_name("LRG")],
+# @app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, secrets=[Secret.from_name("LRG")],
+#               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
+#                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+#               concurrency_limit=1)
+@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, 
+              secrets=[Secret.from_name("LRG"), Secret.from_name("huggingface-secret")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/llama/llama3-1b-lora2.yaml"):
     import subprocess, time
 
@@ -279,9 +286,6 @@ def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/llama/llama3-1b-lo
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
                        DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
               max_containers=1)
-
-
-@app.function(image=image, volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME})
 def view_model_checkpoints(checkpoint_dir=None):
     """View contents of model checkpoints directory"""
     import os
@@ -308,6 +312,202 @@ def view_model_checkpoints(checkpoint_dir=None):
     
     return "Checkpoint viewing complete"
 
+@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, 
+              secrets=[Secret.from_name("LRG"), Secret.from_name("huggingface-secret")],
+              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
+                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+              max_containers=1)
+def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
+    """Convert a model checkpoint to a HuggingFace format."""
+    import subprocess, os
+    from pathlib import Path
+
+    os.chdir("/llm-foundry/scripts")
+    print(f"Working directory: {os.getcwd()}")
+
+    run_folder = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path.split("/")[0]
+    composer_checkpoint_path = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path
+    if composer_checkpoint_path.is_dir():
+        composer_checkpoint_path = composer_checkpoint_path / "native_checkpoints" / "latest-rank0.pt"
+    hf_output_path = run_folder
+
+    print("\nConverting model to HuggingFace format...")
+    convert_cmd = [
+        PYTHON_PATH, "inference/convert_composer_to_hf.py",
+        "--composer_path", composer_checkpoint_path,
+        "--hf_output_path", hf_output_path,
+        "--output_precision", f"{OUTPUT_PRECISION}",
+        "--is_peft", f"{IS_PEFT}",
+        "--train_yaml", f"{TRAIN_YAML}"
+    ]
+    if upload_to_hf: convert_cmd.extend(["--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"])
+
+    result = subprocess.run(convert_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Conversion errors:", result.stderr)
+    MODEL_CHECKPOINT_VOLUME.commit()
+    print("Conversion complete!")
+
+@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, 
+              secrets=[Secret.from_name("LRG"), Secret.from_name("huggingface-secret")],
+              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
+                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+              max_containers=1)
+def cleanup_dataset():
+    """Clean up corrupted dataset and create a fresh one."""
+    import os, subprocess, shutil
+    from pathlib import Path
+    
+    # Change to llm-foundry/scripts directory
+    os.chdir("/llm-foundry/scripts")
+    print(f"Working directory: {os.getcwd()}")
+    
+    # Check current dataset state
+    data_path = Path(f"{DATASETS_VOLUME_MOUNT_PATH}/c4_small")
+    print(f"Examining dataset at {data_path}")
+    
+    if data_path.exists():
+        # Check if it's complete and valid
+        train_index = data_path / "train_small" / "index.json"
+        val_index = data_path / "val_small" / "index.json"
+        
+        if train_index.exists() and val_index.exists():
+            print("✅ Dataset appears to be complete and valid, no cleanup needed")
+            return str(data_path)
+        else:
+            print("❌ Dataset is incomplete or corrupted, will remove and recreate")
+            
+            # Backup the old data just in case
+            print("Making backup of existing data...")
+            backup_dir = Path(f"{DATASETS_VOLUME_MOUNT_PATH}/c4_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}")
+            backup_dir.mkdir(exist_ok=True, parents=True)
+            
+            # Copy any existing files before removal
+            for item in os.listdir(data_path):
+                src = data_path / item
+                dst = backup_dir / item
+                try:
+                    if os.path.isdir(src):
+                        shutil.copytree(src, dst)
+                    else:
+                        shutil.copy2(src, dst)
+                except Exception as e:
+                    print(f"Warning during backup: {e}")
+            
+            # Remove the corrupted dataset
+            try:
+                shutil.rmtree(data_path)
+                print(f"Removed corrupted dataset at {data_path}")
+            except Exception as e:
+                print(f"Error removing dataset: {e}")
+                # If we can't remove, rename it
+                try:
+                    old_path = Path(f"{DATASETS_VOLUME_MOUNT_PATH}/c4_small_corrupted")
+                    shutil.move(data_path, old_path)
+                    print(f"Renamed corrupted dataset to {old_path}")
+                except Exception as e2:
+                    print(f"Error renaming dataset: {e2}")
+                    return "Failed to clean up dataset"
+                
+@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, 
+              secrets=[Secret.from_name("LRG"), Secret.from_name("huggingface-secret")],
+              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
+                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+              max_containers=1)
+def evaluate_model(checkpoint_path: str):
+    import subprocess, os
+    from pathlib import Path
+    get_hf_token()
+    os.chdir("/llm-foundry/scripts")
+    print(f"Working directory: {os.getcwd()}")
+    
+    model_path = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path
+    save_path = model_path/"evals"  # Create evals subfolder path
+    
+    print("\nEvaluating model...")
+    eval_cmd = [
+        "composer",
+        "eval/eval.py",
+        "eval/yamls/hf_eval.yaml",
+        "icl_tasks=eval/yamls/copa.yaml",
+        f"variables.model_name_or_path={model_path}",
+        f"results_path={save_path}",  # Add results_path parameter
+    ]
+    result = subprocess.run(eval_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Evaluation errors:", result.stderr)
+    
+    MODEL_CHECKPOINT_VOLUME.commit()  # Commit the new eval results
+    print("Evaluation complete!")
+
+
+@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, 
+              secrets=[Secret.from_name("LRG"), Secret.from_name("huggingface-secret")],
+              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
+                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+              max_containers=1)
+def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
+    import subprocess, os
+    from pathlib import Path
+    get_hf_token()
+    os.chdir("/llm-foundry/scripts")
+    print(f"Working directory: {os.getcwd()}")
+    
+    model_path = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path
+
+    if prompts is None:
+        prompts = [
+            "The answer to life, the universe, and happiness is",
+            "Here's a quick recipe for baking chocolate chip cookies: Start by",
+        ]
+    elif isinstance(prompts, str):
+        prompts = [prompts]
+    
+
+    print("\nGenerating test responses...")
+    generate_cmd = [
+        PYTHON_PATH, "inference/hf_generate.py",
+        "--name_or_path", model_path,
+        "--max_new_tokens", "256",
+        "--prompts",
+        *prompts,
+    ]
+    result = subprocess.run(generate_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Generation errors:", result.stderr)
+    print("Generation complete!")
+
+@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, 
+              secrets=[Secret.from_name("LRG"), Secret.from_name("huggingface-secret")],
+              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
+                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+              max_containers=1)
+def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: str = "model", private: bool = True):
+    """Upload model checkpoint to HuggingFace Hub."""
+    from huggingface_hub import HfApi
+    from pathlib import Path
+
+    folder_path = Path(folder_path)
+    if not folder_path.exists() or not folder_path.is_dir():
+        raise FileNotFoundError(f"Folder {folder_path} does not exist or is not a directory.")
+    folder_name = folder_path.name
+    if repo_id is None: repo_id = f"LocalResearchGroup/{folder_name}"
+
+    api = HfApi()
+
+    print(f'Uploading {folder_path} to HuggingFace Hub at {repo_id}')
+    
+    api.create_repo(repo_id=repo_id, use_auth_token=True, repo_type=repo_type, private=private, exist_ok=True)
+    print('Repo created.')
+
+    api.upload_folder(folder_path=folder_path, repo_id=repo_id, use_auth_token=True, repo_type=repo_type)
+    print(f'Folder "{folder_path}" uploaded to: "{repo_id}" successfully.')
+
+
+
 @app.local_entrypoint()
 def main():
     from pathlib import Path
@@ -316,7 +516,8 @@ def main():
 
     get_stats.remote()
     time.sleep(1)
-    # convert_c4_small_dataset.remote() # Only run once
+    cleanup_dataset.remote()
+    #convert_c4_small_dataset.remote() # Only run once
 
     model_path = train_with_aim.remote(run_ts, yaml_path="train/yamls/llama/llama3-1b-lora2.yaml")
     print(f"Model path: {model_path}")
@@ -326,16 +527,16 @@ def main():
     view_model_checkpoints.remote()
     time.sleep(1)
 
-    # convert_model_to_hf.remote(model_path, upload_to_hf=False)
-    # time.sleep(1)
+    convert_model_to_hf.remote(model_path, upload_to_hf=False)
+    time.sleep(1)
   
-    # evaluate_model.remote(model_path)
+    evaluate_model.remote(model_path)
     # time.sleep(1)
 
-    # push_folder_to_hf.remote(Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/model_path) 
+    push_folder_to_hf.remote(Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/model_path) 
     # time.sleep(1)
 
-    # generate_responses.remote(model_path)
+    generate_responses.remote(model_path)
 
 
 

@@ -160,6 +160,11 @@ class LlamaForCausalLM(HuggingFaceModel):
             self.model.forward = lambda **kwargs: self._custom_forward(**kwargs)
         else:
             self.model.forward = super().model.forward
+
+        self.register_composer_hook(
+        'after_save_checkpoint',
+        self._extract_adapter_after_save
+        )
             #self.model.loss = super().model.loss
     # def forward(self, batch):
     #     """Override parent's forward method."""
@@ -361,7 +366,176 @@ class LlamaForCausalLM(HuggingFaceModel):
         # Copy final layer norm and lm head
         self.norm.weight.data.copy_(hf_model.model.norm.weight.data)
         self.lm_head.weight.data.copy_(hf_model.lm_head.weight.data)
-
+    def get_state_dict(self, state_dict=None):
+        """Custom state_dict handling with enhanced debugging and resilience"""
+        # Get the regular state_dict from parent method
+        regular_state_dict = super().get_state_dict(state_dict)
+        
+        if not hasattr(self, 'model') or not hasattr(self.model, 'peft_config'):
+            print("WARN: No PEFT config found, returning regular state dict")
+            return regular_state_dict
+            
+        print("\nExtracting PEFT adapter state...")
+        
+        try:
+            # First check if we can detect LoRA weights directly
+            lora_weights = {}
+            for key, value in self.model.state_dict().items():
+                if any(marker in key for marker in ["lora_A", "lora_B", "lora_dropout"]):
+                    lora_weights[key] = value
+                    
+            # If we found some LoRA weights directly, use them
+            if lora_weights:
+                print(f"Found {len(lora_weights)} LoRA weights via direct inspection")
+                adapter_state_dict = lora_weights
+            else:
+                # Otherwise try the PEFT extraction function
+                from peft import get_peft_model_state_dict
+                # Before extraction, make sure the base model path is set correctly
+                if hasattr(self.model, "peft_config"):
+                    for config in self.model.peft_config.values():
+                        if hasattr(config, "base_model_name_or_path"):
+                            original_path = config.base_model_name_or_path
+                            if not original_path or original_path == "None":
+                                print(f"Fixing base_model_name_or_path from '{original_path}' to 'meta-llama/Llama-3.2-1B'")
+                                config.base_model_name_or_path = "meta-llama/Llama-3.2-1B"
+                
+                adapter_state_dict = get_peft_model_state_dict(self.model)
+                print(f"Found {len(adapter_state_dict)} weights using PEFT extraction")
+            
+            # Validate adapter weights
+            if not adapter_state_dict:
+                print("WARNING: No adapter weights extracted! Using fallback method...")
+                # Fallback to direct parameter filtering as last resort
+                adapter_state_dict = {}
+                for name, param in self.model.named_parameters():
+                    if param.requires_grad:
+                        # This parameter wasn't frozen, likely part of the adapter
+                        adapter_state_dict[name] = param.data
+                print(f"Fallback found {len(adapter_state_dict)} trainable parameters")
+                
+            # Save adapter files
+            save_folder = os.environ.get('COMPOSER_SAVE_FOLDER', '')
+            if save_folder:
+                save_path = Path(save_folder)
+                parent_folder = save_path.parent
+                
+                # Create config
+                config_dict = {
+                    "base_model_name_or_path": "meta-llama/Llama-3.2-1B",
+                    "peft_type": "LORA",
+                    "task_type": "CAUSAL_LM",
+                    "r": 8,
+                    "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
+                    "lora_alpha": 16,
+                    "lora_dropout": 0.05,
+                    "inference_mode": False
+                }
+                
+                # Save files with extra validation
+                try:
+                    import json
+                    config_path = parent_folder / "adapter_config.json"
+                    with open(config_path, "w") as f:
+                        json.dump(config_dict, f, indent=2)
+                    print(f"Saved adapter config ({os.path.getsize(config_path)} bytes)")
+                    
+                    adapter_path = parent_folder / "adapter_model.bin"
+                    # Double-check we have actual data before saving
+                    if adapter_state_dict:
+                        torch.save(adapter_state_dict, adapter_path)
+                        file_size = os.path.getsize(adapter_path)
+                        print(f"Saved adapter weights ({file_size} bytes)")
+                        if file_size < 1000:
+                            print("WARNING: Adapter file suspiciously small!")
+                    else:
+                        print("ERROR: No adapter weights to save!")
+                except Exception as e:
+                    print(f"ERROR saving adapter files: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Return based on what we should save
+            if self.should_save_peft_only:
+                print(f"Returning PEFT-only state dict with {len(adapter_state_dict)} keys")
+                return {"model": adapter_state_dict}
+            else:
+                print("Returning full state dict with adapter weights")
+                regular_state_dict["model"].update(adapter_state_dict)
+                return regular_state_dict
+                
+        except Exception as e:
+            print(f"ERROR in adapter extraction: {e}")
+            import traceback
+            traceback.print_exc()
+            print("Falling back to regular state dict")
+            return regular_state_dict
+    def _extract_adapter_after_save(self, event_name, state):
+        """Extract adapter weights after checkpoint saving"""
+        print("===== ADAPTER EXTRACTION HOOK TRIGGERED =====")
+        
+        checkpoint_filepath = state.get('file_path', None)
+        if not checkpoint_filepath:
+            print("No checkpoint path found in state")
+            return
+            
+        print(f"Extracting adapter from checkpoint: {checkpoint_filepath}")
+        
+        try:
+            # Load the checkpoint that was just saved
+            checkpoint = torch.load(checkpoint_filepath, map_location="cpu")
+            
+            # Extract model state dict
+            if "state" in checkpoint and "model" in checkpoint["state"]:
+                model_state = checkpoint["state"]["model"]
+                
+                # Find LoRA weights
+                lora_state = {k: v for k, v in model_state.items() if "lora_" in k}
+                print(f"Found {len(lora_state)} LoRA parameters")
+                
+                if lora_state:
+                    # Determine output path (parent directory of checkpoint)
+                    checkpoint_dir = Path(checkpoint_filepath).parent
+                    output_dir = checkpoint_dir.parent
+                    
+                    # Create adapter files
+                    config_path = output_dir / "adapter_config.json"
+                    weights_path = output_dir / "adapter_model.bin"
+                    
+                    # Create config
+                    config_dict = {
+                        "base_model_name_or_path": "meta-llama/Llama-3.2-1B",
+                        "peft_type": "LORA",
+                        "task_type": "CAUSAL_LM",
+                        "r": 8,
+                        "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
+                        "lora_alpha": 16,
+                        "lora_dropout": 0.05,
+                        "inference_mode": False
+                    }
+                    
+                    # Save files
+                    import json
+                    with open(config_path, "w") as f:
+                        json.dump(config_dict, f, indent=2)
+                    
+                    torch.save(lora_state, weights_path)
+                    
+                    # Verify files were created successfully
+                    config_size = os.path.getsize(config_path)
+                    weights_size = os.path.getsize(weights_path)
+                    print(f"✅ Adapter files created:")
+                    print(f"  - Config: {config_path} ({config_size} bytes)")
+                    print(f"  - Weights: {weights_path} ({weights_size} bytes)")
+                else:
+                    print("⚠️ No LoRA weights found in checkpoint!")
+            else:
+                print("❌ Checkpoint doesn't have expected structure:")
+                print(f"Keys: {list(checkpoint.keys())}")
+        except Exception as e:
+            print(f"❌ Error extracting adapter: {e}")
+            import traceback
+            traceback.print_exc()
 def register_model():
     """Register our custom model with llm-foundry"""
     print("=== 🔧 Registering CustomLlamaModel as hf_causal_lm ===")
