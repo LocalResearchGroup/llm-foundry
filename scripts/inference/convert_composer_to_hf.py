@@ -16,14 +16,24 @@ from composer.utils import (
     parse_uri,
     safe_torch_load,
 )
-from transformers import PretrainedConfig, PreTrainedTokenizerBase
+from transformers import PretrainedConfig, PreTrainedTokenizerBase, AutoModelForCausalLM
 
 from llmfoundry import MPTConfig, MPTForCausalLM
 from llmfoundry.utils import get_hf_tokenizer_from_composer_state_dict
 from llmfoundry.utils.checkpoint_conversion_helpers import load_tokenizer
 from llmfoundry.utils.huggingface_hub_utils import \
     edit_files_for_hf_compatibility
+from hf_generate import str2bool
 
+from peft import get_peft_model, LoraConfig, PeftModel
+from huggingface_hub import hf_hub_download, upload_file
+from omegaconf import DictConfig
+from omegaconf import OmegaConf as om
+from llmfoundry.utils.config_utils import (
+    TRAIN_CONFIG_KEYS,
+    TrainConfig,
+    make_dataclass_and_log_config,
+)
 
 def write_huggingface_pretrained_from_composer_checkpoint(
     checkpoint_path: Union[Path, str],
@@ -31,6 +41,8 @@ def write_huggingface_pretrained_from_composer_checkpoint(
     trust_remote_code: bool,
     output_precision: str = 'fp32',
     local_checkpoint_save_location: Optional[Union[Path, str]] = None,
+    is_peft: bool = False,
+    train_yaml: str = None,
 ) -> tuple[PretrainedConfig, Optional[PreTrainedTokenizerBase]]:
     """Convert a Composer checkpoint to a pretrained HF checkpoint folder.
 
@@ -74,6 +86,8 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         local_checkpoint_save_location (Optional[Union[Path, str]], optional): If specified, where to save the checkpoint file to locally.
                                                                                 If the input ``checkpoint_path`` is already a local path, this will be a symlink.
                                                                                 Defaults to None, which will use a temporary file.
+        is_peft (bool, optional): True if the model being converted is a peft finetuned model. Defaults to False.
+        train_yaml (str, optional): Path to YAML used during training.
     """
     dtype = {
         'fp32': torch.float32,
@@ -131,6 +145,7 @@ def write_huggingface_pretrained_from_composer_checkpoint(
     print('#' * 30)
     print('Saving HF Model Weights...')
     weights_state_dict = composer_state_dict
+    
     if 'state' in weights_state_dict:
         weights_state_dict = weights_state_dict['state']['model']
     torch.nn.modules.utils.consume_prefix_in_state_dict_if_present(  # pyright: ignore
@@ -138,13 +153,49 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         prefix='model.',
     )
 
-    # Convert weights to desired dtype
-    for k, v in weights_state_dict.items():
-        if isinstance(v, torch.Tensor):
-            weights_state_dict[k] = v.to(dtype=dtype)
+    # Handle the case if the model is a peft finetuned model, in this case, just save the adapters
+    if is_peft:
+        print("THIS IS THE PEFT CASE")
+        om.clear_resolver('oc.env')
+        with open(train_yaml) as f:
+            yaml_cfg = om.load(f)
+        assert isinstance(yaml_cfg, DictConfig)
 
-    # Save weights
-    torch.save(weights_state_dict, Path(output_path) / 'pytorch_model.bin')
+        logged_cfg, train_cfg = make_dataclass_and_log_config(
+            yaml_cfg,
+            TrainConfig,
+            TRAIN_CONFIG_KEYS,
+            transforms='all',
+        )
+        
+        pretrained_model_name_or_path = train_cfg.model["pretrained_model_name_or_path"]
+        peft_config_dict = train_cfg.model["peft_config"]
+
+        peft_type = peft_config_dict.get('peft_type', '')
+        if peft_type.upper() != 'LORA':
+            raise ValueError(
+                f'Only LORA is supported for peft_type, but got {peft_type}.',
+            )
+        task_type = peft_config_dict.get('task_type', '')
+        if task_type.upper() != 'CAUSAL_LM':
+            raise ValueError(
+                f'Only CAUSAL_LM is supported for task_type, but got {task_type}.',
+            )
+        
+        peft_config = LoraConfig(**peft_config_dict)
+        base_model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path, torch_dtype=dtype)
+        peft_model = get_peft_model(base_model, peft_config)
+        peft_model.load_state_dict(weights_state_dict, strict=False)
+        peft_model.save_pretrained(Path(output_path))
+    else:
+        
+        # Convert weights to desired dtype
+        for k, v in weights_state_dict.items():
+            if isinstance(v, torch.Tensor):
+                weights_state_dict[k] = v.to(dtype=dtype)
+                
+        # Save weights
+        torch.save(weights_state_dict, Path(output_path) / 'pytorch_model.bin')
 
     print('#' * 30)
     print(f'HF checkpoint folder successfully created at {output_path}.')
@@ -179,6 +230,19 @@ def parse_args() -> Namespace:
         help='Whether or not to use code outside of transformers module.',
     )
 
+    parser.add_argument(
+        "--is_peft",
+        type=str2bool, 
+        default=False, 
+        help="True if the model being converted is a peft finetuned model",
+    )
+
+    parser.add_argument(
+        "--train_yaml",
+        type=str, 
+        help="Path to the training YAML",
+    )
+    
     return parser.parse_args()
 
 
@@ -195,6 +259,8 @@ def _convert_composer_to_hf(args: Namespace) -> None:
         trust_remote_code=args.trust_remote_code,
         output_precision=args.output_precision,
         local_checkpoint_save_location=args.local_checkpoint_save_location,
+        is_peft=args.is_peft,
+        train_yaml=args.train_yaml,
     )
 
     dtype = {
@@ -223,15 +289,15 @@ def _convert_composer_to_hf(args: Namespace) -> None:
 
     delattr(loaded_hf_model.config, '_name_or_path')
 
-    loaded_hf_model.save_pretrained(local_folder_path)
+    if not args.is_peft: loaded_hf_model.save_pretrained(local_folder_path)
 
-    print(f'Loading tokenizer from {local_folder_path}')
-
-    tokenizer = load_tokenizer(
-        local_folder_path,
-        trust_remote_code=args.trust_remote_code,
-    )
-    tokenizer.save_pretrained(local_folder_path)
+    if not args.is_peft: 
+        print(f'Loading tokenizer from {local_folder_path}')
+        tokenizer = load_tokenizer(
+            local_folder_path,
+            trust_remote_code=args.trust_remote_code,
+        )
+        tokenizer.save_pretrained(local_folder_path)
 
     # Only need to edit files for MPT because it has custom code
     if config.model_type == 'mpt':
