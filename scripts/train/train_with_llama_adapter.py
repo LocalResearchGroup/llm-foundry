@@ -6,7 +6,7 @@ sys.path.insert(0, '/llm-foundry')
 
 # Import our adapter
 print("Importing llama adapter...")
-from llmfoundry.models.llama import composer_llama_adapter # Auto-initialize adapter upon import!
+from llmfoundry.models.llama import model_hf_register # Auto-initialize adapter upon import!
 print("Adapter imported successfully")
 
 # Run the training function
