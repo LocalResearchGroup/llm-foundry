@@ -527,10 +527,19 @@ ignore_patterns = [
 
 [project]
 name = "llm-foundry"
-description = "LLM Foundry"
-authors = [{ name = "Local Research Group" }]
+description = "LLM Foundry: A library for training and fine-tuning large language models"
+authors = [
+    { name = "MosaicML" },
+]
 readme = "README.md"
-requires-python = ">=3.12.0"
+requires-python = ">=3.11.0"
+license = { text = "Apache-2.0" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dynamic = ["version"]
 dependencies = [
   "mosaicml[wandb,peft,mlflow]>=0.28.0,<0.29",
@@ -553,7 +562,7 @@ dependencies = [
   "catalogue>=2,<3",
   "typer<1",
   "GitPython==3.1.44",
-  "aim>=3.26.0,<4",
+  # "aim>=3.26.0,<4",  # Commented out as we don't need Aim for local training
   "zstd>=1.5.6.1,!=1.5.6.2",
   "math_verify>=0.6.0",
 ]
@@ -573,7 +582,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=75.8.0", "wheel"]
+requires = ["setuptools>=64.0.0", "wheel", "pip>=21.3"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
@@ -611,7 +620,7 @@ torch = [
   { index = "pytorch-cpu", extra = "cpu" },
   { index = "pytorch-gpu", extra = "gpu" },
 ]
-aim = { git = "https://github.com/LocalResearchGroup/aim.git", branch = "release/3.27.x" }
+# aim = { git = "https://github.com/LocalResearchGroup/aim.git", branch = "release/3.27.x" }  # Commented out as we don't need Aim for local training
 
 [[tool.uv.index]]
 name = "pytorch-cpu"

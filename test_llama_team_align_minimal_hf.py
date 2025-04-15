@@ -250,10 +250,6 @@ def run_aim_server(run_folder: str):
     return process
 
 
-# @app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, secrets=[Secret.from_name("LRG")],
-#               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
-#                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-#               concurrency_limit=1)
 @app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, 
               secrets=[Secret.from_name("LRG"), Secret.from_name("huggingface-secret")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
