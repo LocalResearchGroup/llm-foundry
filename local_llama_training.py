@@ -213,10 +213,10 @@ def train_model(run_ts: str, yaml_path: str = "yamls/llama/llama3-1b-lora2.yaml"
         os.environ["COMPOSER_SAVE_FOLDER"] = str(save_folder)
         logger.info(f"Set COMPOSER_SAVE_FOLDER={save_folder}")
         
-        # Run training with your adapter script
+        # Run training with our custom script
         train_cmd = [
             PYTHON_PATH,
-            "train/train_with_llama_adapter.py",  # Use your adapter script
+            "train/train_with_custom_llama.py",  # Use our new custom script
             yaml_path,
             "../datasets/c4_small",  # Use path relative to scripts dir
             f"save_folder={save_folder}",

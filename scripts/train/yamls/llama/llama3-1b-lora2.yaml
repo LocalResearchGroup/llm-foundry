@@ -29,7 +29,6 @@ model:
       - k_proj
       - v_proj
       - o_proj
-  use_flash_attention_2: true
   pretrained: true
 
 # Tokenizer
