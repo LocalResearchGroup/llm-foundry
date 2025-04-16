@@ -1,22 +1,27 @@
-from typing import Optional, Tuple
+"""Custom Llama model implementation."""
+
+import sys
+from pathlib import Path
+from typing import Optional, Dict, Any, Union, Tuple
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
-from .config import LlamaConfig
-from .rms_norm import LlamaRMSNorm
-from .decoder import LlamaDecoderLayer
-
+from composer.models import HuggingFaceModel
 from transformers import LlamaForCausalLM as HFLlamaForCausalLM
-from huggingface_hub import hf_hub_download
 
+# Add paths to Python path - use relative paths instead of hardcoded ones
+current_dir = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(current_dir))
 
-# TODO: clean up the rest of the code accordingly...
-class LlamaForCausalLM(nn.Module):
-    """Optimized Llama model for causal language modeling."""
+class CustomLlamaModel(HuggingFaceModel):
+    """Custom Llama model that extends HuggingFaceModel with optimized implementation."""
     
     def __init__(
         self,
+        pretrained_model_name_or_path: str,
+        tokenizer: Optional[Any] = None,
+        use_flash_attention_2: bool = True,
+        peft_config: Optional[Dict[str, Any]] = None,
         hidden_size: int = 2048,
         num_attention_heads: int = 16,
         num_key_value_heads: int = 4,
@@ -28,9 +33,33 @@ class LlamaForCausalLM(nn.Module):
         rope_theta: float = 500000.0,
         use_unpadded_rope: bool = True,
         use_flash_attn: bool = True,
-        **kwargs
+        **kwargs: Any
     ) -> None:
-        super().__init__()
+        """Initialize the custom Llama model.
+        
+        Args:
+            pretrained_model_name_or_path: Path to pretrained model
+            tokenizer: Tokenizer to use
+            use_flash_attention_2: Whether to use Flash Attention 2
+            peft_config: Optional PEFT configuration
+            hidden_size: Size of the hidden dimension
+            num_attention_heads: Number of attention heads
+            num_key_value_heads: Number of key/value heads for grouped-query attention
+            num_hidden_layers: Number of transformer layers
+            intermediate_size: Size of the intermediate dimension in the MLP
+            vocab_size: Size of the vocabulary
+            max_position_embeddings: Maximum sequence length
+            rms_norm_eps: Epsilon for RMS normalization
+            rope_theta: Base for RoPE embeddings
+            use_unpadded_rope: Whether to use unpadded RoPE
+            use_flash_attn: Whether to use Flash Attention
+            **kwargs: Additional arguments to pass to model
+        """
+        # Remove any parameters that might cause issues
+        if 'import_path' in kwargs:
+            del kwargs['import_path']
+        print("✅ CUSTOM LLAMA MODEL INITIALIZED")
+        # Store model configuration
         self.hidden_size = hidden_size
         self.num_attention_heads = num_attention_heads
         self.num_key_value_heads = num_key_value_heads
@@ -43,92 +72,415 @@ class LlamaForCausalLM(nn.Module):
         self.use_unpadded_rope = use_unpadded_rope
         self.use_flash_attn = use_flash_attn
         
-        # Create a config for the decoder layers
-        config = LlamaConfig(
-            hidden_size=hidden_size,
-            num_attention_heads=num_attention_heads,
-            num_key_value_heads=num_key_value_heads,
-            num_hidden_layers=num_hidden_layers,
-            intermediate_size=self.intermediate_size,
-            vocab_size=vocab_size,
-            max_position_embeddings=max_position_embeddings,
-            rms_norm_eps=rms_norm_eps,
-            rope_theta=rope_theta,
-            use_unpadded_rope=use_unpadded_rope,
-            use_flash_attn=use_flash_attn,
+        # Load the model using our custom implementation
+        model = self._create_model(
+            pretrained_model_name_or_path, 
+            torch_dtype=torch.bfloat16,
+            use_flash_attention_2=use_flash_attention_2,
+            **kwargs
         )
-        self.config = config
+        
+        print(f"Model type: {type(model).__name__}")
+        
+        # Apply PEFT if specified
+        if peft_config:
+            from peft import get_peft_model, LoraConfig
+            peft_type = peft_config.get('peft_type', 'LORA')
+            
+            if peft_type == 'LORA':
+                lora_config = LoraConfig(
+                    r=peft_config.get('r', 8),
+                    lora_alpha=peft_config.get('lora_alpha', 16),
+                    lora_dropout=peft_config.get('lora_dropout', 0.05),
+                    target_modules=peft_config.get(
+                        'target_modules', 
+                        ["q_proj", "k_proj", "v_proj", "o_proj"]
+                    ),
+                    bias=peft_config.get('bias', 'none'),
+                    task_type=peft_config.get('task_type', 'CAUSAL_LM')
+                )
+                model = get_peft_model(model, lora_config)
+        
+        # Initialize parent class
+        super().__init__(
+            model=model,
+            tokenizer=tokenizer,
+            use_logits=True
+        )
+    
+    def _create_model(self, pretrained_model_name_or_path, **kwargs):
+        """Create the model from pretrained weights or initialize from scratch."""
+        # Extract custom params
+        config_overrides = kwargs.pop('config_overrides', None)
+        use_pretrained = kwargs.pop('pretrained', True)
+        use_flash_attention_2 = kwargs.pop('use_flash_attention_2', False)
+        
+        # Filter out custom parameters that HF models don't accept
+        for param in ['should_save_peft_only', 'shift_labels', 'peft_config', 'init_device']:
+            if param in kwargs:
+                kwargs.pop(param)
+        
+        # Load or use the provided config
+        if 'config' not in kwargs:
+            from transformers import LlamaConfig
+            config = LlamaConfig.from_pretrained(pretrained_model_name_or_path)
+        else:
+            config = kwargs['config']
+        
+        # Apply config overrides if provided
+        if config_overrides:
+            print(f"Applying config_overrides: {config_overrides}")
+            for key, value in config_overrides.items():
+                print(f"  Setting {key} = {value}")
+                setattr(config, key, value)
+        
+        # Load HuggingFace model if using pretrained weights
+        if use_pretrained:
+            # Set flash attention if requested
+            if use_flash_attention_2:
+                print("Enabling Flash Attention 2")
+                kwargs['attn_implementation'] = 'flash_attention_2'
+            
+            # Load HF model with clean kwargs
+            print("Loading weights from pretrained model")
+            hf_model = HFLlamaForCausalLM.from_pretrained(
+                pretrained_model_name_or_path,
+                config=config,
+                **kwargs
+            )
+        else:
+            print("Initializing model with random weights (pretrained=False)")
+            hf_model = HFLlamaForCausalLM(config)
+        
+        # Initialize our custom model
+        print("Creating custom LlamaForCausalLM instance")
+        model = self._initialize_model_from_config(config)
+        
+        # Copy weights from HF model to custom model
+        if use_pretrained:
+            print("Copying weights from HF model to custom model")
+            self._copy_weights_from_hf_llama(model, hf_model)
+        
+        # Set config on the model
+        model.config = config
+        print("Model loading complete")
+        
+        return model
+    
+    def _initialize_model_from_config(self, config):
+        """Initialize model from config."""
+        # Lazy import to avoid circular dependency
+        from llmfoundry.models.llama.config import LlamaConfig
+        from llmfoundry.models.llama.rms_norm import LlamaRMSNorm
+        from llmfoundry.models.llama.decoder import LlamaDecoderLayer
+        
+        # Create a model instance
+        model = nn.Module()
+        
+        # Create a proper LlamaConfig instance
+        llama_config = LlamaConfig(
+            hidden_size=config.hidden_size,
+            num_attention_heads=config.num_attention_heads,
+            num_key_value_heads=getattr(config, 'num_key_value_heads', config.num_attention_heads),
+            num_hidden_layers=config.num_hidden_layers,
+            intermediate_size=getattr(config, 'intermediate_size', config.hidden_size * 4),
+            vocab_size=config.vocab_size,
+            max_position_embeddings=config.max_position_embeddings,
+            rms_norm_eps=getattr(config, 'rms_norm_eps', 1e-5),
+            rope_theta=getattr(config, 'rope_theta', 500000.0),
+            use_unpadded_rope=getattr(config, 'use_unpadded_rope', True),
+            use_flash_attn=getattr(config, 'use_flash_attn', True),
+        )
+        
+        # Set model attributes from config
+        model.config = llama_config
+        model.hidden_size = llama_config.hidden_size
+        model.num_attention_heads = llama_config.num_attention_heads
+        model.num_key_value_heads = llama_config.num_key_value_heads
+        model.num_hidden_layers = llama_config.num_hidden_layers
+        model.intermediate_size = llama_config.intermediate_size
+        model.vocab_size = llama_config.vocab_size
+        model.max_position_embeddings = llama_config.max_position_embeddings
+        model.rms_norm_eps = llama_config.rms_norm_eps
+        model.rope_theta = llama_config.rope_theta
+        model.use_unpadded_rope = llama_config.use_unpadded_rope
+        model.use_flash_attn = llama_config.use_flash_attn
+        
         # Embedding layer
-        self.embed_tokens = nn.Embedding(vocab_size, hidden_size, padding_idx=None)
+        model.embed_tokens = nn.Embedding(model.vocab_size, model.hidden_size, padding_idx=None)
         
         # Decoder layers
-        self.layers = nn.ModuleList([
-            LlamaDecoderLayer(config) for _ in range(num_hidden_layers)
+        model.layers = nn.ModuleList([
+            LlamaDecoderLayer(config) for _ in range(model.num_hidden_layers)
         ])
         
         # Final normalization
-        self.norm = LlamaRMSNorm(hidden_size, eps=rms_norm_eps)
+        model.norm = LlamaRMSNorm(model.hidden_size, eps=model.rms_norm_eps)
         
         # LM head
-        self.lm_head = nn.Linear(hidden_size, vocab_size, bias=False)
+        model.lm_head = nn.Linear(model.hidden_size, model.vocab_size, bias=False)
 
-    def forward(
-        self,
-        input_ids: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
-        inputs_embeds: Optional[torch.FloatTensor] = None,
-        labels: Optional[torch.LongTensor] = None,
-        use_cache: Optional[bool] = None,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: bool = True,
-        **kwargs
-    ):
-        if inputs_embeds is not None and input_ids is None:
-            batch_size, seq_length = inputs_embeds.shape[0], inputs_embeds.shape[1]
-            input_ids = torch.ones(batch_size, seq_length, dtype=torch.long, device=inputs_embeds.device)
+        # Add forward method to the model
+        def forward(
+            self,
+            input_ids=None,
+            attention_mask=None,
+            position_ids=None,
+            past_key_values=None,
+            inputs_embeds=None,
+            labels=None,
+            use_cache=None,
+            output_attentions=None,
+            output_hidden_states=None,
+            return_dict=None,
+            **kwargs
+        ):
+            # Get hidden states from embeddings
+            if inputs_embeds is None:
+                inputs_embeds = self.embed_tokens(input_ids)
+            
+            # Get position IDs if not provided
+            if position_ids is None:
+                position_ids = torch.arange(input_ids.size(1), device=input_ids.device)
+                position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
+            
+            # Initialize past key values if not provided
+            if past_key_values is None:
+                past_key_values = tuple([None] * len(self.layers))
+            
+            # Initialize hidden states
+            hidden_states = inputs_embeds
+            
+            # Initialize present key values for caching
+            present_key_values = () if use_cache else None
+            
+            # Process each layer
+            for i, layer in enumerate(self.layers):
+                # Get past key values for this layer
+                past_key_value = past_key_values[i] if past_key_values is not None else None
+                
+                # Forward pass through the layer
+                layer_outputs = layer(
+                    hidden_states=hidden_states,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    past_key_values=past_key_value,
+                    use_cache=use_cache,
+                    output_attentions=output_attentions,
+                )
+                
+                # Update hidden states
+                hidden_states = layer_outputs[0] if isinstance(layer_outputs, tuple) else layer_outputs
+                
+                # Store present key values if using cache
+                if use_cache:
+                    present_key_values += (layer_outputs[1],)
+            
+            # Apply final layer norm
+            hidden_states = self.norm(hidden_states)
+            
+            # Get logits from the language model head
+            logits = self.lm_head(hidden_states)
+            
+            # Calculate loss if labels are provided
+            loss = None
+            if labels is not None:
+                # Shift logits and labels for causal language modeling
+                shift_logits = logits[..., :-1, :].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
+                # Flatten the tokens
+                loss_fct = nn.CrossEntropyLoss()
+                shift_logits = shift_logits.view(-1, self.config.vocab_size)
+                shift_labels = shift_labels.view(-1)
+                # Enable model parallelism
+                shift_labels = shift_labels.to(shift_logits.device)
+                loss = loss_fct(shift_logits, shift_labels)
+            
+            # Return outputs
+            if return_dict:
+                return {
+                    "loss": loss,
+                    "logits": logits,
+                    "hidden_states": hidden_states,
+                    "past_key_values": present_key_values,
+                }
+            else:
+                return (loss, logits) if loss is not None else (logits,)
+
+        # Bind the forward method to the model
+        model.forward = forward.__get__(model)
+
+        # Add prepare_inputs_for_generation method to the model
+        def prepare_inputs_for_generation(
+            self, 
+            input_ids, 
+            past_key_values=None, 
+            attention_mask=None, 
+            **kwargs
+        ):
+            # only last token for input_ids if past is not None
+            if past_key_values is not None:
+                input_ids = input_ids[:, -1].unsqueeze(-1)
+                
+                # the cache may be updated in the forward pass
+                # we need to update the attention mask accordingly
+                if attention_mask is not None:
+                    attention_mask = attention_mask[:, -1].unsqueeze(-1)
+            
+            return {
+                "input_ids": input_ids,
+                "past_key_values": past_key_values,
+                "attention_mask": attention_mask,
+                "use_cache": kwargs.get("use_cache", True),
+            }
+
+        # Bind the method to the model
+        model.prepare_inputs_for_generation = prepare_inputs_for_generation.__get__(model)
         
-        # Embedding
-        hidden_states = self.embed_tokens(input_ids)
+        return model
+    
+    def _copy_weights_from_hf_llama(self, model, hf_model):
+        """Copy weights from HuggingFace model to our custom implementation"""
+        # Copy embedding weights
+        if hasattr(model, 'embed_tokens') and hasattr(hf_model, 'model'):
+            model.embed_tokens.weight.data.copy_(hf_model.model.embed_tokens.weight.data)
         
-        # Process through decoder layers
-        for decoder_layer in self.layers:
-            hidden_states = decoder_layer(
-                hidden_states,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
+        # Copy layer weights
+        for i, (our_layer, hf_layer) in enumerate(zip(model.layers, hf_model.model.layers)):
+            print(f"Copying weights for layer {i}/{len(model.layers)}")
+            
+            # Copy attention weights
+            our_layer.self_attn.q_proj.weight.data.copy_(hf_layer.self_attn.q_proj.weight.data)
+            our_layer.self_attn.k_proj.weight.data.copy_(hf_layer.self_attn.k_proj.weight.data)
+            our_layer.self_attn.v_proj.weight.data.copy_(hf_layer.self_attn.v_proj.weight.data)
+            our_layer.self_attn.o_proj.weight.data.copy_(hf_layer.self_attn.o_proj.weight.data)
+            
+            # Copy MLP weights
+            our_layer.mlp.gate_proj.weight.data.copy_(hf_layer.mlp.gate_proj.weight.data)
+            our_layer.mlp.up_proj.weight.data.copy_(hf_layer.mlp.up_proj.weight.data)
+            our_layer.mlp.down_proj.weight.data.copy_(hf_layer.mlp.down_proj.weight.data)
+            
+            # Copy layer norms
+            our_layer.input_layernorm.weight.data.copy_(hf_layer.input_layernorm.weight.data)
+            our_layer.post_attention_layernorm.weight.data.copy_(hf_layer.post_attention_layernorm.weight.data)
+        
+        # Copy final layer norm and lm head
+        if hasattr(model, 'norm') and hasattr(hf_model.model, 'norm'):
+            model.norm.weight.data.copy_(hf_model.model.norm.weight.data)
+        
+        if hasattr(model, 'lm_head') and hasattr(hf_model, 'lm_head'):
+            model.lm_head.weight.data.copy_(hf_model.lm_head.weight.data)
+    
+    @classmethod
+    def from_pretrained(cls, pretrained_model_name_or_path: str, **kwargs: Any) -> 'CustomLlamaModel':
+        """Load a pretrained model."""
+        return cls(
+            pretrained_model_name_or_path=pretrained_model_name_or_path, 
+            **kwargs
+        )
+    
+    @classmethod
+    def from_config(cls, config: Dict[str, Any]) -> 'CustomLlamaModel':
+        """Build model from config dictionary."""
+        # If loading from pretrained, use from_pretrained directly
+        pretrained_path = config.get("pretrained_model_name_or_path", None)
+        if pretrained_path:
+            print(f"Loading pretrained model from {pretrained_path}...")
+            # Use our existing from_pretrained method with the optimizations
+            model = cls.from_pretrained(
+                pretrained_path,
+                use_unpadded_rope=config.get("use_unpadded_rope", True),
+                use_flash_attn=config.get("use_flash_attn", True),
+            )
+            print(f"Model loaded successfully with {len(model.model.layers)} layers")
+            return model
+            
+        # Only build from scratch if no pretrained model specified
+        else:
+            model_args = {
+                "hidden_size": config.get("d_model", 2048),
+                "num_attention_heads": config.get("n_heads", 16),
+                "num_key_value_heads": config.get("n_kv_heads", 4),
+                "num_hidden_layers": config.get("n_layers", 22),
+                "intermediate_size": config.get("d_model", 2048) * config.get("expansion_ratio", 4),
+                "vocab_size": config.get("vocab_size", 128256),
+                "max_position_embeddings": config.get("max_seq_len", 8192),
+                "rms_norm_eps": config.get("rms_norm_eps", 1e-5),
+                "rope_theta": config.get("rope_theta", 500000.0),
+                "use_unpadded_rope": config.get("use_unpadded_rope", True),
+                "use_flash_attn": config.get("use_flash_attn", True),
+            }
+            
+            # Create a dummy path for initialization
+            dummy_path = "dummy_path_for_initialization"
+            return cls(pretrained_model_name_or_path=dummy_path, **model_args)
+    
+    def forward(self, batch: Dict[str, Any]) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
+        """Custom forward method to handle the model outputs correctly.
+        
+        Args:
+            batch: Input batch containing input_ids and labels
+            
+        Returns:
+            Model outputs as a dictionary with 'loss' and 'logits' keys
+        """
+        # Extract input_ids and labels from batch
+        input_ids = batch['input_ids']
+        labels = batch.get('labels', None)
+        
+        # Forward pass through the model
+        outputs = self.model(input_ids=input_ids, labels=labels)
+        
+        # Handle different output types
+        if isinstance(outputs, tuple):
+            # If outputs is a tuple, first element is loss, second is logits
+            loss = outputs[0] if len(outputs) > 0 else None
+            logits = outputs[1] if len(outputs) > 1 else None
+        elif hasattr(outputs, 'loss') and hasattr(outputs, 'logits'):
+            # If outputs is an object with loss and logits attributes
+            loss = outputs.loss
+            logits = outputs.logits
+        else:
+            # If outputs is just logits
+            loss = None
+            logits = outputs
+        
+        # Ensure we have both loss and logits
+        if loss is None and labels is not None:
+            # Calculate loss if we have labels but no loss
+            loss = torch.nn.functional.cross_entropy(
+                logits.view(-1, logits.size(-1)),
+                labels.view(-1),
+                ignore_index=-100
             )
         
-        # Final normalization
-        hidden_states = self.norm(hidden_states)
-        
-        # Language modeling head
-        logits = self.lm_head(hidden_states)
-        
-        # Calculate loss if labels are provided
-        loss = None
-        if labels is not None:
-            # Shift so that tokens < n predict n
-            shift_logits = logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            
-            # Flatten the tokens
-            loss_fct = torch.nn.CrossEntropyLoss()
-            loss = loss_fct(shift_logits.view(-1, self.vocab_size), shift_labels.view(-1))
-        
-        if not return_dict:
-            output = (logits,) + (hidden_states,)
-            return (loss,) + output if loss is not None else output
-        
-        # Return dictionary-like object
         return {
             'loss': loss,
-            'logits': logits,
-            'hidden_states': hidden_states
+            'logits': logits
         }
-
+    
+    def loss(self, outputs: Union[torch.Tensor, Dict[str, torch.Tensor]], batch: Dict[str, Any]) -> torch.Tensor:
+        """Custom loss method to extract loss from model outputs.
+        
+        Args:
+            outputs: Model outputs from forward method
+            batch: Input batch
+            
+        Returns:
+            Loss tensor
+        """
+        # If outputs is a dictionary, extract the loss
+        if isinstance(outputs, dict):
+            return outputs['loss']
+        # If outputs is a tensor, assume it's the loss
+        elif isinstance(outputs, torch.Tensor):
+            return outputs
+        # If outputs is a tuple, the first element is typically the loss
+        elif isinstance(outputs, tuple):
+            return outputs[0]
+        else:
+            raise TypeError(f"Unexpected outputs type: {type(outputs)}")
+    
     def generate(
         self, 
         input_ids: torch.LongTensor,
@@ -136,13 +488,14 @@ class LlamaForCausalLM(nn.Module):
         temperature: float = 1.0,
         top_p: float = 1.0,
         do_sample: bool = False,
-        pad_token_id: int = 0,  # Remove Optional since we provide default
-        eos_token_id: int = 2,  # Remove Optional since we provide default
+        pad_token_id: int = 0,
+        eos_token_id: int = 2,
         attention_mask: Optional[torch.Tensor] = None,
-        **kwargs) -> torch.LongTensor:
+        **kwargs
+    ) -> torch.LongTensor:
         """Generate text using the model."""
         # Set evaluation mode
-        self.eval()
+        self.model.eval()
         
         # Create the initial sequence and attention mask
         batch_size = input_ids.shape[0]
@@ -157,7 +510,7 @@ class LlamaForCausalLM(nn.Module):
             
             # Forward pass to get logits
             with torch.no_grad():
-                outputs = self(input_ids_for_step, attention_mask=attention_mask)
+                outputs = self.model(input_ids_for_step, attention_mask=attention_mask)
                 next_token_logits = outputs["logits"][:, -1, :]
             
             # Apply temperature scaling
@@ -196,148 +549,7 @@ class LlamaForCausalLM(nn.Module):
         
         # Ensure return type is LongTensor with explicit cast
         return generated_ids.to(dtype=torch.long)
-
-
-    @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, config=None, **kwargs):
-        """Load model from HuggingFace Hub or local path."""
-        print(f"Loading model from {pretrained_model_name_or_path}")
-        
-        # Extract custom params
-        config_overrides = kwargs.pop('config_overrides', None)
-        use_pretrained = kwargs.pop('pretrained', True)
-        use_flash_attention_2 = kwargs.pop('use_flash_attention_2', False)
-        
-        # Filter out custom parameters that HF models don't accept
-        for param in ['should_save_peft_only', 'shift_labels', 'peft_config', 'init_device']:
-            if param in kwargs:
-                kwargs.pop(param)
-        
-        # Load or use the provided config
-        if config is None:
-            from transformers import LlamaConfig
-            config = LlamaConfig.from_pretrained(pretrained_model_name_or_path)
-        
-        # Apply config overrides if provided
-        if config_overrides:
-            print(f"Applying config_overrides: {config_overrides}")
-            for key, value in config_overrides.items():
-                print(f"  Setting {key} = {value}")
-                setattr(config, key, value)
-        
-        # Load HuggingFace model if using pretrained weights
-        if use_pretrained:
-            # Set flash attention if requested
-            if use_flash_attention_2:
-                print("Enabling Flash Attention 2")
-                kwargs['attn_implementation'] = 'flash_attention_2'
-            
-            # Load HF model with clean kwargs
-            print("Loading weights from pretrained model")
-            hf_model = HFLlamaForCausalLM.from_pretrained(
-                pretrained_model_name_or_path,
-                config=config,
-                **kwargs
-            )
-        else:
-            print("Initializing model with random weights (pretrained=False)")
-            hf_model = HFLlamaForCausalLM(config)
-        
-        # Initialize our custom model
-        print("Creating custom LlamaForCausalLM instance")
-        model = cls(
-            hidden_size=config.hidden_size,
-            num_attention_heads=config.num_attention_heads,
-            num_key_value_heads=getattr(config, 'num_key_value_heads', config.num_attention_heads),
-            num_hidden_layers=config.num_hidden_layers,
-            intermediate_size=getattr(config, 'intermediate_size', config.hidden_size * 4),
-            vocab_size=config.vocab_size,
-            max_position_embeddings=config.max_position_embeddings,
-            rms_norm_eps=getattr(config, 'rms_norm_eps', 1e-5),
-            rope_theta=getattr(config, 'rope_theta', 500000.0),
-            use_flash_attn=use_flash_attention_2,
-        )
-        
-        # Copy weights from HF model to custom model
-        if use_pretrained:
-            print("Copying weights from HF model to custom model")
-            model._copy_weights_from_hf_llama(hf_model)
-        
-        # Set config on the model
-        model.config = config
-        print("Model loading complete")
-        
-        return model
-
-    def _copy_weights_from_hf_llama(self, hf_model):
-        """Copy weights from HuggingFace model to our custom implementation"""
-        # This method needs to be implemented based on your specific model structure
-        # Here's a simplified version - you'll need to adapt this to your architecture
-        
-        # Copy embedding weights
-        if hasattr(self, 'embed_tokens') and hasattr(hf_model, 'model'):
-            self.embed_tokens.weight.data.copy_(hf_model.model.embed_tokens.weight.data)
-        
-        # Copy layer weights
-        for i, (our_layer, hf_layer) in enumerate(zip(self.layers, hf_model.model.layers)):
-            print(f"Copying weights for layer {i}/{len(self.layers)}")
-            
-            # Copy attention weights
-            our_layer.self_attn.q_proj.weight.data.copy_(hf_layer.self_attn.q_proj.weight.data)
-            our_layer.self_attn.k_proj.weight.data.copy_(hf_layer.self_attn.k_proj.weight.data)
-            our_layer.self_attn.v_proj.weight.data.copy_(hf_layer.self_attn.v_proj.weight.data)
-            our_layer.self_attn.o_proj.weight.data.copy_(hf_layer.self_attn.o_proj.weight.data)
-            
-            # Copy MLP weights
-            our_layer.mlp.gate_proj.weight.data.copy_(hf_layer.mlp.gate_proj.weight.data)
-            our_layer.mlp.up_proj.weight.data.copy_(hf_layer.mlp.up_proj.weight.data)
-            our_layer.mlp.down_proj.weight.data.copy_(hf_layer.mlp.down_proj.weight.data)
-            
-            # Copy layer norms
-            our_layer.input_layernorm.weight.data.copy_(hf_layer.input_layernorm.weight.data)
-            our_layer.post_attention_layernorm.weight.data.copy_(hf_layer.post_attention_layernorm.weight.data)
-        
-        # Copy final layer norm and lm head
-        if hasattr(self, 'norm') and hasattr(hf_model.model, 'norm'):
-            self.norm.weight.data.copy_(hf_model.model.norm.weight.data)
-        
-        if hasattr(self, 'lm_head') and hasattr(hf_model, 'lm_head'):
-            self.lm_head.weight.data.copy_(hf_model.lm_head.weight.data)
-
-    @classmethod
-    def from_config(cls, config: dict) -> "LlamaForCausalLM":
-        """Build model from llm-foundry config dictionary."""
-        # If loading from pretrained, use from_pretrained directly
-        pretrained_path = config.get("pretrained_model_name_or_path", None)
-        if pretrained_path:
-            print(f"Loading pretrained model from {pretrained_path}...")
-            # Use our existing from_pretrained method with the optimizations
-            model = cls.from_pretrained(
-                pretrained_path,
-                use_unpadded_rope=config.get("use_unpadded_rope", True),
-                use_flash_attn=config.get("use_flash_attn", True),
-            )
-            print(f"Model loaded successfully with {len(model.layers)} layers")
-            return model
-            
-        # Only build from scratch if no pretrained model specified
-        else:
-            model_args = {
-                "hidden_size": config.get("d_model", 2048),
-                "num_attention_heads": config.get("n_heads", 16),
-                "num_key_value_heads": config.get("n_kv_heads", 4),
-                "num_hidden_layers": config.get("n_layers", 22),
-                "intermediate_size": config.get("d_model", 2048) * config.get("expansion_ratio", 4),
-                "vocab_size": config.get("vocab_size", 128256),
-                "max_position_embeddings": config.get("max_seq_len", 8192),
-                "rms_norm_eps": config.get("rms_norm_eps", 1e-5),
-                "rope_theta": config.get("rope_theta", 500000.0),
-                "use_unpadded_rope": config.get("use_unpadded_rope", True),
-                "use_flash_attn": config.get("use_flash_attn", True),
-            }
-            
-            return cls(**model_args)
-
+    
     def get_trainable_params(self) -> list[torch.nn.Parameter]:
         """Return the trainable parameters of the model."""
         return [p for p in self.parameters() if p.requires_grad]
@@ -348,26 +560,3 @@ class LlamaForCausalLM(nn.Module):
             return sum(p.numel() for p in self.get_trainable_params())
         else:
             return sum(p.numel() for p in self.parameters())
-    def prepare_inputs_for_generation(self, input_ids, past_key_values=None, attention_mask=None, **kwargs):
-        # This is what we're patching in from HuggingFace's implementation
-        # But having it directly in the class is cleaner
-        
-        if past_key_values is not None:
-            input_ids = input_ids[:, -1:]
-
-        # First, handle position_ids
-        position_ids = kwargs.get("position_ids", None)
-        
-        if attention_mask is not None and position_ids is None:
-            # Create position_ids based on input_ids
-            position_ids = attention_mask.long().cumsum(-1) - 1
-            position_ids.masked_fill_(attention_mask == 0, 1)
-            position_ids = position_ids[:, -input_ids.shape[1]:]
-        
-        return {
-            "input_ids": input_ids,
-            "past_key_values": past_key_values,
-            "attention_mask": attention_mask,
-            "position_ids": position_ids,
-            **kwargs,
-        }

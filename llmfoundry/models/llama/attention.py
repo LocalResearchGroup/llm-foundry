@@ -66,6 +66,10 @@ class LlamaAttention(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = None,
+        use_cache: bool = False,
+        output_attentions: bool = False,
+        **kwargs
     ) -> torch.Tensor:
         # In B S (H D)
         bsz, seq_len, _ = hidden_states.size()
@@ -94,13 +98,29 @@ class LlamaAttention(nn.Module):
             position_ids
         )
 
+        # Handle past key values for generation
+        if past_key_values is not None:
+            # Reuse cached key and value states
+            key_states = torch.cat([past_key_values[0], key_states], dim=1)
+            value_states = torch.cat([past_key_values[1], value_states], dim=1)
+        
+        # Cache key and value states for future use
+        if use_cache:
+            present_key_values = (key_states, value_states)
+        else:
+            present_key_values = None
+
         attn_output = flash_attn_func(
             query_states,
             key_states,
             value_states,
             dropout_p=0.0,
-            causal=attention_mask is None
+            causal=True,
         )
         
         attn_output = rearrange(attn_output, "b s h d -> b s (h d)")
-        return self.o_proj(attn_output)
+        attn_output = self.o_proj(attn_output)
+        
+        if use_cache:
+            return attn_output, present_key_values
+        return attn_output

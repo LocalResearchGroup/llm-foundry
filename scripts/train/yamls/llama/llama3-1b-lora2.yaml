@@ -14,7 +14,7 @@ run_name: ${variables.run_name}
 
 # Model
 model:
-  name: hf_causal_lm
+  name: hf_causal_lm.custom_llama
   pretrained_model_name_or_path: ${variables.model_name_or_path}
   config_overrides:
     max_position_embeddings: ${variables.max_seq_len}

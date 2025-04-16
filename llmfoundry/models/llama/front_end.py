@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from einops import rearrange, repeat
 
 from .config import LlamaConfig
-from .model import LlamaModel
+from llmfoundry.models.llama.bkp.model import LlamaModel
 
 class LlamaForCausalLM(nn.Module):
     def __init__(self, config: LlamaConfig):

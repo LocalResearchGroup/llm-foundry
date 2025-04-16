@@ -14,12 +14,15 @@ EVAL_INTERVAL = "100ba"  # "100ba"
 SAVE_INTERVAL = "1ba"  # "100ba"
 USE_CUSTOM_MODEL = True  # Set to True to use custom LlamaForCausalLM
 
-# Local paths
-DATASET_BASE_PATH = "./datasets"  # Local dataset path
-MODEL_CHECKPOINT_PATH = "./model-checkpoints"  # Local model checkpoint path
+# Get the root directory (where this script is located)
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Local paths (using absolute paths)
+DATASET_BASE_PATH = os.path.join(ROOT_DIR, "datasets")  # Local dataset path
+MODEL_CHECKPOINT_PATH = os.path.join(ROOT_DIR, "model-checkpoints")  # Local model checkpoint path
 IS_PEFT = True
 # Update the path to match your actual directory structure
-TRAIN_YAML = "yamls/llama/llama3-1b-lora2.yaml"  # Adjusted path
+TRAIN_YAML = os.path.join(ROOT_DIR, "scripts/train/yamls/llama/llama3-1b-lora2.yaml")  # Adjusted path
 OUTPUT_PRECISION = "bf16"
 
 # Create directories if they don't exist
@@ -53,13 +56,29 @@ def check_llmfoundry_installed():
 
 
 def get_model_name(yaml_path: str) -> str:
-    """Extract model name from YAML path"""
+    """Extract model name from YAML file content"""
+    import yaml
+    with open(yaml_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # Try to get model name from variables.model_name_or_path
+    if 'variables' in config and 'model_name_or_path' in config['variables']:
+        return config['variables']['model_name_or_path']
+    
+    # Fallback to model.pretrained_model_name_or_path
+    if 'model' in config and 'pretrained_model_name_or_path' in config['model']:
+        return config['model']['pretrained_model_name_or_path']
+    
+    # If all else fails, use the YAML filename
+    logger.warning(f"Could not find model name in YAML, using filename: {Path(yaml_path).stem}")
     return Path(yaml_path).stem
 
 
 def get_run_folder(run_ts: str, model_name: str) -> str:
     """Get folder path for run artifacts"""
-    return f"./runs/{model_name}-{run_ts}"
+    runs_dir = os.path.join(ROOT_DIR, "runs")
+    os.makedirs(runs_dir, exist_ok=True)
+    return os.path.join(runs_dir, f"{model_name}-{run_ts}")
 
 
 def get_hf_token() -> str:
@@ -155,7 +174,7 @@ def download_model_if_needed(token: str, model_name_or_path: str) -> str:
     import subprocess
     if token and "meta-llama" in model_name_or_path:
         logger.info(f"Downloading model {model_name_or_path}...")
-        local_model = "./models/llama-model"
+        local_model = os.path.join(ROOT_DIR, "models/llama-model")
         os.makedirs(local_model, exist_ok=True)
         
         download_cmd = [
@@ -176,7 +195,7 @@ print("Download complete!")
     return model_name_or_path
 
 
-def train_model(run_ts: str, yaml_path: str = "yamls/llama/llama3-1b-lora2.yaml") -> str:
+def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-1b-lora2.yaml") -> str:
     """Train the model using the specified YAML configuration"""
     import os
     import subprocess
@@ -208,28 +227,33 @@ def train_model(run_ts: str, yaml_path: str = "yamls/llama/llama3-1b-lora2.yaml"
     shutil.copy(yaml_path, Path(save_folder) / Path(yaml_path).name)
     if USE_CUSTOM_MODEL:
         logger.info("Looking for HuggingFace token...")
-        get_hf_token()
-        download_model_if_needed(token=os.environ["HF_TOKEN"], model_name_or_path=model_name)
+        hf_token = get_hf_token()
+        #download_model_if_needed(token=hf_token, model_name_or_path=model_name) #ONCE!!!
         os.environ["COMPOSER_SAVE_FOLDER"] = str(save_folder)
         logger.info(f"Set COMPOSER_SAVE_FOLDER={save_folder}")
+        
+        # Set up dataset path - use relative path from scripts directory
+        dataset_path = os.path.join("..", "datasets", "c4_small")
+        logger.info(f"Using dataset path: {dataset_path}")
         
         # Run training with our custom script
         train_cmd = [
             PYTHON_PATH,
             "train/train_with_custom_llama.py",  # Use our new custom script
-            yaml_path,
-            "../datasets/c4_small",  # Use path relative to scripts dir
-            f"save_folder={save_folder}",
-            f"max_duration={TRAIN_DURATION}",
-            f"save_interval={SAVE_INTERVAL}",
-            "save_latest_filename=latest-rank0.pt",
-            "model.should_save_peft_only=true",
-            "max_seq_len=2048",  # Add explicit max_seq_len parameter at root level
+            "--yaml_path", yaml_path,
+            "--output_dir", str(save_folder),
+            "--hf_token", hf_token,
+            "--model_name", model_name,
+            "--dataset_path", dataset_path,  # Add dataset path
         ]
         
-        result = subprocess.run(train_cmd)
+        logger.info(f"Running command: {' '.join(train_cmd)}")
+        result = subprocess.run(train_cmd, capture_output=True, text=True)
         logger.info(f'Training complete for {run_ts}')
         logger.info(f'Model checkpoints saved to {save_folder}')
+        
+        if result.stdout:
+            logger.info(f"Training output: {result.stdout}")
     else:
         train_cmd = [
             "composer",
