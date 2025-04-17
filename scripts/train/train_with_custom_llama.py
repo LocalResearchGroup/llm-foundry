@@ -1,157 +1,142 @@
-import sys
+import os
 from pathlib import Path
-from typing import Optional, Dict, Any, Union, Tuple
+import logging
+from typing import Optional
+from omegaconf import OmegaConf
 
-import torch
-from composer.models import HuggingFaceModel
-from llmfoundry.models.llama import LlamaForCausalLM
-from llmfoundry import registry
-from llmfoundry.command_utils import train_from_yaml
-
-
-# Add paths to Python path - use relative paths instead of hardcoded ones
-current_dir = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(current_dir))
-
-
-class CustomLlamaModel(HuggingFaceModel):
-    """Custom Llama model that extends HuggingFaceModel."""
-    
-    def __init__(
-        self,
-        pretrained_model_name_or_path: str,
-        tokenizer: Optional[Any] = None,
-        use_flash_attention_2: bool = True,
-        peft_config: Optional[Dict[str, Any]] = None,
-        **kwargs: Any
-    ) -> None:
-        """Initialize the custom Llama model.
-        
-        Args:
-            pretrained_model_name_or_path: Path to pretrained model
-            tokenizer: Tokenizer to use
-            use_flash_attention_2: Whether to use Flash Attention 2
-            peft_config: Optional PEFT configuration
-            **kwargs: Additional arguments to pass to model
-        """
-        # Remove any parameters that might cause issues
-        if 'import_path' in kwargs:
-            del kwargs['import_path']
-        
-        # Load the model using our custom implementation
-        model = LlamaForCausalLM.from_pretrained(
-            pretrained_model_name_or_path, 
-            torch_dtype=torch.bfloat16,
-            use_flash_attention_2=use_flash_attention_2,
-            **kwargs
-        )
-        
-        print(f"Model type: {type(model).__name__}")
-        
-        # Apply PEFT if specified
-        if peft_config:
-            from peft import get_peft_model, LoraConfig
-            peft_type = peft_config.get('peft_type', 'LORA')
-            
-            if peft_type == 'LORA':
-                lora_config = LoraConfig(
-                    r=peft_config.get('r', 8),
-                    lora_alpha=peft_config.get('lora_alpha', 16),
-                    lora_dropout=peft_config.get('lora_dropout', 0.05),
-                    target_modules=peft_config.get(
-                        'target_modules', 
-                        ["q_proj", "k_proj", "v_proj", "o_proj"]
-                    ),
-                    bias=peft_config.get('bias', 'none'),
-                    task_type=peft_config.get('task_type', 'CAUSAL_LM')
-                )
-                model = get_peft_model(model, lora_config)
-        
-        # Initialize parent class
-        super().__init__(
-            model=model,
-            tokenizer=tokenizer,
-            use_logits=True
-        )
-    
-    def forward(self, batch: Dict[str, Any]) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
-        """Custom forward method to handle the model outputs correctly.
-        
-        Args:
-            batch: Input batch containing input_ids and labels
-            
-        Returns:
-            Model outputs as a dictionary with 'loss' and 'logits' keys
-        """
-        # Extract input_ids and labels from batch
-        input_ids = batch['input_ids']
-        labels = batch.get('labels', None)
-        
-        # Forward pass through the model
-        outputs = self.model(input_ids=input_ids, labels=labels)
-        
-        # Convert tuple outputs to dictionary format
-        if isinstance(outputs, tuple):
-            loss = outputs[0]
-            logits = outputs[1]
-        else:
-            loss = outputs.loss
-            logits = outputs.logits
-        
-        return {
-            'loss': loss,
-            'logits': logits
-        }
-    
-    def loss(self, outputs: Union[torch.Tensor, Dict[str, torch.Tensor]], batch: Dict[str, Any]) -> torch.Tensor:
-        """Custom loss method to extract loss from model outputs.
-        
-        Args:
-            outputs: Model outputs from forward method
-            batch: Input batch
-            
-        Returns:
-            Loss tensor
-        """
-        # If outputs is a dictionary, extract the loss
-        if isinstance(outputs, dict):
-            return outputs['loss']
-        # If outputs is a tensor, assume it's the loss
-        elif isinstance(outputs, torch.Tensor):
-            return outputs
-        # If outputs is a tuple, the first element is typically the loss
-        elif isinstance(outputs, tuple):
-            return outputs[0]
-        else:
-            raise TypeError(f"Unexpected outputs type: {type(outputs)}")
-
+from llmfoundry.models.llama import CustomLlamaModel
+from llmfoundry.registry import models
+from llmfoundry.command_utils.train import train
+from dotenv import load_dotenv
+load_dotenv()
 
 # Register our custom model class
-registry.models.register("hf_causal_lm.custom_llama")(CustomLlamaModel)
+models.register("hf_causal_lm.custom_llama", func=CustomLlamaModel)
 print("Registered CustomLlamaModel as hf_causal_lm.custom_llama")
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Parse command line arguments
-if len(sys.argv) < 3:
-    print("Usage: python train_with_custom_llama.py <yaml_path> <data_path>")
-    sys.exit(1)
+# Get the script's directory
+ROOT_DIR = Path(__file__).parent.parent.parent
 
-yaml_path = sys.argv[1]
-data_path = sys.argv[2]
 
-print(f"Running training with YAML: {yaml_path}")
-print(f"Data path: {data_path}")
+def train_custom_llama(
+    model_name: Optional[str] = None,
+    yaml_path: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    hf_token: Optional[str] = None,
+    dataset_path: Optional[str] = None,
+):
+    """Train a custom Llama model using the specified configuration."""
+    try:
+        # Set up paths
+        if yaml_path is None:
+            yaml_path = os.path.join(ROOT_DIR, "scripts", "train", "yamls", "llama", "llama3-1b-lora.yaml")
+        if output_dir is None:
+            output_dir = os.path.join(ROOT_DIR, "outputs/custom_llama")
+        if dataset_path is None:
+            dataset_path = os.path.join(ROOT_DIR, "datasets/c4_small")
+            logger.info(f"Using default dataset path: {dataset_path}")
 
-# Set up args list with data path
-args_list = [f"variables.data_local={data_path}"]
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
+        logger.info(f"Checkpoints will be saved to: {output_dir}")
 
-# Add any additional CLI arguments
-if len(sys.argv) > 3:
-    additional_args = sys.argv[3:]
-    print(f"Received {len(additional_args)} additional arguments")
-    args_list.extend(additional_args)
+        # Load configuration
+        config = OmegaConf.load(yaml_path)
+        # Add debug output to check config structure
+        import json
+        logger.info("CONFIG STRUCTURE:")
+        logger.info(json.dumps(OmegaConf.to_container(config), indent=2))
+        if "model" in config and "peft_config" in config.model:
+            logger.info("PEFT CONFIG FOUND:")
+            logger.info(json.dumps(OmegaConf.to_container(config.model.peft_config), indent=2))
+        else:
+            logger.warning("No peft_config found in model section of YAML")
+        
+        # Extract model_name_or_path from config if not provided
+        if model_name is None and "variables" in config and "model_name_or_path" in config["variables"]:
+            model_name = config["variables"]["model_name_or_path"]
+            logger.info(f"Using model name from YAML config: {model_name}")
+        elif model_name is None:
+            model_name = "meta-llama/Llama-3.2-1B"
+            logger.info(f"Using default model name: {model_name}")
+        
+        # Set HuggingFace token
+        if hf_token is None:
+            hf_token = os.getenv("HF_TOKEN")
+            if hf_token is None:
+                raise ValueError("HuggingFace token not found. Please set HF_TOKEN environment variable or pass it as an argument.")
+        
+        # Set token in environment for transformers
+        os.environ["HF_TOKEN"] = hf_token
+        
+        # Update dataset path in config
+        if "train_loader" in config and "dataset" in config["train_loader"]:
+            config["train_loader"]["dataset"]["local"] = dataset_path
+            logger.info(f"Updated dataset path in config to: {dataset_path}")
+        
+        # Update eval_loader dataset path if it exists
+        if "eval_loader" in config and "dataset" in config["eval_loader"]:
+            config["eval_loader"]["dataset"]["local"] = dataset_path
+            logger.info(f"Updated eval dataset path in config to: {dataset_path}")
 
-# Call train_from_yaml with all arguments
-print("Starting training...")
-print(f"Full arguments list: {args_list}")
-train_from_yaml(yaml_path, args_list) 
+        # Update model configuration - now using the root level model config
+        if "model" in config:
+            config.model.pretrained_model_name_or_path = model_name
+            logger.info(f"Updated model name in config to: {model_name}")
+        
+        # Set the save folder to the output directory
+        config.save_folder = output_dir
+        logger.info(f"Set save_folder in config to: {output_dir}")
+        
+        # Ensure the save folder exists
+        os.makedirs(output_dir, exist_ok=True)
+
+        # # Start training
+        # logger.info("Starting training")
+        # trainer = train(config)
+        # logger.info("Training completed successfully")
+        
+        # THIS IS THE CRITICAL LINE: Register the custom model
+        from llmfoundry.models.llama.register import register_custom_llama_model
+        register_custom_llama_model()
+        logger.info("Registered CustomLlamaModel with registry")
+
+        # Start training
+        logger.info("Starting training")
+        trainer = train(config)
+        logger.info("Training completed successfully")
+
+        return trainer
+
+    except Exception as e:
+        logger.error(f"Error during training: {str(e)}")
+        raise
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Train a custom Llama model")
+    parser.add_argument("--model_name", type=str, default=None,
+                      help="Name or path of the pretrained model")
+    parser.add_argument("--yaml_path", type=str, default=None,
+                      help="Path to the training configuration YAML file")
+    parser.add_argument("--output_dir", type=str, default=None,
+                      help="Directory to save the trained model")
+    parser.add_argument("--hf_token", type=str, default=None,
+                      help="HuggingFace API token for accessing gated models")
+    parser.add_argument("--dataset_path", type=str, default=None,
+                      help="Path to the dataset directory")
+    
+    args = parser.parse_args()
+    print(f'ARGS!!!!!!!!!!!!!!!!!: \n{args}')
+    train_custom_llama(
+        model_name=args.model_name,
+        yaml_path=args.yaml_path,
+        output_dir=args.output_dir,
+        hf_token=args.hf_token,
+        dataset_path=args.dataset_path,
+    ) 

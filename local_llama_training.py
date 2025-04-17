@@ -13,6 +13,7 @@ TRAIN_DURATION = "2ba"  # "500ba"
 EVAL_INTERVAL = "100ba"  # "100ba"
 SAVE_INTERVAL = "1ba"  # "100ba"
 USE_CUSTOM_MODEL = True  # Set to True to use custom LlamaForCausalLM
+IS_PEFT = True
 
 # Get the root directory (where this script is located)
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -20,9 +21,8 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Local paths (using absolute paths)
 DATASET_BASE_PATH = os.path.join(ROOT_DIR, "datasets")  # Local dataset path
 MODEL_CHECKPOINT_PATH = os.path.join(ROOT_DIR, "model-checkpoints")  # Local model checkpoint path
-IS_PEFT = True
 # Update the path to match your actual directory structure
-TRAIN_YAML = os.path.join(ROOT_DIR, "scripts/train/yamls/llama/llama3-1b-lora2.yaml")  # Adjusted path
+TRAIN_YAML = os.path.join(ROOT_DIR, "scripts/train/yamls/llama/llama3-1b-lora.yaml")  # Adjusted path
 OUTPUT_PRECISION = "bf16"
 
 # Create directories if they don't exist
@@ -41,44 +41,136 @@ logging.basicConfig(
 logger = logging.getLogger("llm_training")
 
 
-def check_llmfoundry_installed():
-    """Check if llmfoundry is installed and provide instructions if not"""
-    try:
-        import llmfoundry
-        logger.info(f"llmfoundry version {llmfoundry.__version__} is installed")
-        return True
-    except ImportError:
-        logger.error("llmfoundry is not installed or not in the Python path")
-        logger.error("Please install it in development mode with:")
-        logger.error("  pip install -e .")
-        logger.error("Run this command from the root directory of the llm-foundry repository")
-        return False
 
+def path_tracker(label=None, show_env=True, check_paths=None):
+    """
+    Utility function to track and debug directory paths and file operations.
+    
+    Args:
+        label: Optional string to identify this tracking point
+        show_env: Whether to show relevant environment variables
+        check_paths: List of paths to check for existence
+        
+    Returns:
+        Dictionary with tracking information
+    """
+    import os
+    from pathlib import Path
+    import psutil
+    import time
+    
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    header = f"➖➖➖ PATH TRACKER [{label or 'UNKNOWN'}] at {timestamp} ➖➖➖"
+    
+    # Get basic path information
+    cwd = os.getcwd()
+    real_cwd = os.path.realpath(cwd)
+    
+    # Get process information
+    process = psutil.Process()
+    process_cwd = process.cwd()
+    
+    # Gather environment variables
+    env_vars = {}
+    tracked_vars = [
+        "COMPOSER_SAVE_FOLDER", 
+        "PYTHONPATH", 
+        "MODEL_CHECKPOINT_VOLUME_MOUNT_PATH",
+        "HUGGINGFACE_TOKEN",
+        "CUDA_VISIBLE_DEVICES"
+    ]
+    
+    if show_env:
+        for var in tracked_vars:
+            env_vars[var] = os.environ.get(var, "NOT SET")
+    
+    # Check if specific paths exist
+    path_checks = {}
+    if check_paths:
+        for path_str in check_paths:
+            path = Path(path_str)
+            exists = path.exists()
+            path_type = "unknown"
+            size = None
+            size_readable=0
+            if exists:
+                path_type = "directory" if path.is_dir() else "file"
+                if path.is_file():
+                    size = path.stat().st_size
+                    size_readable = f"{size / (1024*1024):.2f} MB" if size > 1024*1024 else f"{size / 1024:.2f} KB"
+                elif path.is_dir():
+                    files = list(path.glob("*"))
+                    size = f"{len(files)} items"
+                    size_readable = size
+            
+            path_checks[str(path)] = {
+                "exists": exists,
+                "type": path_type if exists else None,
+                "size": size_readable if exists else None
+            }
+    
+    # Prepare output
+    info = {
+        "label": label,
+        "timestamp": timestamp,
+        "cwd": cwd,
+        "real_cwd": real_cwd,
+        "process_cwd": process_cwd,
+        "env_vars": env_vars,
+        "path_checks": path_checks
+    }
+    
+    # Print results for immediate feedback
+    print(header)
+    print(f"📁 Current directory: {cwd}")
+    if cwd != real_cwd:
+        print(f"   Real path: {real_cwd}")
+    if process_cwd != cwd:
+        print(f"   Process working dir: {process_cwd}")
+    
+    if show_env:
+        print("\n🔧 Environment variables:")
+        for var, value in env_vars.items():
+            print(f"   {var}: {value}")
+    
+    if check_paths:
+        print("\n🔍 Path checks:")
+        for path, details in path_checks.items():
+            status = "✅" if details["exists"] else "❌"
+            type_info = f" ({details['type']})" if details["exists"] else ""
+            size_info = f" - {details['size']}" if details["exists"] else ""
+            print(f"   {status} {path}{type_info}{size_info}")
+    
+    print("➖➖➖" + "➖" * len(header) + "➖➖➖")
+    return info
 
 def get_model_name(yaml_path: str) -> str:
     """Extract model name from YAML file content"""
-    import yaml
-    with open(yaml_path, 'r') as f:
-        config = yaml.safe_load(f)
+    #import yaml
+    from pathlib import Path
+    # with open(yaml_path, 'r') as f:
+    #     config = yaml.safe_load(f)
     
-    # Try to get model name from variables.model_name_or_path
-    if 'variables' in config and 'model_name_or_path' in config['variables']:
-        return config['variables']['model_name_or_path']
+    # # Try to get model name from variables.model_name_or_path
+    # if 'variables' in config and 'model_name_or_path' in config['variables']:
+    #     return config['variables']['model_name_or_path']
     
-    # Fallback to model.pretrained_model_name_or_path
-    if 'model' in config and 'pretrained_model_name_or_path' in config['model']:
-        return config['model']['pretrained_model_name_or_path']
+    # # Fallback to model.pretrained_model_name_or_path
+    # if 'model' in config and 'pretrained_model_name_or_path' in config['model']:
+    #     return config['model']['pretrained_model_name_or_path']
     
-    # If all else fails, use the YAML filename
-    logger.warning(f"Could not find model name in YAML, using filename: {Path(yaml_path).stem}")
+    # # If all else fails, use the YAML filename
+    # logger.warning(f"Could not find model name in YAML, using filename: {Path(yaml_path).stem}")
     return Path(yaml_path).stem
 
 
 def get_run_folder(run_ts: str, model_name: str) -> str:
     """Get folder path for run artifacts"""
-    runs_dir = os.path.join(ROOT_DIR, "runs")
-    os.makedirs(runs_dir, exist_ok=True)
-    return os.path.join(runs_dir, f"{model_name}-{run_ts}")
+    # runs_dir = os.path.join(ROOT_DIR, "runs")
+    # ckpt_runs = os.path.join(MODEL_CHECKPOINT_PATH, f"{model_name}-{run_ts}")
+    # os.makedirs(ckpt_runs, exist_ok=True)
+    #return f"{MODEL_CHECKPOINT_PATH}/{model_name}-{run_ts}"
+    return f"{MODEL_CHECKPOINT_PATH}/{model_name}-{run_ts}"
 
 
 def get_hf_token() -> str:
@@ -195,40 +287,69 @@ print("Download complete!")
     return model_name_or_path
 
 
-def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-1b-lora2.yaml") -> str:
+def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-1b-lora.yaml") -> str:
     """Train the model using the specified YAML configuration"""
-    import os
-    import subprocess
-    import shutil
-    import sys
-    from pathlib import Path
+    ##############OLD
+    # import os
+    # import subprocess
+    # import shutil
+    # import sys
+    # from pathlib import Path
     
-    # Add the parent directory to Python path so we can find llmfoundry
+    # # Add the parent directory to Python path so we can find llmfoundry
+    # root_dir = os.path.dirname(os.path.abspath(__file__))
+    # if root_dir not in sys.path:
+    #     sys.path.insert(0, root_dir)
+    #     logger.info(f"Added {root_dir} to Python path")
+    
+    # # Get absolute paths
+    # scripts_dir = os.path.join(root_dir, "scripts")
+    # yaml_path = os.path.join(scripts_dir, yaml_path)
+    # print(f'yaml_path: {yaml_path}')
+    # # Change to llm-foundry/scripts directory at the start
+    # os.chdir(scripts_dir)
+    # logger.info(f"Working directory: {os.getcwd()}")
+    
+    # # Step 2: Train the model
+    # logger.info("\nTraining model...")
+    # model_name = get_model_name(yaml_path)
+    # run_folder = get_run_folder(run_ts, model_name)
+    
+    # # Use absolute path for save_folder instead of relative path
+    # save_folder = Path(run_folder) / "native_checkpoints"
+    # save_folder.mkdir(exist_ok=True, parents=True)
+    
+    # # Copy YAML file to save folder
+    # shutil.copy(yaml_path, Path(save_folder) / Path(yaml_path).name)
+    ######### END OLD
+    import os, subprocess, shutil, yaml
+    from pathlib import Path
+    path_tracker("TRAIN_MODEL_ENTRY", check_paths=[yaml_path])
+
     root_dir = os.path.dirname(os.path.abspath(__file__))
     if root_dir not in sys.path:
         sys.path.insert(0, root_dir)
         logger.info(f"Added {root_dir} to Python path")
     
-    # Get absolute paths
-    scripts_dir = os.path.join(root_dir, "scripts")
-    yaml_path = os.path.join(scripts_dir, yaml_path)
-    
     # Change to llm-foundry/scripts directory at the start
-    os.chdir(scripts_dir)
-    logger.info(f"Working directory: {os.getcwd()}")
+    os.chdir("scripts")
+    print(f"Working directory: {os.getcwd()}")
     
     # Step 2: Train the model
-    logger.info("\nTraining model...")
+    print("\nTraining model...")
     model_name = get_model_name(yaml_path)
     run_folder = get_run_folder(run_ts, model_name)
-    
-    # Use absolute path for save_folder instead of relative path
-    save_folder = Path(run_folder) / "native_checkpoints"
+    save_folder = Path(f"{run_folder}/native_checkpoints")
     save_folder.mkdir(exist_ok=True, parents=True)
-    
-    # Copy YAML file to save folder
     shutil.copy(yaml_path, Path(save_folder) / Path(yaml_path).name)
-    
+
+    PATHS_TO_CHECK = [
+        save_folder,
+        f"{save_folder}/latest-rank0.pt",
+        f"{run_folder}/adapter_config.json",
+        f"{run_folder}/adapter_model.bin"
+    ]
+    path_tracker("BEFORE_TRAINING", check_paths=PATHS_TO_CHECK)
     if USE_CUSTOM_MODEL:
         logger.info("Looking for HuggingFace token...")
         hf_token = get_hf_token()
@@ -241,8 +362,21 @@ def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-
         # Set up dataset path - use absolute path
         dataset_path = os.path.join(root_dir, "datasets", "c4_small")
         logger.info(f"Using dataset path: {dataset_path}")
+        # Standard model name handling due to meta-llama/ prefix, for example
+        with open(yaml_path, 'r') as f:
+            config = yaml.safe_load(f)
         
-        # Run training with our custom script
+        # Try to get model name from variables.model_name_or_path
+        if 'variables' in config and 'model_name_or_path' in config['variables']:
+            model_name = config['variables']['model_name_or_path']
+        
+        # Fallback to model.pretrained_model_name_or_path
+        if 'model' in config and 'pretrained_model_name_or_path' in config['model']:
+            model_name = config['model']['pretrained_model_name_or_path']
+        
+        # If all else fails, use the YAML filename
+        logger.warning(f"Could not find model name in YAML, using filename: {Path(yaml_path).stem}")
+
         train_cmd = [
             PYTHON_PATH,
             "train/train_with_custom_llama.py",  # Use our new custom script
@@ -279,6 +413,8 @@ def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-
         logger.error(f"Training errors: {result.stderr}")
     if result.returncode != 0:
         raise Exception(f"Training failed with exit code {result.returncode}\nStderr: {result.stderr}")
+    
+    path_tracker("AFTER_TRAINING", check_paths=PATHS_TO_CHECK)
     return str(run_folder)
 
 
@@ -309,120 +445,296 @@ def view_model_checkpoints(checkpoint_dir: Optional[str] = None) -> str:
     return "Checkpoint viewing complete"
 
 
-def convert_model_to_hf(
-    checkpoint_path: str, 
-    upload_to_hf: bool = False
-) -> None:
-    """Convert a model checkpoint to HuggingFace format.
-    
-    Args:
-        checkpoint_path: Path to checkpoint or directory with checkpoints
-        upload_to_hf: Whether to upload to HuggingFace Hub
-    """
-    import subprocess
-    import os
+def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
+    """Convert a model checkpoint to a HuggingFace format."""
+    import subprocess, os
     from pathlib import Path
+    
+    # Get scripts directory
+    scripts_dir = os.path.join(ROOT_DIR, "scripts")
+    os.chdir(scripts_dir)
+    logger.info(f"Working directory: {os.getcwd()}")
 
-    # Get the absolute path to the scripts directory
-    scripts_dir = os.path.join(
-        ROOT_DIR, 
-        "scripts"
-    )
-    logger.info(f"Scripts directory: {scripts_dir}")
-
-    # Handle checkpoint path - ensure it's absolute
+    # Handle checkpoint path - ensure it's a Path object initially
     checkpoint_path = Path(checkpoint_path)
-    if not checkpoint_path.is_absolute():
-        # If it's just a name, look in the runs directory
-        if "/" not in str(checkpoint_path) and "\\" not in str(checkpoint_path):
-            checkpoint_path = Path(ROOT_DIR) / "runs" / checkpoint_path
-        else:
-            checkpoint_path = Path(ROOT_DIR) / checkpoint_path
+    checkpoint_dir = Path(ROOT_DIR) / "model-checkpoints"  # Local equivalent
     
-    logger.info(f"Resolved checkpoint path: {checkpoint_path}")
-    
-    # If checkpoint_path is a directory, find the latest checkpoint
-    if checkpoint_path.is_dir():
-        # First check if there's a native_checkpoints subdirectory
-        native_checkpoints_dir = checkpoint_path / "native_checkpoints"
-        if native_checkpoints_dir.exists():
-            # Find the latest checkpoint file
-            checkpoint_files = list(native_checkpoints_dir.glob("*.pt"))
-            if checkpoint_files:
-                composer_checkpoint_path = max(
-                    checkpoint_files, 
-                    key=os.path.getctime
-                )
-                logger.info(f"Found checkpoint file: {composer_checkpoint_path}")
-            else:
-                raise FileNotFoundError(
-                    f"No checkpoint files found in "
-                    f"{native_checkpoints_dir}"
-                )
-        else:
-            # If no native_checkpoints subdirectory, look for .pt files directly
-            checkpoint_files = list(checkpoint_path.glob("*.pt"))
-            if checkpoint_files:
-                composer_checkpoint_path = max(
-                    checkpoint_files, 
-                    key=os.path.getctime
-                )
-                logger.info(f"Found checkpoint file: {composer_checkpoint_path}")
-            else:
-                raise FileNotFoundError(
-                    f"No checkpoint files found in {checkpoint_path} or "
-                    f"{native_checkpoints_dir}"
-                )
+    # Get the run folder and checkpoint path
+    if "/" in str(checkpoint_path) or "\\" in str(checkpoint_path):
+        run_folder = checkpoint_path  # If full path provided
     else:
-        composer_checkpoint_path = checkpoint_path
-        logger.info(f"Using checkpoint file: {composer_checkpoint_path}")
+        run_folder = checkpoint_dir / checkpoint_path  # Just model name
+    
+    # Locate the actual checkpoint file
+    composer_checkpoint_path = run_folder
+    if composer_checkpoint_path.is_dir():
+        native_checkpoints = composer_checkpoint_path / "native_checkpoints"
+        if native_checkpoints.exists():
+            latest_checkpoint = native_checkpoints / "latest-rank0.pt"
+            if latest_checkpoint.exists():
+                composer_checkpoint_path = latest_checkpoint
+            else:
+                # Try to find any checkpoint
+                checkpoints = list(native_checkpoints.glob("*.pt"))
+                if checkpoints:
+                    composer_checkpoint_path = checkpoints[0]
+                    logger.info(f"Using fallback checkpoint: {composer_checkpoint_path}")
+    
+    path_tracker("BEFORE_CONVERSION", check_paths=[composer_checkpoint_path])
+    
+    # Use the same directory for HF output
+    hf_output_path = run_folder.parent / f"{run_folder.name}-hf"
+    hf_output_path.mkdir(exist_ok=True, parents=True)
 
-    # Create output directory in MODEL_CHECKPOINT_PATH
-    model_name = checkpoint_path.name.split('-')[0]  # Extract model name
-    hf_output_path = Path(MODEL_CHECKPOINT_PATH) / f"{model_name}-hf"
-    hf_output_path.mkdir(parents=True, exist_ok=True)
-
+    # === USE THE BUILT-IN FUNCTION ===
+    from composer.models.huggingface import write_huggingface_pretrained_from_composer_checkpoint
+    
     logger.info("\nConverting model to HuggingFace format...")
-    logger.info(f"Composer checkpoint path: {composer_checkpoint_path}")
+    logger.info(f"Checkpoint file: {composer_checkpoint_path}")
     logger.info(f"HF output path: {hf_output_path}")
     
-    # Use absolute path for the conversion script
-    convert_script_path = os.path.join(
-        scripts_dir, "inference/convert_composer_to_hf.py"
-    )
-    
-    # Construct conversion command
-    convert_cmd = [
-        PYTHON_PATH, convert_script_path,
-        "--composer_path", str(composer_checkpoint_path),
-        "--hf_output_path", str(hf_output_path),
-        "--output_precision", OUTPUT_PRECISION,
-        "--is_peft", str(IS_PEFT).lower(),
-    ]
-    
-    # Add train YAML if specified
-    if TRAIN_YAML:
-        convert_cmd.extend(["--train_yaml", TRAIN_YAML])
-    
-    # Add HuggingFace upload options if requested
-    if upload_to_hf:
-        convert_cmd.extend([
-            "--hf_repo_for_upload", 
-            f"LocalResearchGroup/{model_name}",
-            "--test_uploaded_model"
-        ])
-
-    # Run conversion
     try:
-        logger.info(f"Running conversion command: {' '.join(convert_cmd)}")
-        subprocess.run(convert_cmd, check=True)
-        logger.info(
-            f"Successfully converted model to HuggingFace format at "
-            f"{hf_output_path}"
+        # This writes both the regular model AND the adapter files if it's a PEFT model
+        write_huggingface_pretrained_from_composer_checkpoint(
+            checkpoint_path=str(composer_checkpoint_path),
+            output_folder=str(hf_output_path)
         )
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to convert model: {e}")
-        raise
+        logger.info("Conversion complete!")
+    except Exception as e:
+        logger.error(f"Error during conversion: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # Now that adapter files are saved properly, also extract the adapter files back to original directory
+    try:
+        adapter_config_src = hf_output_path / "adapter_config.json"
+        adapter_model_src = hf_output_path / "adapter_model.bin"
+        
+        if adapter_config_src.exists() and adapter_model_src.exists():
+            import shutil
+            # Copy adapter files back to the run folder
+            shutil.copy(adapter_config_src, run_folder / "adapter_config.json")
+            shutil.copy(adapter_model_src, run_folder / "adapter_model.bin")
+            logger.info(f"Copied adapter files to {run_folder}")
+    except Exception as e:
+        logger.error(f"Error copying adapter files: {e}")
+    
+    path_tracker("AFTER_CONVERSION", check_paths=[
+        hf_output_path,
+        hf_output_path / "adapter_config.json",
+        hf_output_path / "adapter_model.bin",
+        run_folder / "adapter_config.json", 
+        run_folder / "adapter_model.bin"
+    ])
+    
+    # Add HF upload if requested
+    if upload_to_hf:
+        convert_cmd = [
+            PYTHON_PATH, 
+            str(os.path.join(scripts_dir, "inference", "convert_composer_to_hf.py")),
+            "--composer_path", str(composer_checkpoint_path),
+            "--hf_output_path", str(hf_output_path),
+            "--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"
+        ]
+        
+        logger.info(f"Uploading to HuggingFace: {' '.join(convert_cmd)}")
+        result = subprocess.run(convert_cmd, capture_output=True, text=True)
+        
+        if result.stdout:
+            logger.info(result.stdout)
+        if result.stderr:
+            logger.warning(f"Upload errors: {result.stderr}")
+    
+    return str(hf_output_path)
+
+
+
+# def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
+#     """Convert a model checkpoint to a HuggingFace format."""
+#     import subprocess, os
+#     from pathlib import Path
+    
+#     # Get scripts directory
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+#     os.chdir(scripts_dir)
+#     logger.info(f"Working directory: {os.getcwd()}")
+
+#     # Handle checkpoint path
+#     checkpoint_path = Path(checkpoint_path)
+#     checkpoint_dir = Path(ROOT_DIR) / "model-checkpoints"  # Local equivalent to MODEL_CHECKPOINT_PATH
+    
+#     # Get the run folder and checkpoint path
+#     if "/" in str(checkpoint_path) or "\\" in str(checkpoint_path):
+#         run_folder = checkpoint_path  # If full path provided
+#     else:
+#         run_folder = checkpoint_dir / checkpoint_path  # Just model name
+    
+#     # Locate the actual checkpoint file
+#     composer_checkpoint_path = run_folder
+#     if composer_checkpoint_path.is_dir():
+#         native_checkpoints = composer_checkpoint_path / "native_checkpoints"
+#         if native_checkpoints.exists():
+#             latest_checkpoint = native_checkpoints / "latest-rank0.pt"
+#             if latest_checkpoint.exists():
+#                 composer_checkpoint_path = latest_checkpoint
+#             else:
+#                 # Try to find any checkpoint
+#                 checkpoints = list(native_checkpoints.glob("*.pt"))
+#                 if checkpoints:
+#                     composer_checkpoint_path = checkpoints[0]
+#                     logger.info(f"Using fallback checkpoint: {composer_checkpoint_path}")
+    
+#     path_tracker("BEFORE_CONVERSION", check_paths=[composer_checkpoint_path])
+    
+#     # Use the same directory for HF output
+#     hf_output_path = run_folder.parent / f"{run_folder.name}-hf"
+#     hf_output_path.mkdir(exist_ok=True, parents=True)
+
+#     # Convert the model
+#     logger.info("\nConverting model to HuggingFace format...")
+#     convert_cmd = [
+#         PYTHON_PATH, 
+#         str(os.path.join(scripts_dir, "inference", "convert_composer_to_hf.py")),
+#         #os.path.join(scripts_dir, "inference", "convert_composer_to_hf.py"),
+#         "--composer_path", str(composer_checkpoint_path),
+#         "--hf_output_path", str(hf_output_path),
+#         "--output_precision", "bf16",
+#     ]
+    
+#     # Add upload options if requested
+#     if upload_to_hf:
+#         convert_cmd.extend(["--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"])
+
+#     # Run the conversion
+#     logger.info(f"Running command: {' '.join(convert_cmd)}")
+#     result = subprocess.run(convert_cmd, capture_output=True, text=True)
+    
+#     if result.stdout:
+#         logger.info(result.stdout)
+#     if result.stderr:
+#         logger.warning(f"Conversion errors: {result.stderr}")
+#     if result.returncode != 0:
+#         logger.error(f"Conversion failed with exit code: {result.returncode}")
+#     else:
+#         logger.info("Conversion complete!")
+    
+#     path_tracker("AFTER_CONVERSION", check_paths=[hf_output_path])
+#     return hf_output_path
+
+# def convert_model_to_hf(
+#     checkpoint_path: str, 
+#     upload_to_hf: bool = False
+# ) -> None:
+#     """Convert a model checkpoint to HuggingFace format.
+    
+#     Args:
+#         checkpoint_path: Path to checkpoint or directory with checkpoints
+#         upload_to_hf: Whether to upload to HuggingFace Hub
+#     """
+#     import subprocess
+#     import os
+#     from pathlib import Path
+
+#     # Get the absolute path to the scripts directory
+#     scripts_dir = os.path.join(
+#         ROOT_DIR, 
+#         "scripts"
+#     )
+#     logger.info(f"Scripts directory: {scripts_dir}")
+
+#     # Handle checkpoint path - ensure it's absolute
+#     checkpoint_path = Path(checkpoint_path)
+#     if not checkpoint_path.is_absolute():
+#         # If it's just a name, look in the runs directory
+#         if "/" not in str(checkpoint_path) and "\\" not in str(checkpoint_path):
+#             checkpoint_path = Path(ROOT_DIR) / "runs" / checkpoint_path
+#         else:
+#             checkpoint_path = Path(ROOT_DIR) / checkpoint_path
+    
+#     logger.info(f"Resolved checkpoint path: {checkpoint_path}")
+    
+#     # If checkpoint_path is a directory, find the latest checkpoint
+#     if checkpoint_path.is_dir():
+#         # First check if there's a native_checkpoints subdirectory
+#         native_checkpoints_dir = checkpoint_path / "native_checkpoints"
+#         if native_checkpoints_dir.exists():
+#             # Find the latest checkpoint file
+#             checkpoint_files = list(native_checkpoints_dir.glob("*.pt"))
+#             if checkpoint_files:
+#                 composer_checkpoint_path = max(
+#                     checkpoint_files, 
+#                     key=os.path.getctime
+#                 )
+#                 logger.info(f"Found checkpoint file: {composer_checkpoint_path}")
+#             else:
+#                 raise FileNotFoundError(
+#                     f"No checkpoint files found in "
+#                     f"{native_checkpoints_dir}"
+#                 )
+#         else:
+#             # If no native_checkpoints subdirectory, look for .pt files directly
+#             checkpoint_files = list(checkpoint_path.glob("*.pt"))
+#             if checkpoint_files:
+#                 composer_checkpoint_path = max(
+#                     checkpoint_files, 
+#                     key=os.path.getctime
+#                 )
+#                 logger.info(f"Found checkpoint file: {composer_checkpoint_path}")
+#             else:
+#                 raise FileNotFoundError(
+#                     f"No checkpoint files found in {checkpoint_path} or "
+#                     f"{native_checkpoints_dir}"
+#                 )
+#     else:
+#         composer_checkpoint_path = checkpoint_path
+#         logger.info(f"Using checkpoint file: {composer_checkpoint_path}")
+
+#     # Create output directory in MODEL_CHECKPOINT_PATH
+#     model_name = checkpoint_path.name.split('-')[0]  # Extract model name
+#     hf_output_path = Path(MODEL_CHECKPOINT_PATH) / f"{model_name}-hf"
+#     hf_output_path.mkdir(parents=True, exist_ok=True)
+
+#     logger.info("\nConverting model to HuggingFace format...")
+#     logger.info(f"Composer checkpoint path: {composer_checkpoint_path}")
+#     logger.info(f"HF output path: {hf_output_path}")
+    
+#     # Use absolute path for the conversion script
+#     convert_script_path = os.path.join(
+#         scripts_dir, "inference/convert_composer_to_hf.py"
+#     )
+    
+#     # Construct conversion command
+#     convert_cmd = [
+#         PYTHON_PATH, convert_script_path,
+#         "--composer_path", str(composer_checkpoint_path),
+#         "--hf_output_path", str(hf_output_path),
+#         "--output_precision", OUTPUT_PRECISION,
+#         "--is_peft", str(IS_PEFT).lower(),
+#     ]
+    
+#     # Add train YAML if specified
+#     if TRAIN_YAML:
+#         convert_cmd.extend(["--train_yaml", TRAIN_YAML])
+    
+#     # Add HuggingFace upload options if requested
+#     if upload_to_hf:
+#         convert_cmd.extend([
+#             "--hf_repo_for_upload", 
+#             f"LocalResearchGroup/{model_name}",
+#             "--test_uploaded_model"
+#         ])
+
+#     # Run conversion
+#     try:
+#         logger.info(f"Running conversion command: {' '.join(convert_cmd)}")
+#         subprocess.run(convert_cmd, check=True)
+#         logger.info(
+#             f"Successfully converted model to HuggingFace format at "
+#             f"{hf_output_path}"
+#         )
+#     except subprocess.CalledProcessError as e:
+#         logger.error(f"Failed to convert model: {e}")
+#         raise
 
 
 def cleanup_dataset() -> str:
@@ -605,11 +917,6 @@ def main():
     
     run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     logger.info(f"Starting training run: {run_ts}")
-
-    # Check if llmfoundry is installed
-    if not check_llmfoundry_installed():
-        logger.error("Cannot proceed without llmfoundry installed")
-        return
 
     get_stats()
     time.sleep(1)

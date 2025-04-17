@@ -11,5 +11,5 @@ def get_custom_llama_model():
 def register_custom_llama_model():
     """Register the custom Llama model with the registry."""
     from llmfoundry import registry
-    registry.models.register("hf_causal_lm.custom_llama")(CustomLlamaModel)
+    registry.models.register("hf_causal_lm")(CustomLlamaModel)
     return CustomLlamaModel 
