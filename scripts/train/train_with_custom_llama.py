@@ -11,8 +11,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Register our custom model class
-models.register("hf_causal_lm.custom_llama", func=CustomLlamaModel)
-print("Registered CustomLlamaModel as hf_causal_lm.custom_llama")
+# models.register("hf_causal_lm.custom_llama", func=CustomLlamaModel)
+# print("Registered CustomLlamaModel as hf_causal_lm.custom_llama")
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

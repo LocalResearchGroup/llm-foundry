@@ -121,27 +121,27 @@ def path_tracker(label=None, show_env=True, check_paths=None):
     }
     
     # Print results for immediate feedback
-    print(header)
-    print(f"📁 Current directory: {cwd}")
+    logger.info(header)
+    logger.info(f"📁 Current directory: {cwd}")
     if cwd != real_cwd:
-        print(f"   Real path: {real_cwd}")
+        logger.info(f"   Real path: {real_cwd}")
     if process_cwd != cwd:
-        print(f"   Process working dir: {process_cwd}")
+        logger.info(f"   Process working dir: {process_cwd}")
     
     if show_env:
-        print("\n🔧 Environment variables:")
+        logger.info("\n🔧 Environment variables:")
         for var, value in env_vars.items():
-            print(f"   {var}: {value}")
+            logger.info(f"   {var}: {value}")
     
     if check_paths:
-        print("\n🔍 Path checks:")
+        logger.info("\n🔍 Path checks:")
         for path, details in path_checks.items():
             status = "✅" if details["exists"] else "❌"
             type_info = f" ({details['type']})" if details["exists"] else ""
             size_info = f" - {details['size']}" if details["exists"] else ""
-            print(f"   {status} {path}{type_info}{size_info}")
+            logger.info(f"   {status} {path}{type_info}{size_info}")
     
-    print("➖➖➖" + "➖" * len(header) + "➖➖➖")
+    logger.info("➖➖➖" + "➖" * len(header) + "➖➖➖")
     return info
 
 def get_model_name(yaml_path: str) -> str:
@@ -211,7 +211,7 @@ def get_stats():
     # Check if flash attention is available
     try:
         import_check = subprocess.run(
-            [PYTHON_PATH, "-c", "import flash_attn; print(flash_attn.__version__)"],
+            [PYTHON_PATH, "-c", "import flash_attn; logger.info(flash_attn.__version__)"],
             capture_output=True,
             text=True,
         )
@@ -286,14 +286,14 @@ def extract_adapters(composer_checkpoint_path, output_path):
             import shutil
             shutil.copy(adapter_config, Path(output_path) / "adapter_config.json")
             shutil.copy(adapter_model, Path(output_path) / "adapter_model.bin")
-            print(f"Adapter files extracted and copied to {output_path}")
+            logger.info(f"Adapter files extracted and copied to {output_path}")
             return True
         else:
-            print("No adapter files found in HF output")
+            logger.info("No adapter files found in HF output")
             return False
             
     except Exception as e:
-        print(f"Error extracting adapters: {e}")
+        logger.info(f"Error extracting adapters: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -314,9 +314,9 @@ from huggingface_hub import snapshot_download, login
 token = "{token}"
 login(token=token)
 local_dir = "{local_model}"
-print(f"Downloading model to {{local_dir}}")
+logger.info(f"Downloading model to {{local_dir}}")
 snapshot_download(repo_id="{model_name_or_path}", local_dir=local_dir, token=token)
-print("Download complete!")
+logger.info("Download complete!")
             """
         ]
         subprocess.run(download_cmd, check=True)
@@ -342,7 +342,7 @@ def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-
     # # Get absolute paths
     # scripts_dir = os.path.join(root_dir, "scripts")
     # yaml_path = os.path.join(scripts_dir, yaml_path)
-    # print(f'yaml_path: {yaml_path}')
+    # logger.info(f'yaml_path: {yaml_path}')
     # # Change to llm-foundry/scripts directory at the start
     # os.chdir(scripts_dir)
     # logger.info(f"Working directory: {os.getcwd()}")
@@ -370,10 +370,10 @@ def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-
     
     # Change to llm-foundry/scripts directory at the start
     os.chdir("scripts")
-    print(f"Working directory: {os.getcwd()}")
+    logger.info(f"Working directory: {os.getcwd()}")
     
     # Step 2: Train the model
-    print("\nTraining model...")
+    logger.info("\nTraining model...")
     model_name = get_model_name(yaml_path)
     run_folder = get_run_folder(run_ts, model_name)
     save_folder = Path(f"{run_folder}/native_checkpoints")
@@ -614,35 +614,142 @@ def cleanup_dataset() -> str:
     return str(data_path)
 
 
-def evaluate_model(checkpoint_path: str) -> None:
-    """Evaluate the model on a benchmark"""
-    import subprocess
-    import os
+def evaluate_model(checkpoint_path: str):
+    """Evaluate a model using Composer's eval script"""
+    import subprocess, os
     from pathlib import Path
     
+    # Get HF token for model access
     get_hf_token()
-    os.chdir("scripts")
+    
+    # Get scripts directory
+    scripts_dir = os.path.join(ROOT_DIR, "scripts")
+    if not os.path.exists(scripts_dir):
+        logger.error(f"Scripts directory not found at {scripts_dir}")
+        return
+    
+    # Construct ABSOLUTE path to model directory
+    checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+    if "/" in str(checkpoint_path):
+        model_dir = Path(checkpoint_dir) / Path(checkpoint_path.split("/")[0])
+    else:
+        model_dir = Path(checkpoint_dir) / checkpoint_path
+    
+    # Ensure model directory exists
+    if not model_dir.exists():
+        logger.error(f"Model directory {model_dir} does not exist")
+        return
+    
+    # Check for tokenizer files and copy if needed
+    tokenizer_files = ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"]
+    has_tokenizer = all(os.path.exists(model_dir / file) for file in tokenizer_files)
+    
+    if not has_tokenizer:
+        logger.info(f"Tokenizer files not found in {model_dir}, copying from base model")
+        try:
+            from transformers import AutoTokenizer
+            tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
+            tokenizer.save_pretrained(model_dir)
+            logger.info(f"Tokenizer files saved to {model_dir}")
+        except Exception as e:
+            logger.error(f"Failed to save tokenizer: {e}")
+            return
+    
+    # Create evals directory
+    save_path = model_dir / "evals"
+    save_path.mkdir(exist_ok=True)
+    
+    # Change to scripts directory
+    os.chdir(scripts_dir)
     logger.info(f"Working directory: {os.getcwd()}")
     
-    model_path = Path(f"../{checkpoint_path}")
-    save_path = model_path / "evals"  # Create evals subfolder path
-    
-    logger.info("\nEvaluating model...")
+    # Run evaluation with ABSOLUTE paths
+    logger.info(f"\nEvaluating model at absolute path: {model_dir.absolute()}")
     eval_cmd = [
         "composer",
         "eval/eval.py",
         "eval/yamls/hf_eval.yaml",
         "icl_tasks=eval/yamls/copa.yaml",
-        f"variables.model_name_or_path={model_path}",
-        f"results_path={save_path}",  # Add results_path parameter
+        f"variables.model_name_or_path={model_dir.absolute()}",  # Use variables namespace
+        f"variables.tokenizer_name={model_dir.absolute()}",      # Use variables namespace
+        f"results_path={save_path.absolute()}",
     ]
+    
+    logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
     result = subprocess.run(eval_cmd, capture_output=True, text=True)
+    
     logger.info(result.stdout)
     if result.stderr:
         logger.error(f"Evaluation errors: {result.stderr}")
     
-    os.chdir("..")  # Return to original directory
     logger.info("Evaluation complete!")
+
+# def evaluate_model(checkpoint_path: str):
+#     """Evaluate a model using Composer's eval script"""
+#     import subprocess, os
+#     from pathlib import Path
+
+#     # Get scripts directory from ROOT_DIR
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+    
+#     # Check if scripts directory exists
+#     if not os.path.exists(scripts_dir):
+#         logger.error(f"Scripts directory not found at {scripts_dir}")
+#         return
+        
+#     # Change to scripts directory
+#     os.chdir(scripts_dir)
+#     logger.info(f"Working directory: {os.getcwd()}")
+    
+#     model_path = Path(f"../{checkpoint_path}")
+#     save_path = model_path / "evals"  # Create evals subfolder path
+    
+#     logger.info("\nEvaluating model...")
+#     eval_cmd = [
+#         "composer",
+#         "eval/eval.py",
+#         "eval/yamls/hf_eval.yaml",
+#         "icl_tasks=eval/yamls/copa.yaml",
+#         f"variables.model_name_or_path={model_path}",
+#         f"results_path={save_path}",  # Add results_path parameter
+#     ]
+#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
+#     logger.info(result.stdout)
+#     if result.stderr:
+#         logger.error(f"Evaluation errors: {result.stderr}")
+    
+#     os.chdir("..")  # Return to original directory
+#     logger.info("Evaluation complete!")
+
+# def evaluate_model(checkpoint_path: str) -> None:
+#     """Evaluate the model on a benchmark"""
+#     import subprocess
+#     import os
+#     from pathlib import Path
+    
+#     get_hf_token()
+#     os.chdir("scripts")
+#     logger.info(f"Working directory: {os.getcwd()}")
+    
+#     model_path = Path(f"../{checkpoint_path}")
+#     save_path = model_path / "evals"  # Create evals subfolder path
+    
+#     logger.info("\nEvaluating model...")
+#     eval_cmd = [
+#         "composer",
+#         "eval/eval.py",
+#         "eval/yamls/hf_eval.yaml",
+#         "icl_tasks=eval/yamls/copa.yaml",
+#         f"variables.model_name_or_path={model_path}",
+#         f"results_path={save_path}",  # Add results_path parameter
+#     ]
+#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
+#     logger.info(result.stdout)
+#     if result.stderr:
+#         logger.error(f"Evaluation errors: {result.stderr}")
+    
+#     os.chdir("..")  # Return to original directory
+#     logger.info("Evaluation complete!")
 
 
 def generate_responses(
@@ -684,46 +791,88 @@ def generate_responses(
     os.chdir("..")  # Return to original directory
     logger.info("Generation complete!")
 
-
-def push_folder_to_hf(
-    folder_path: str, 
-    repo_id: Optional[str] = None, 
-    repo_type: str = "model", 
-    private: bool = True
-) -> None:
+def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: str = "model", private: bool = True):
     """Upload model checkpoint to HuggingFace Hub."""
     from huggingface_hub import HfApi
+    import os
     from pathlib import Path
-
+    
+    # Convert to Path object
     folder_path = Path(folder_path)
+    
+    # If path is not absolute, check in model-checkpoints directory
+    if not folder_path.is_absolute():
+        model_checkpoints_dir = Path(ROOT_DIR) / "model-checkpoints"
+        absolute_path = model_checkpoints_dir / folder_path
+        if absolute_path.exists():
+            folder_path = absolute_path
+    
+    # Final check if folder exists
     if not folder_path.exists() or not folder_path.is_dir():
-        raise FileNotFoundError(
-            f"Folder {folder_path} does not exist or is not a directory."
-        )
+        raise FileNotFoundError(f"Folder {folder_path} does not exist or is not a directory.")
+    
+    # Check for adapter files
+    adapter_files = [
+        folder_path / "adapter_config.json",
+        folder_path / "adapter_model.bin"
+    ]
+    
+    has_adapter = all(file.exists() for file in adapter_files)
+    if has_adapter:
+        logger.info(f"Found adapter files in {folder_path}")
+    
+    # Rest of the function remains the same
     folder_name = folder_path.name
     if repo_id is None: 
         repo_id = f"LocalResearchGroup/{folder_name}"
 
     api = HfApi()
-
     logger.info(f'Uploading {folder_path} to HuggingFace Hub at {repo_id}')
     
-    api.create_repo(
-        repo_id=repo_id, 
-        use_auth_token=True, 
-        repo_type=repo_type, 
-        private=private, 
-        exist_ok=True
-    )
+    api.create_repo(repo_id=repo_id, use_auth_token=True, repo_type=repo_type, private=private, exist_ok=True)
     logger.info('Repo created.')
 
-    api.upload_folder(
-        folder_path=folder_path, 
-        repo_id=repo_id, 
-        use_auth_token=True, 
-        repo_type=repo_type
-    )
+    api.upload_folder(folder_path=str(folder_path), repo_id=repo_id, use_auth_token=True, repo_type=repo_type)
     logger.info(f'Folder "{folder_path}" uploaded to: "{repo_id}" successfully.')
+# def push_folder_to_hf(
+#     folder_path: str, 
+#     repo_id: Optional[str] = None, 
+#     repo_type: str = "model", 
+#     private: bool = True
+# ) -> None:
+#     """Upload model checkpoint to HuggingFace Hub."""
+#     from huggingface_hub import HfApi
+#     from pathlib import Path
+
+#     folder_path = Path(folder_path)
+#     if not folder_path.exists() or not folder_path.is_dir():
+#         raise FileNotFoundError(
+#             f"Folder {folder_path} does not exist or is not a directory."
+#         )
+#     folder_name = folder_path.name
+#     if repo_id is None: 
+#         repo_id = f"LocalResearchGroup/{folder_name}"
+
+#     api = HfApi()
+
+#     logger.info(f'Uploading {folder_path} to HuggingFace Hub at {repo_id}')
+    
+#     api.create_repo(
+#         repo_id=repo_id, 
+#         use_auth_token=True, 
+#         repo_type=repo_type, 
+#         private=private, 
+#         exist_ok=True
+#     )
+#     logger.info('Repo created.')
+
+#     api.upload_folder(
+#         folder_path=folder_path, 
+#         repo_id=repo_id, 
+#         use_auth_token=True, 
+#         repo_type=repo_type
+#     )
+#     logger.info(f'Folder "{folder_path}" uploaded to: "{repo_id}" successfully.')
 
 
 def main():
