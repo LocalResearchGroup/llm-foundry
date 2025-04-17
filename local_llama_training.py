@@ -309,11 +309,18 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False) -> Non
     import os
     from pathlib import Path
 
-    os.chdir("scripts")
-    logger.info(f"Working directory: {os.getcwd()}")
+    # Get the absolute path to the scripts directory
+    scripts_dir = os.path.join(ROOT_DIR, "scripts")
+    logger.info(f"Scripts directory: {scripts_dir}")
 
-    run_folder = Path(f"../{checkpoint_path.split('/')[0]}")
-    composer_checkpoint_path = Path(f"../{checkpoint_path}")
+    # Use absolute paths for all operations
+    run_folder = Path(
+        os.path.join(ROOT_DIR, checkpoint_path.split('/')[0])
+    )
+    composer_checkpoint_path = Path(
+        os.path.join(ROOT_DIR, checkpoint_path)
+    )
+    
     if composer_checkpoint_path.is_dir():
         composer_checkpoint_path = (
             composer_checkpoint_path / "native_checkpoints" / "latest-rank0.pt"
@@ -321,10 +328,18 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False) -> Non
     hf_output_path = run_folder
 
     logger.info("\nConverting model to HuggingFace format...")
+    logger.info(f"Composer checkpoint path: {composer_checkpoint_path}")
+    logger.info(f"HF output path: {hf_output_path}")
+    
+    # Use absolute path for the conversion script
+    convert_script_path = os.path.join(
+        scripts_dir, "inference/convert_composer_to_hf.py"
+    )
+    
     convert_cmd = [
-        PYTHON_PATH, "inference/convert_composer_to_hf.py",
-        "--composer_path", composer_checkpoint_path,
-        "--hf_output_path", hf_output_path,
+        PYTHON_PATH, convert_script_path,
+        "--composer_path", str(composer_checkpoint_path),
+        "--hf_output_path", str(hf_output_path),
         "--output_precision", f"{OUTPUT_PRECISION}",
         "--is_peft", f"{IS_PEFT}",
         "--train_yaml", f"{TRAIN_YAML}"
@@ -335,12 +350,12 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False) -> Non
             f"LocalResearchGroup/{run_folder.name}"
         ])
 
+    logger.info(f"Running command: {' '.join(convert_cmd)}")
     result = subprocess.run(convert_cmd, capture_output=True, text=True)
     logger.info(result.stdout)
     if result.stderr:
         logger.error(f"Conversion errors: {result.stderr}")
     
-    os.chdir("..")  # Return to original directory
     logger.info("Conversion complete!")
 
 
