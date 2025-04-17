@@ -261,42 +261,6 @@ def convert_c4_small_dataset():
     os.chdir("..")  # Return to original directory
 
 
-def extract_adapters(composer_checkpoint_path, output_path):
-    """Convert a checkpoint using the built-in HF functionality, preserving adapter weights"""
-    from composer.models.huggingface import write_huggingface_pretrained_from_composer_checkpoint
-    import os
-    from pathlib import Path
-    
-    try:
-        # Create a temporary HF output path for the adapter extraction
-        hf_output_path = str(Path(output_path).parent / f"{Path(output_path).name}-hf")
-        os.makedirs(hf_output_path, exist_ok=True)
-        
-        # Use the built-in function that correctly extracts adapter weights
-        write_huggingface_pretrained_from_composer_checkpoint(
-            checkpoint_path=composer_checkpoint_path,
-            output_folder=hf_output_path
-        )
-        
-        # Copy adapter files to the original output path
-        adapter_config = Path(hf_output_path) / "adapter_config.json"
-        adapter_model = Path(hf_output_path) / "adapter_model.bin"
-        
-        if adapter_config.exists() and adapter_model.exists():
-            import shutil
-            shutil.copy(adapter_config, Path(output_path) / "adapter_config.json")
-            shutil.copy(adapter_model, Path(output_path) / "adapter_model.bin")
-            logger.info(f"Adapter files extracted and copied to {output_path}")
-            return True
-        else:
-            logger.info("No adapter files found in HF output")
-            return False
-            
-    except Exception as e:
-        logger.info(f"Error extracting adapters: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
 
 def download_model_if_needed(token: str, model_name_or_path: str) -> str:
     """Download the model if it's gated and requires a HuggingFace token"""
@@ -482,6 +446,7 @@ def view_model_checkpoints(checkpoint_dir: Optional[str] = None) -> str:
     return "Checkpoint viewing complete"
 
 
+
 def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
     """Convert a model checkpoint to a HuggingFace format."""
     import subprocess, os
@@ -497,10 +462,10 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
     checkpoint_dir = Path(ROOT_DIR) / "model-checkpoints"  # Local equivalent
     
     # Get the run folder and checkpoint path
-    if "/" in str(checkpoint_path) or "\\" in str(checkpoint_path):
-        run_folder = checkpoint_path  # If full path provided
+    if "/" in str(checkpoint_path):
+        run_folder = Path(checkpoint_dir) / Path(checkpoint_path.split("/")[0])
     else:
-        run_folder = checkpoint_dir / checkpoint_path  # Just model name
+        run_folder = Path(checkpoint_dir) / checkpoint_path
     
     # Locate the actual checkpoint file
     composer_checkpoint_path = run_folder
@@ -520,41 +485,48 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
     path_tracker("BEFORE_CONVERSION", check_paths=[composer_checkpoint_path])
     
     # Use the same directory for HF output
-    hf_output_path = run_folder#.parent / f"{run_folder.name}-hf"
+    hf_output_path = run_folder
     hf_output_path.mkdir(exist_ok=True, parents=True)
 
-    # === USE THE BUILT-IN FUNCTION ===
-    extract_adapters(composer_checkpoint_path=str(composer_checkpoint_path),
-                     output_path=str(hf_output_path))
-
+    # Set up paths to required resources
+    yaml_file = os.path.join(scripts_dir, TRAIN_YAML)
+    
+    # Run the conversion script directly
+    logger.info("\nConverting model to HuggingFace format...")
+    logger.info(f"Checkpoint file: {composer_checkpoint_path}")
+    logger.info(f"HF output path: {hf_output_path}")
+    
+    # Use the built-in convert_composer_to_hf.py script
+    convert_cmd = [
+        PYTHON_PATH, 
+        os.path.join(scripts_dir, "inference/convert_composer_to_hf.py"),
+        "--composer_path", str(composer_checkpoint_path),
+        "--hf_output_path", str(hf_output_path),
+        "--output_precision", OUTPUT_PRECISION,
+        "--is_peft", str(IS_PEFT).lower(),  # Make sure this is lowercase "true" or "false"
+        "--train_yaml", yaml_file,
+        "--trust_remote_code"
+    ]
+    
+    if upload_to_hf:
+        convert_cmd.extend(["--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"])
+    
+    logger.info(f"Running command: {' '.join(convert_cmd)}")
+    result = subprocess.run(convert_cmd, capture_output=True, text=True)
+    
+    logger.info(result.stdout)
+    if result.stderr:
+        logger.warning(f"Conversion errors: {result.stderr}")
+    
+    # Check if adapter files were created
     path_tracker("AFTER_CONVERSION", check_paths=[
         hf_output_path,
         hf_output_path / "adapter_config.json",
-        hf_output_path / "adapter_model.bin",
-        run_folder / "adapter_config.json", 
-        run_folder / "adapter_model.bin"
+        hf_output_path / "adapter_model.safetensors"
     ])
     
-    # Add HF upload if requested
-    if upload_to_hf:
-        convert_cmd = [
-            PYTHON_PATH, 
-            str(os.path.join(scripts_dir, "inference", "convert_composer_to_hf.py")),
-            "--composer_path", str(composer_checkpoint_path),
-            "--hf_output_path", str(hf_output_path),
-            "--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"
-        ]
-        
-        logger.info(f"Uploading to HuggingFace: {' '.join(convert_cmd)}")
-        result = subprocess.run(convert_cmd, capture_output=True, text=True)
-        
-        if result.stdout:
-            logger.info(result.stdout)
-        if result.stderr:
-            logger.warning(f"Upload errors: {result.stderr}")
-    
+    logger.info("Conversion complete!")
     return str(hf_output_path)
-
 
 def cleanup_dataset() -> str:
     """Clean up corrupted dataset and create a fresh one."""
@@ -752,21 +724,120 @@ def evaluate_model(checkpoint_path: str):
 #     logger.info("Evaluation complete!")
 
 
-def generate_responses(
-    checkpoint_path: str, 
-    prompts: Optional[Union[List[str], str]] = None
-) -> None:
-    """Generate responses from the model for given prompts"""
-    import subprocess
-    import os
+# def generate_responses(
+#     checkpoint_path: str, 
+#     prompts: Optional[Union[List[str], str]] = None
+# ) -> None:
+#     """Generate responses from the model for given prompts"""
+#     import subprocess
+#     import os
+#     from pathlib import Path
+    
+#     get_hf_token()
+#     os.chdir("scripts")
+#     logger.info(f"Working directory: {os.getcwd()}")
+    
+#     model_path = Path(f"../{checkpoint_path}")
+
+#     if prompts is None:
+#         prompts = [
+#             "The answer to life, the universe, and happiness is",
+#             "Here's a quick recipe for baking chocolate chip cookies: Start by",
+#         ]
+#     elif isinstance(prompts, str):
+#         prompts = [prompts]
+
+#     logger.info("\nGenerating test responses...")
+#     generate_cmd = [
+#         PYTHON_PATH, "inference/hf_generate.py",
+#         "--name_or_path", model_path,
+#         "--max_new_tokens", "256",
+#         "--prompts",
+#         *prompts,
+#     ]
+#     result = subprocess.run(generate_cmd, capture_output=True, text=True)
+#     logger.info(result.stdout)
+#     if result.stderr:
+#         logger.error(f"Generation errors: {result.stderr}")
+    
+#     os.chdir("..")  # Return to original directory
+#     logger.info("Generation complete!")
+
+# def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
+#     """Generate text responses from the model."""
+#     import subprocess, os
+    
+#     # Get scripts directory - need absolute path
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+#     if not os.path.exists(scripts_dir):
+#         logger.error(f"Scripts directory not found at {scripts_dir}")
+#         return
+    
+#     # Change directory
+#     os.chdir(scripts_dir)
+#     logger.info(f"Working directory: {os.getcwd()}")
+    
+#     # Get absolute model path
+#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+#     model_dir = os.path.join(checkpoint_dir, checkpoint_path) if not os.path.isabs(checkpoint_path) else checkpoint_path
+    
+#     # Check if this is a PEFT model
+#     is_peft = (os.path.exists(os.path.join(model_dir, "adapter_config.json")) and
+#               (os.path.exists(os.path.join(model_dir, "adapter_model.bin")) or 
+#                os.path.exists(os.path.join(model_dir, "adapter_model.safetensors"))))
+    
+#     if prompts is None:
+#         prompts = [
+#             "The answer to life, the universe, and happiness is",
+#             "Here's a quick recipe for baking chocolate chip cookies: Start by",
+#         ]
+#     elif isinstance(prompts, str):
+#         prompts = [prompts]
+    
+#     # Use adapter-aware generation for PEFT models
+#     logger.info(f"\nGenerating responses with {'PEFT adapter' if is_peft else 'full model'}")
+    
+#     if is_peft:
+#         generate_cmd = [
+#             sys.executable, "-m", "peft.utils.launch_peft_serve",  # Use PEFT's built-in server
+#             "--model_name_or_path", model_dir
+#         ]
+#     else:
+#         generate_cmd = [
+#             PYTHON_PATH, "inference/hf_generate.py",
+#             "--name_or_path", model_dir,
+#             "--max_new_tokens", "256",
+#             "--prompts", *prompts
+#         ]
+    
+#     result = subprocess.run(generate_cmd, capture_output=True, text=True)
+#     logger.info(result.stdout)
+#     if result.stderr:
+#         logger.error(f"Generation errors: {result.stderr}")
+#     logger.info("Generation complete!")
+
+
+def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
+    """Generate text responses from the model."""
+    import subprocess, os
     from pathlib import Path
     
-    get_hf_token()
-    os.chdir("scripts")
-    logger.info(f"Working directory: {os.getcwd()}")
+    # Get scripts directory as absolute path
+    scripts_dir = os.path.join(ROOT_DIR, "scripts")
     
-    model_path = Path(f"../{checkpoint_path}")
-
+    # Change directory safely
+    if os.path.exists(scripts_dir):
+        os.chdir(scripts_dir)
+        logger.info(f"Working directory: {os.getcwd()}")
+    else:
+        logger.error(f"Scripts directory {scripts_dir} not found")
+        return
+    
+    # Construct proper model path - local equivalent to MODEL_CHECKPOINT_VOLUME_MOUNT_PATH
+    local_checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+    model_path = os.path.join(local_checkpoint_dir, checkpoint_path)
+    
+    # Set up prompts
     if prompts is None:
         prompts = [
             "The answer to life, the universe, and happiness is",
@@ -774,7 +845,8 @@ def generate_responses(
         ]
     elif isinstance(prompts, str):
         prompts = [prompts]
-
+    
+    # Run the same command as on Modal
     logger.info("\nGenerating test responses...")
     generate_cmd = [
         PYTHON_PATH, "inference/hf_generate.py",
@@ -783,12 +855,12 @@ def generate_responses(
         "--prompts",
         *prompts,
     ]
+    
+    # Execute and capture output
     result = subprocess.run(generate_cmd, capture_output=True, text=True)
     logger.info(result.stdout)
     if result.stderr:
         logger.error(f"Generation errors: {result.stderr}")
-    
-    os.chdir("..")  # Return to original directory
     logger.info("Generation complete!")
 
 def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: str = "model", private: bool = True):
