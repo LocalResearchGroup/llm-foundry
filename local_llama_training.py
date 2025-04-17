@@ -261,6 +261,43 @@ def convert_c4_small_dataset():
     os.chdir("..")  # Return to original directory
 
 
+def extract_adapters(composer_checkpoint_path, output_path):
+    """Convert a checkpoint using the built-in HF functionality, preserving adapter weights"""
+    from composer.models.huggingface import write_huggingface_pretrained_from_composer_checkpoint
+    import os
+    from pathlib import Path
+    
+    try:
+        # Create a temporary HF output path for the adapter extraction
+        hf_output_path = str(Path(output_path).parent / f"{Path(output_path).name}-hf")
+        os.makedirs(hf_output_path, exist_ok=True)
+        
+        # Use the built-in function that correctly extracts adapter weights
+        write_huggingface_pretrained_from_composer_checkpoint(
+            checkpoint_path=composer_checkpoint_path,
+            output_folder=hf_output_path
+        )
+        
+        # Copy adapter files to the original output path
+        adapter_config = Path(hf_output_path) / "adapter_config.json"
+        adapter_model = Path(hf_output_path) / "adapter_model.bin"
+        
+        if adapter_config.exists() and adapter_model.exists():
+            import shutil
+            shutil.copy(adapter_config, Path(output_path) / "adapter_config.json")
+            shutil.copy(adapter_model, Path(output_path) / "adapter_model.bin")
+            print(f"Adapter files extracted and copied to {output_path}")
+            return True
+        else:
+            print("No adapter files found in HF output")
+            return False
+            
+    except Exception as e:
+        print(f"Error extracting adapters: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def download_model_if_needed(token: str, model_name_or_path: str) -> str:
     """Download the model if it's gated and requires a HuggingFace token"""
     import subprocess
@@ -483,42 +520,13 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
     path_tracker("BEFORE_CONVERSION", check_paths=[composer_checkpoint_path])
     
     # Use the same directory for HF output
-    hf_output_path = run_folder.parent / f"{run_folder.name}-hf"
+    hf_output_path = run_folder#.parent / f"{run_folder.name}-hf"
     hf_output_path.mkdir(exist_ok=True, parents=True)
 
     # === USE THE BUILT-IN FUNCTION ===
-    from composer.models.huggingface import write_huggingface_pretrained_from_composer_checkpoint
-    
-    logger.info("\nConverting model to HuggingFace format...")
-    logger.info(f"Checkpoint file: {composer_checkpoint_path}")
-    logger.info(f"HF output path: {hf_output_path}")
-    
-    try:
-        # This writes both the regular model AND the adapter files if it's a PEFT model
-        write_huggingface_pretrained_from_composer_checkpoint(
-            checkpoint_path=str(composer_checkpoint_path),
-            output_folder=str(hf_output_path)
-        )
-        logger.info("Conversion complete!")
-    except Exception as e:
-        logger.error(f"Error during conversion: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    # Now that adapter files are saved properly, also extract the adapter files back to original directory
-    try:
-        adapter_config_src = hf_output_path / "adapter_config.json"
-        adapter_model_src = hf_output_path / "adapter_model.bin"
-        
-        if adapter_config_src.exists() and adapter_model_src.exists():
-            import shutil
-            # Copy adapter files back to the run folder
-            shutil.copy(adapter_config_src, run_folder / "adapter_config.json")
-            shutil.copy(adapter_model_src, run_folder / "adapter_model.bin")
-            logger.info(f"Copied adapter files to {run_folder}")
-    except Exception as e:
-        logger.error(f"Error copying adapter files: {e}")
-    
+    extract_adapters(composer_checkpoint_path=str(composer_checkpoint_path),
+                     output_path=str(hf_output_path))
+
     path_tracker("AFTER_CONVERSION", check_paths=[
         hf_output_path,
         hf_output_path / "adapter_config.json",
@@ -546,195 +554,6 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
             logger.warning(f"Upload errors: {result.stderr}")
     
     return str(hf_output_path)
-
-
-
-# def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
-#     """Convert a model checkpoint to a HuggingFace format."""
-#     import subprocess, os
-#     from pathlib import Path
-    
-#     # Get scripts directory
-#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
-#     os.chdir(scripts_dir)
-#     logger.info(f"Working directory: {os.getcwd()}")
-
-#     # Handle checkpoint path
-#     checkpoint_path = Path(checkpoint_path)
-#     checkpoint_dir = Path(ROOT_DIR) / "model-checkpoints"  # Local equivalent to MODEL_CHECKPOINT_PATH
-    
-#     # Get the run folder and checkpoint path
-#     if "/" in str(checkpoint_path) or "\\" in str(checkpoint_path):
-#         run_folder = checkpoint_path  # If full path provided
-#     else:
-#         run_folder = checkpoint_dir / checkpoint_path  # Just model name
-    
-#     # Locate the actual checkpoint file
-#     composer_checkpoint_path = run_folder
-#     if composer_checkpoint_path.is_dir():
-#         native_checkpoints = composer_checkpoint_path / "native_checkpoints"
-#         if native_checkpoints.exists():
-#             latest_checkpoint = native_checkpoints / "latest-rank0.pt"
-#             if latest_checkpoint.exists():
-#                 composer_checkpoint_path = latest_checkpoint
-#             else:
-#                 # Try to find any checkpoint
-#                 checkpoints = list(native_checkpoints.glob("*.pt"))
-#                 if checkpoints:
-#                     composer_checkpoint_path = checkpoints[0]
-#                     logger.info(f"Using fallback checkpoint: {composer_checkpoint_path}")
-    
-#     path_tracker("BEFORE_CONVERSION", check_paths=[composer_checkpoint_path])
-    
-#     # Use the same directory for HF output
-#     hf_output_path = run_folder.parent / f"{run_folder.name}-hf"
-#     hf_output_path.mkdir(exist_ok=True, parents=True)
-
-#     # Convert the model
-#     logger.info("\nConverting model to HuggingFace format...")
-#     convert_cmd = [
-#         PYTHON_PATH, 
-#         str(os.path.join(scripts_dir, "inference", "convert_composer_to_hf.py")),
-#         #os.path.join(scripts_dir, "inference", "convert_composer_to_hf.py"),
-#         "--composer_path", str(composer_checkpoint_path),
-#         "--hf_output_path", str(hf_output_path),
-#         "--output_precision", "bf16",
-#     ]
-    
-#     # Add upload options if requested
-#     if upload_to_hf:
-#         convert_cmd.extend(["--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"])
-
-#     # Run the conversion
-#     logger.info(f"Running command: {' '.join(convert_cmd)}")
-#     result = subprocess.run(convert_cmd, capture_output=True, text=True)
-    
-#     if result.stdout:
-#         logger.info(result.stdout)
-#     if result.stderr:
-#         logger.warning(f"Conversion errors: {result.stderr}")
-#     if result.returncode != 0:
-#         logger.error(f"Conversion failed with exit code: {result.returncode}")
-#     else:
-#         logger.info("Conversion complete!")
-    
-#     path_tracker("AFTER_CONVERSION", check_paths=[hf_output_path])
-#     return hf_output_path
-
-# def convert_model_to_hf(
-#     checkpoint_path: str, 
-#     upload_to_hf: bool = False
-# ) -> None:
-#     """Convert a model checkpoint to HuggingFace format.
-    
-#     Args:
-#         checkpoint_path: Path to checkpoint or directory with checkpoints
-#         upload_to_hf: Whether to upload to HuggingFace Hub
-#     """
-#     import subprocess
-#     import os
-#     from pathlib import Path
-
-#     # Get the absolute path to the scripts directory
-#     scripts_dir = os.path.join(
-#         ROOT_DIR, 
-#         "scripts"
-#     )
-#     logger.info(f"Scripts directory: {scripts_dir}")
-
-#     # Handle checkpoint path - ensure it's absolute
-#     checkpoint_path = Path(checkpoint_path)
-#     if not checkpoint_path.is_absolute():
-#         # If it's just a name, look in the runs directory
-#         if "/" not in str(checkpoint_path) and "\\" not in str(checkpoint_path):
-#             checkpoint_path = Path(ROOT_DIR) / "runs" / checkpoint_path
-#         else:
-#             checkpoint_path = Path(ROOT_DIR) / checkpoint_path
-    
-#     logger.info(f"Resolved checkpoint path: {checkpoint_path}")
-    
-#     # If checkpoint_path is a directory, find the latest checkpoint
-#     if checkpoint_path.is_dir():
-#         # First check if there's a native_checkpoints subdirectory
-#         native_checkpoints_dir = checkpoint_path / "native_checkpoints"
-#         if native_checkpoints_dir.exists():
-#             # Find the latest checkpoint file
-#             checkpoint_files = list(native_checkpoints_dir.glob("*.pt"))
-#             if checkpoint_files:
-#                 composer_checkpoint_path = max(
-#                     checkpoint_files, 
-#                     key=os.path.getctime
-#                 )
-#                 logger.info(f"Found checkpoint file: {composer_checkpoint_path}")
-#             else:
-#                 raise FileNotFoundError(
-#                     f"No checkpoint files found in "
-#                     f"{native_checkpoints_dir}"
-#                 )
-#         else:
-#             # If no native_checkpoints subdirectory, look for .pt files directly
-#             checkpoint_files = list(checkpoint_path.glob("*.pt"))
-#             if checkpoint_files:
-#                 composer_checkpoint_path = max(
-#                     checkpoint_files, 
-#                     key=os.path.getctime
-#                 )
-#                 logger.info(f"Found checkpoint file: {composer_checkpoint_path}")
-#             else:
-#                 raise FileNotFoundError(
-#                     f"No checkpoint files found in {checkpoint_path} or "
-#                     f"{native_checkpoints_dir}"
-#                 )
-#     else:
-#         composer_checkpoint_path = checkpoint_path
-#         logger.info(f"Using checkpoint file: {composer_checkpoint_path}")
-
-#     # Create output directory in MODEL_CHECKPOINT_PATH
-#     model_name = checkpoint_path.name.split('-')[0]  # Extract model name
-#     hf_output_path = Path(MODEL_CHECKPOINT_PATH) / f"{model_name}-hf"
-#     hf_output_path.mkdir(parents=True, exist_ok=True)
-
-#     logger.info("\nConverting model to HuggingFace format...")
-#     logger.info(f"Composer checkpoint path: {composer_checkpoint_path}")
-#     logger.info(f"HF output path: {hf_output_path}")
-    
-#     # Use absolute path for the conversion script
-#     convert_script_path = os.path.join(
-#         scripts_dir, "inference/convert_composer_to_hf.py"
-#     )
-    
-#     # Construct conversion command
-#     convert_cmd = [
-#         PYTHON_PATH, convert_script_path,
-#         "--composer_path", str(composer_checkpoint_path),
-#         "--hf_output_path", str(hf_output_path),
-#         "--output_precision", OUTPUT_PRECISION,
-#         "--is_peft", str(IS_PEFT).lower(),
-#     ]
-    
-#     # Add train YAML if specified
-#     if TRAIN_YAML:
-#         convert_cmd.extend(["--train_yaml", TRAIN_YAML])
-    
-#     # Add HuggingFace upload options if requested
-#     if upload_to_hf:
-#         convert_cmd.extend([
-#             "--hf_repo_for_upload", 
-#             f"LocalResearchGroup/{model_name}",
-#             "--test_uploaded_model"
-#         ])
-
-#     # Run conversion
-#     try:
-#         logger.info(f"Running conversion command: {' '.join(convert_cmd)}")
-#         subprocess.run(convert_cmd, check=True)
-#         logger.info(
-#             f"Successfully converted model to HuggingFace format at "
-#             f"{hf_output_path}"
-#         )
-#     except subprocess.CalledProcessError as e:
-#         logger.error(f"Failed to convert model: {e}")
-#         raise
 
 
 def cleanup_dataset() -> str:
