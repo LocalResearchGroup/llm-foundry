@@ -179,11 +179,16 @@ class CustomLlamaModel(HuggingFaceModel):
         else:
             print("Initializing model with random weights (pretrained=False)")
             hf_model = HFLlamaForCausalLM(config)
-        
+
         # Initialize our custom model
         print("Creating custom LlamaForCausalLM instance")
         model = self._initialize_model_from_config(config)
-        
+        def track_computation(module, input, output):
+            print(f"Module {module.__class__.__name__} called")
+            print(f"  Input shapes: {[x.shape if isinstance(x, torch.Tensor) else type(x) for x in input]}")
+            print(f"  Output shapes: {output.shape if isinstance(output, torch.Tensor) else [x.shape if isinstance(x, torch.Tensor) else type(x) for x in output]}")
+        model.lm_head.register_forward_hook(track_computation)
+
         # Copy weights from HF model to custom model
         if use_pretrained:
             print("Copying weights from HF model to custom model")
@@ -264,6 +269,7 @@ class CustomLlamaModel(HuggingFaceModel):
             output_attentions=None,
             output_hidden_states=None,
             return_dict=None,
+            #compute_logits = False,
             **kwargs
         ):
             # Get hidden states from embeddings
@@ -311,31 +317,133 @@ class CustomLlamaModel(HuggingFaceModel):
             hidden_states = self.norm(hidden_states)
             
             # Get logits from the language model head
-            logits = self.lm_head(hidden_states)
-            
+            #logits = self.lm_head(hidden_states)
+            #
+            logits = None
+
             # Calculate loss if labels are provided
             loss = None
             if labels is not None:
-                # Get the final hidden states (before lm_head)
+                # Get final hidden states for loss calculation
                 final_hidden = hidden_states[..., :-1, :].contiguous().view(-1, self.hidden_size)
                 shift_labels = labels[..., 1:].contiguous().view(-1)
-                shift_labels = shift_labels.to(final_hidden.device)
                 
-                # Use fused loss function
                 if hasattr(self, '_fused_loss') and self._fused_loss:
-                    # For verification, print a message
-                    print("Using LigerFusedLinearCrossEntropyLoss")
+                    print("USING FUSED LOSS")
+                    torch.cuda.synchronize()
+                    before_mem = torch.cuda.memory_allocated()
                     loss = self.fused_loss_fn(
-                        self.lm_head.weight,  # Linear weights
-                        final_hidden,         # Features before linear projection
-                        shift_labels,         # Target labels
-                        #ignore_index=-100     # Ignore padding
+                        self.lm_head.weight,
+                        final_hidden,
+                        shift_labels
                     )
+                    torch.cuda.synchronize()
+                    after_mem = torch.cuda.memory_allocated()
+                    print(f"Memory change during fused loss: {(after_mem - before_mem) / 1024**2:.2f} MB")
                 else:
-                    # Fallback to standard cross entropy
-                    logits = self.lm_head(final_hidden)
+                    print("USING STANDARD LOSS")
+                    torch.cuda.synchronize()
+                    before_mem = torch.cuda.memory_allocated()
+                    # Calculate partial logits for loss only
+                    partial_logits = self.lm_head(final_hidden)
                     loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
-                    loss = loss_fct(logits, shift_labels)
+                    loss = loss_fct(partial_logits, shift_labels)
+                    torch.cuda.synchronize()
+                    after_mem = torch.cuda.memory_allocated()
+                    print(f"Memory change during standard loss: {(after_mem - before_mem) / 1024**2:.2f} MB")
+
+            # Calculate full sequence logits ONLY if needed for generation/output
+            print("=== LOGITS CALCULATION CHECK ===")
+            #if return_dict or output_attentions or output_hidden_states:
+            # Calculate logits if they're needed for output or generation
+            if (return_dict or                    # Structured output needs logits
+                not self.training or                   # Inference/generation usually needs logits
+                labels is None or                 # No loss calculation means we need logits
+                output_attentions or output_hidden_states):  # Special outputs need logits
+                print("Full logits calculation needed for return dict/output features")
+                torch.cuda.synchronize()
+                before_mem = torch.cuda.memory_allocated()
+                logits = self.lm_head(hidden_states)
+                torch.cuda.synchronize()
+                after_mem = torch.cuda.memory_allocated()
+                print(f"Memory allocated for full logits: {(after_mem - before_mem) / 1024**2:.2f} MB")
+            else:
+                print("Skipping full logits calculation - not needed")
+                # Calculate loss if labels are provided
+            # loss = None
+            # if labels is not None:
+            #     # Track computation path
+            #     print("=== LOSS CALCULATION PATH ===")
+                
+            #     # Get final hidden states
+            #     final_hidden = hidden_states[..., :-1, :].contiguous()
+            #     final_hidden_shape = final_hidden.shape
+            #     print(f"Final hidden shape before view: {final_hidden_shape}")
+            #     final_hidden = final_hidden.view(-1, self.hidden_size)
+                
+            #     shift_labels = labels[..., 1:].contiguous().view(-1)
+                
+            #     # Check which loss calculation path is taken
+            #     if hasattr(self, '_fused_loss') and self._fused_loss:
+            #         print("USING FUSED LOSS")
+            #         torch.cuda.synchronize()
+            #         before_mem = torch.cuda.memory_allocated()
+            #         loss = self.fused_loss_fn(
+            #             self.lm_head.weight,
+            #             final_hidden,
+            #             shift_labels,
+            #             #ignore_index=-100
+            #         )
+            #         torch.cuda.synchronize()
+            #         after_mem = torch.cuda.memory_allocated()
+            #         print(f"Memory change during fused loss: {(after_mem - before_mem) / 1024**2:.2f} MB")
+            #     else:
+            #         print("USING STANDARD LOSS")
+            #         torch.cuda.synchronize()
+            #         before_mem = torch.cuda.memory_allocated()
+            #         # Standard loss computation
+            #         logits = self.lm_head(final_hidden)
+            #         loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+            #         loss = loss_fct(logits, shift_labels)
+            #         torch.cuda.synchronize()
+            #         after_mem = torch.cuda.memory_allocated()
+            #         print(f"Memory change during standard loss: {(after_mem - before_mem) / 1024**2:.2f} MB")
+            
+            # # Calculate logits only if needed (check if we're actually doing this unnecessarily)
+            # print("=== LOGITS CALCULATION PATH ===")
+            # torch.cuda.synchronize()
+            # before_mem = torch.cuda.memory_allocated()
+            # if logits is None:
+            #     logits = self.lm_head(hidden_states)
+            # torch.cuda.synchronize()
+            # after_mem = torch.cuda.memory_allocated()
+            # print(f"Memory allocated for logits calculation: {(after_mem - before_mem) / 1024**2:.2f} MB")
+            
+            # Calculate loss if labels are provided
+            # loss = None
+            # if labels is not None:
+            #     # Get the final hidden states (before lm_head)
+            #     final_hidden = hidden_states[..., :-1, :].contiguous().view(-1, self.hidden_size)
+            #     shift_labels = labels[..., 1:].contiguous().view(-1)
+            #     shift_labels = shift_labels.to(final_hidden.device)
+                
+            #     # Use fused loss function
+            #     if hasattr(self, '_fused_loss') and self._fused_loss:
+            #         # For verification, print a message
+            #         print("Using LigerFusedLinearCrossEntropyLoss")
+            #         loss = self.fused_loss_fn(
+            #             self.lm_head.weight,  # Linear weights
+            #             final_hidden,         # Features before linear projection
+            #             shift_labels,         # Target labels
+            #             #ignore_index=-100     # Ignore padding
+            #         )
+            #     else:
+            #         # Fallback to standard cross entropy
+            #         logits = self.lm_head(final_hidden)
+            #         loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+            #         loss = loss_fct(logits, shift_labels)
+
+
             # Return outputs
             if return_dict:
                 return {
@@ -584,9 +692,15 @@ class CustomLlamaModel(HuggingFaceModel):
     # #
     def forward(self, batch: Dict[str, Any]) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
         """Custom forward method with diagnostic logging."""
+        from torch.profiler import profile, record_function, ProfilerActivity
+
         if isinstance(batch, Mapping):
             filtered_batch = {k: v for k, v in batch.items() if k in self.model_forward_args}
-            outputs = self.model(**filtered_batch)
+            with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                profile_memory=True, record_shapes=True) as prof:
+                with record_function("model_inference"):
+                    outputs = self.model(**filtered_batch)
+            print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))
         else:
             raise ValueError('Unexpected batch type.')
         
