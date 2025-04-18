@@ -588,7 +588,7 @@ def cleanup_dataset() -> str:
 
 def evaluate_model(checkpoint_path: str):
     """Evaluate a model using Composer's eval script"""
-    import subprocess, os
+    import subprocess, os, json
     from pathlib import Path
     
     # Get HF token for model access
@@ -600,51 +600,36 @@ def evaluate_model(checkpoint_path: str):
         logger.error(f"Scripts directory not found at {scripts_dir}")
         return
     
-    # Construct ABSOLUTE path to model directory
+    # Construct path similar to Modal version
     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
-    if "/" in str(checkpoint_path):
-        model_dir = Path(checkpoint_dir) / Path(checkpoint_path.split("/")[0])
-    else:
-        model_dir = Path(checkpoint_dir) / checkpoint_path
+    model_dir = os.path.join(checkpoint_dir, checkpoint_path)
+    save_path = os.path.join(model_dir, "evals")
     
-    # Ensure model directory exists
-    if not model_dir.exists():
-        logger.error(f"Model directory {model_dir} does not exist")
-        return
+    # Ensure output directory exists
+    os.makedirs(save_path, exist_ok=True)
     
-    # Check for tokenizer files and copy if needed
-    tokenizer_files = ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"]
-    has_tokenizer = all(os.path.exists(model_dir / file) for file in tokenizer_files)
+    # # Check if this is a PEFT model
+    # is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
     
-    if not has_tokenizer:
-        logger.info(f"Tokenizer files not found in {model_dir}, copying from base model")
-        try:
-            from transformers import AutoTokenizer
-            tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
-            tokenizer.save_pretrained(model_dir)
-            logger.info(f"Tokenizer files saved to {model_dir}")
-        except Exception as e:
-            logger.error(f"Failed to save tokenizer: {e}")
-            return
-    
-    # Create evals directory
-    save_path = model_dir / "evals"
-    save_path.mkdir(exist_ok=True)
+    # # For PEFT models, we need a different approach
+    # if is_peft:
+    #     # Check if we should skip eval for PEFT models (they require special handling)
+    #     logger.info("Detected PEFT adapter model - using simplified evaluation")
+    #     return evaluate_adapter_simple(model_dir, save_path)
     
     # Change to scripts directory
     os.chdir(scripts_dir)
     logger.info(f"Working directory: {os.getcwd()}")
     
-    # Run evaluation with ABSOLUTE paths
-    logger.info(f"\nEvaluating model at absolute path: {model_dir.absolute()}")
+    # Use the exact same command structure as your team's Modal version
+    logger.info(f"\nEvaluating model at path: {model_dir}")
     eval_cmd = [
         "composer",
         "eval/eval.py",
         "eval/yamls/hf_eval.yaml",
         "icl_tasks=eval/yamls/copa.yaml",
-        f"variables.model_name_or_path={model_dir.absolute()}",  # Use variables namespace
-        f"variables.tokenizer_name={model_dir.absolute()}",      # Use variables namespace
-        f"results_path={save_path.absolute()}",
+        f"variables.model_name_or_path={model_dir}",  # No .absolute() method
+        f"results_path={save_path}",  # No .absolute() method and no tokenizer_name
     ]
     
     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
@@ -656,165 +641,153 @@ def evaluate_model(checkpoint_path: str):
     
     logger.info("Evaluation complete!")
 
+def evaluate_adapter_simple(model_dir, save_path):
+    """Simple evaluation for adapter models"""
+    import tempfile
+    import sys
+    import subprocess
+    
+    # Create a simple script to test the adapter
+    script = f"""
+import torch
+from peft import AutoPeftModelForCausalLM
+from transformers import AutoTokenizer
+import json
+import os
+
+# Create results directory
+os.makedirs("{save_path}", exist_ok=True)
+
+# Load model and tokenizer
+print("Loading adapter model")
+model = AutoPeftModelForCausalLM.from_pretrained(
+    "{model_dir}",
+    torch_dtype=torch.float16,
+    device_map="auto"
+)
+
+tokenizer = AutoTokenizer.from_pretrained("{model_dir}")
+
+# Simple prompts to test
+test_prompts = [
+    "The capital of France is",
+    "To make chocolate chip cookies, you need"
+]
+
+results = []
+for prompt in test_prompts:
+    print(f"Testing prompt: {{prompt}}")
+    
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    
+    # Generate text
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=50,
+        do_sample=True,
+        temperature=0.7
+    )
+    
+    # Decode output
+    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    
+    results.append({{"prompt": prompt, "completion": generated_text}})
+    print(f"Output: {{generated_text}}")
+
+# Save results to the evals directory
+with open("{save_path}/simple_eval_results.json", "w") as f:
+    json.dump(results, f, indent=2)
+
+print(f"Evaluation results saved to {save_path}/simple_eval_results.json")
+"""
+    
+    # Save script to temporary file
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
+        f.write(script)
+        script_path = f.name
+    
+    try:
+        # Run evaluation
+        logger.info("Running simplified adapter evaluation")
+        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True)
+        logger.info(result.stdout)
+        if result.stderr:
+            logger.error(f"Evaluation errors: {result.stderr}")
+    finally:
+        # Clean up
+        os.unlink(script_path)
+    
+    return "Adapter evaluation complete"
 # def evaluate_model(checkpoint_path: str):
 #     """Evaluate a model using Composer's eval script"""
 #     import subprocess, os
 #     from pathlib import Path
-
-#     # Get scripts directory from ROOT_DIR
-#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
     
-#     # Check if scripts directory exists
+#     # Get HF token for model access
+#     get_hf_token()
+    
+#     # Get scripts directory
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
 #     if not os.path.exists(scripts_dir):
 #         logger.error(f"Scripts directory not found at {scripts_dir}")
 #         return
-        
+    
+#     # Construct ABSOLUTE path to model directory
+#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+#     if "/" in str(checkpoint_path):
+#         model_dir = Path(checkpoint_dir) / Path(checkpoint_path.split("/")[0])
+#     else:
+#         model_dir = Path(checkpoint_dir) / checkpoint_path
+    
+#     # Ensure model directory exists
+#     if not model_dir.exists():
+#         logger.error(f"Model directory {model_dir} does not exist")
+#         return
+    
+#     # Check for tokenizer files and copy if needed
+#     tokenizer_files = ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"]
+#     has_tokenizer = all(os.path.exists(model_dir / file) for file in tokenizer_files)
+    
+#     if not has_tokenizer:
+#         logger.info(f"Tokenizer files not found in {model_dir}, copying from base model")
+#         try:
+#             from transformers import AutoTokenizer
+#             tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
+#             tokenizer.save_pretrained(model_dir)
+#             logger.info(f"Tokenizer files saved to {model_dir}")
+#         except Exception as e:
+#             logger.error(f"Failed to save tokenizer: {e}")
+#             return
+    
+#     # Create evals directory
+#     save_path = model_dir / "evals"
+#     save_path.mkdir(exist_ok=True)
+    
 #     # Change to scripts directory
 #     os.chdir(scripts_dir)
 #     logger.info(f"Working directory: {os.getcwd()}")
     
-#     model_path = Path(f"../{checkpoint_path}")
-#     save_path = model_path / "evals"  # Create evals subfolder path
-    
-#     logger.info("\nEvaluating model...")
+#     # Run evaluation with ABSOLUTE paths
+#     logger.info(f"\nEvaluating model at absolute path: {model_dir.absolute()}")
 #     eval_cmd = [
 #         "composer",
 #         "eval/eval.py",
 #         "eval/yamls/hf_eval.yaml",
 #         "icl_tasks=eval/yamls/copa.yaml",
-#         f"variables.model_name_or_path={model_path}",
-#         f"results_path={save_path}",  # Add results_path parameter
+#         f"variables.model_name_or_path={model_dir.absolute()}",  # Use variables namespace
+#         f"variables.tokenizer_name={model_dir.absolute()}",      # Use variables namespace
+#         f"results_path={save_path.absolute()}",
 #     ]
+    
+#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
 #     result = subprocess.run(eval_cmd, capture_output=True, text=True)
+    
 #     logger.info(result.stdout)
 #     if result.stderr:
 #         logger.error(f"Evaluation errors: {result.stderr}")
     
-#     os.chdir("..")  # Return to original directory
 #     logger.info("Evaluation complete!")
 
-# def evaluate_model(checkpoint_path: str) -> None:
-#     """Evaluate the model on a benchmark"""
-#     import subprocess
-#     import os
-#     from pathlib import Path
-    
-#     get_hf_token()
-#     os.chdir("scripts")
-#     logger.info(f"Working directory: {os.getcwd()}")
-    
-#     model_path = Path(f"../{checkpoint_path}")
-#     save_path = model_path / "evals"  # Create evals subfolder path
-    
-#     logger.info("\nEvaluating model...")
-#     eval_cmd = [
-#         "composer",
-#         "eval/eval.py",
-#         "eval/yamls/hf_eval.yaml",
-#         "icl_tasks=eval/yamls/copa.yaml",
-#         f"variables.model_name_or_path={model_path}",
-#         f"results_path={save_path}",  # Add results_path parameter
-#     ]
-#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
-#     logger.info(result.stdout)
-#     if result.stderr:
-#         logger.error(f"Evaluation errors: {result.stderr}")
-    
-#     os.chdir("..")  # Return to original directory
-#     logger.info("Evaluation complete!")
-
-
-# def generate_responses(
-#     checkpoint_path: str, 
-#     prompts: Optional[Union[List[str], str]] = None
-# ) -> None:
-#     """Generate responses from the model for given prompts"""
-#     import subprocess
-#     import os
-#     from pathlib import Path
-    
-#     get_hf_token()
-#     os.chdir("scripts")
-#     logger.info(f"Working directory: {os.getcwd()}")
-    
-#     model_path = Path(f"../{checkpoint_path}")
-
-#     if prompts is None:
-#         prompts = [
-#             "The answer to life, the universe, and happiness is",
-#             "Here's a quick recipe for baking chocolate chip cookies: Start by",
-#         ]
-#     elif isinstance(prompts, str):
-#         prompts = [prompts]
-
-#     logger.info("\nGenerating test responses...")
-#     generate_cmd = [
-#         PYTHON_PATH, "inference/hf_generate.py",
-#         "--name_or_path", model_path,
-#         "--max_new_tokens", "256",
-#         "--prompts",
-#         *prompts,
-#     ]
-#     result = subprocess.run(generate_cmd, capture_output=True, text=True)
-#     logger.info(result.stdout)
-#     if result.stderr:
-#         logger.error(f"Generation errors: {result.stderr}")
-    
-#     os.chdir("..")  # Return to original directory
-#     logger.info("Generation complete!")
-
-# def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
-#     """Generate text responses from the model."""
-#     import subprocess, os
-    
-#     # Get scripts directory - need absolute path
-#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
-#     if not os.path.exists(scripts_dir):
-#         logger.error(f"Scripts directory not found at {scripts_dir}")
-#         return
-    
-#     # Change directory
-#     os.chdir(scripts_dir)
-#     logger.info(f"Working directory: {os.getcwd()}")
-    
-#     # Get absolute model path
-#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
-#     model_dir = os.path.join(checkpoint_dir, checkpoint_path) if not os.path.isabs(checkpoint_path) else checkpoint_path
-    
-#     # Check if this is a PEFT model
-#     is_peft = (os.path.exists(os.path.join(model_dir, "adapter_config.json")) and
-#               (os.path.exists(os.path.join(model_dir, "adapter_model.bin")) or 
-#                os.path.exists(os.path.join(model_dir, "adapter_model.safetensors"))))
-    
-#     if prompts is None:
-#         prompts = [
-#             "The answer to life, the universe, and happiness is",
-#             "Here's a quick recipe for baking chocolate chip cookies: Start by",
-#         ]
-#     elif isinstance(prompts, str):
-#         prompts = [prompts]
-    
-#     # Use adapter-aware generation for PEFT models
-#     logger.info(f"\nGenerating responses with {'PEFT adapter' if is_peft else 'full model'}")
-    
-#     if is_peft:
-#         generate_cmd = [
-#             sys.executable, "-m", "peft.utils.launch_peft_serve",  # Use PEFT's built-in server
-#             "--model_name_or_path", model_dir
-#         ]
-#     else:
-#         generate_cmd = [
-#             PYTHON_PATH, "inference/hf_generate.py",
-#             "--name_or_path", model_dir,
-#             "--max_new_tokens", "256",
-#             "--prompts", *prompts
-#         ]
-    
-#     result = subprocess.run(generate_cmd, capture_output=True, text=True)
-#     logger.info(result.stdout)
-#     if result.stderr:
-#         logger.error(f"Generation errors: {result.stderr}")
-#     logger.info("Generation complete!")
 
 
 def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
