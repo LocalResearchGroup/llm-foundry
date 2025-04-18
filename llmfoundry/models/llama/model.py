@@ -517,57 +517,98 @@ class CustomLlamaModel(HuggingFaceModel):
             dummy_path = "dummy_path_for_initialization"
             return cls(pretrained_model_name_or_path=dummy_path, **model_args)
     
-    def forward(self, batch: Dict[str, Any]) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
-        """Custom forward method to handle the model outputs correctly.
+    # def forward(self, batch: Dict[str, Any]) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
+    #     """Custom forward method to handle the model outputs correctly.
         
-        Args:
-            batch: Input batch containing input_ids and labels
+    #     Args:
+    #         batch: Input batch containing input_ids and labels
             
-        Returns:
-            Model outputs as a dictionary with 'loss' and 'logits' keys
-        """
-        # Filter batch to only include keys that match the model's forward arguments
+    #     Returns:
+    #         Model outputs as a dictionary with 'loss' and 'logits' keys
+    #     """
+    #     # Filter batch to only include keys that match the model's forward arguments
+    #     if isinstance(batch, Mapping):
+    #         filtered_batch = {k: v for k, v in batch.items() if k in self.model_forward_args}
+    #         # Forward pass through the model
+    #         outputs = self.model(**filtered_batch)
+    #     else:
+    #         raise ValueError(
+    #             'Unexpected batch type. Expected a dictionary with keys corresponding to the inputs to the forward function of the model',
+    #         )
+        
+    #     # Initialize loss and logits as None
+    #     loss = None
+    #     logits = None
+        
+    #     # Handle different output types
+    #     if outputs is not None:
+    #         if isinstance(outputs, tuple):
+    #             # If outputs is a tuple, first element is loss, second is logits
+    #             loss = outputs[0] if len(outputs) > 0 else None
+    #             logits = outputs[1] if len(outputs) > 1 else None
+    #         elif hasattr(outputs, 'loss') and hasattr(outputs, 'logits'):
+    #             # If outputs is an object with loss and logits attributes
+    #             loss = outputs.loss
+    #             logits = outputs.logits
+    #         else:
+    #             # If outputs is just logits
+    #             logits = outputs
+        
+    #     # Ensure we have both loss and logits
+    #     if loss is None and 'labels' in batch and logits is not None:
+    #         # Calculate loss if we have labels but no loss
+    #         loss = torch.nn.functional.cross_entropy(
+    #             logits.view(-1, logits.size(-1)),
+    #             batch['labels'].view(-1),
+    #             ignore_index=-100
+    #         )
+        
+    #     return {
+    #         'loss': loss,
+    #         'logits': logits
+    #     }
+    # #
+    def forward(self, batch: Dict[str, Any]) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
+        """Custom forward method with diagnostic logging."""
         if isinstance(batch, Mapping):
             filtered_batch = {k: v for k, v in batch.items() if k in self.model_forward_args}
-            # Forward pass through the model
             outputs = self.model(**filtered_batch)
         else:
-            raise ValueError(
-                'Unexpected batch type. Expected a dictionary with keys corresponding to the inputs to the forward function of the model',
-            )
+            raise ValueError('Unexpected batch type.')
         
-        # Initialize loss and logits as None
+        # Initialize loss and logits
         loss = None
         logits = None
         
-        # Handle different output types
-        if outputs is not None:
-            if isinstance(outputs, tuple):
-                # If outputs is a tuple, first element is loss, second is logits
-                loss = outputs[0] if len(outputs) > 0 else None
-                logits = outputs[1] if len(outputs) > 1 else None
-            elif hasattr(outputs, 'loss') and hasattr(outputs, 'logits'):
-                # If outputs is an object with loss and logits attributes
-                loss = outputs.loss
-                logits = outputs.logits
-            else:
-                # If outputs is just logits
-                logits = outputs
-        
-        # Ensure we have both loss and logits
+        # Add diagnostic logging to track which branch is used
+        # if outputs is not None:
+        #     if isinstance(outputs, tuple):
+        #         print("BRANCH: outputs is a tuple")
+        #         loss = outputs[0] if len(outputs) > 0 else None
+        #         logits = outputs[1] if len(outputs) > 1 else None
+        #     elif hasattr(outputs, 'loss') and hasattr(outputs, 'logits'):
+        #         print("BRANCH: outputs has loss and logits attributes")
+        #         loss = outputs.loss
+        #         logits = outputs.logits
+        #     else:
+        #         print("BRANCH: outputs is treated as logits")
+        #         logits = outputs
+        if len(outputs) > 1:
+            loss, logits = outputs[0], outputs[1]
+        elif len(outputs) == 1:
+            loss, logits = None, outputs[0]
+        else:
+            loss, logits = None, None
+            
         if loss is None and 'labels' in batch and logits is not None:
-            # Calculate loss if we have labels but no loss
+            print("BRANCH: calculating loss manually with cross_entropy")
             loss = torch.nn.functional.cross_entropy(
                 logits.view(-1, logits.size(-1)),
                 batch['labels'].view(-1),
                 ignore_index=-100
             )
         
-        return {
-            'loss': loss,
-            'logits': logits
-        }
-    
+        return {'loss': loss, 'logits': logits}
     def eval_forward(self, batch: Dict[str, Any], outputs: Optional[Any] = None) -> torch.Tensor:
         """Custom eval_forward method to handle evaluation properly.
         
