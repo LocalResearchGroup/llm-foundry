@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from typing import Optional, Dict, Any, Union, Tuple
+from typing import Optional, Dict, Any, Union, Tuple, Mapping
 
 import torch
 import torch.nn as nn
@@ -141,6 +141,32 @@ class CustomLlamaModel(HuggingFaceModel):
                 print("Enabling Flash Attention 2")
                 kwargs['attn_implementation'] = 'flash_attention_2'
             
+            #######
+            def inspect_config(config_obj):
+                """Print the config object structure and valid fields."""
+                print("##############START#####################")
+
+                print(f"Config class: {config_obj.__class__.__name__}")
+                print("Config attributes:")
+                
+                # Get all attributes that aren't callable or private
+                attrs = {attr: getattr(config_obj, attr) 
+                        for attr in dir(config_obj) 
+                        if not callable(getattr(config_obj, attr)) and not attr.startswith('_')}
+                
+                # Print in a readable format
+                import json
+                print(json.dumps(attrs, indent=2, default=str))
+                
+                # Show the config's to_dict method output if available
+                if hasattr(config_obj, "to_dict") and callable(config_obj.to_dict):
+                    print("\nConfig.to_dict():")
+                    print(json.dumps(config_obj.to_dict(), indent=2, default=str))
+                print("##############END#####################")
+                return config_obj
+            inspect_config(config)
+            #######
+
             # Load HF model with clean kwargs
             print("Loading weights from pretrained model")
             hf_model = HFLlamaForCausalLM.from_pretrained(
@@ -338,38 +364,114 @@ class CustomLlamaModel(HuggingFaceModel):
         model.prepare_inputs_for_generation = prepare_inputs_for_generation.__get__(model)
         
         return model
-    
+    #
     def _copy_weights_from_hf_llama(self, model, hf_model):
         """Copy weights from HuggingFace model to our custom implementation"""
+        # Keep track of uncopied weights
+        our_state_dict = {k: False for k in model.state_dict().keys()}
+        copied_count = 0
+        total_count = len(our_state_dict)
+        
         # Copy embedding weights
         if hasattr(model, 'embed_tokens') and hasattr(hf_model, 'model'):
             model.embed_tokens.weight.data.copy_(hf_model.model.embed_tokens.weight.data)
+            our_state_dict['embed_tokens.weight'] = True
+            copied_count += 1
         
         # Copy layer weights
         for i, (our_layer, hf_layer) in enumerate(zip(model.layers, hf_model.model.layers)):
             print(f"Copying weights for layer {i}/{len(model.layers)}")
             
             # Copy attention weights
-            our_layer.self_attn.q_proj.weight.data.copy_(hf_layer.self_attn.q_proj.weight.data)
-            our_layer.self_attn.k_proj.weight.data.copy_(hf_layer.self_attn.k_proj.weight.data)
-            our_layer.self_attn.v_proj.weight.data.copy_(hf_layer.self_attn.v_proj.weight.data)
-            our_layer.self_attn.o_proj.weight.data.copy_(hf_layer.self_attn.o_proj.weight.data)
+            layer_prefix = f"layers.{i}."
+            components = [
+                ('self_attn.q_proj.weight', 'self_attn.q_proj.weight'),
+                ('self_attn.k_proj.weight', 'self_attn.k_proj.weight'),
+                ('self_attn.v_proj.weight', 'self_attn.v_proj.weight'),
+                ('self_attn.o_proj.weight', 'self_attn.o_proj.weight'),
+                ('mlp.gate_proj.weight', 'mlp.gate_proj.weight'),
+                ('mlp.up_proj.weight', 'mlp.up_proj.weight'),
+                ('mlp.down_proj.weight', 'mlp.down_proj.weight'),
+                ('input_layernorm.weight', 'input_layernorm.weight'),
+                ('post_attention_layernorm.weight', 'post_attention_layernorm.weight')
+            ]
             
-            # Copy MLP weights
-            our_layer.mlp.gate_proj.weight.data.copy_(hf_layer.mlp.gate_proj.weight.data)
-            our_layer.mlp.up_proj.weight.data.copy_(hf_layer.mlp.up_proj.weight.data)
-            our_layer.mlp.down_proj.weight.data.copy_(hf_layer.mlp.down_proj.weight.data)
-            
-            # Copy layer norms
-            our_layer.input_layernorm.weight.data.copy_(hf_layer.input_layernorm.weight.data)
-            our_layer.post_attention_layernorm.weight.data.copy_(hf_layer.post_attention_layernorm.weight.data)
+            for our_name, hf_name in components:
+                full_name = layer_prefix + our_name
+                if full_name in our_state_dict:
+                    # Direct copy instead of nested attribute lookup
+                    our_path = our_name.split('.')
+                    hf_path = hf_name.split('.')
+                    
+                    # Get source attribute (from HF model)
+                    src = hf_layer
+                    for attr in hf_path[:-1]:  # All but the last part, which is 'weight'
+                        src = getattr(src, attr)
+                    src_attr = getattr(src, hf_path[-1])
+                    
+                    # Get destination attribute (our model)
+                    dst = our_layer
+                    for attr in our_path[:-1]:  # All but the last part
+                        dst = getattr(dst, attr)
+                    dst_attr = getattr(dst, our_path[-1])
+                    
+                    # Copy the data
+                    dst_attr.data.copy_(src_attr.data)
+                    our_state_dict[full_name] = True
+                    copied_count += 1
         
         # Copy final layer norm and lm head
         if hasattr(model, 'norm') and hasattr(hf_model.model, 'norm'):
             model.norm.weight.data.copy_(hf_model.model.norm.weight.data)
+            our_state_dict['norm.weight'] = True
+            copied_count += 1
         
         if hasattr(model, 'lm_head') and hasattr(hf_model, 'lm_head'):
             model.lm_head.weight.data.copy_(hf_model.lm_head.weight.data)
+            our_state_dict['lm_head.weight'] = True
+            copied_count += 1
+        
+        # Check for uninitialized weights
+        uninitialized = [k for k, v in our_state_dict.items() if not v]
+        if uninitialized:
+            print(f"WARNING: {len(uninitialized)}/{total_count} weights were not initialized:")
+            for name in sorted(uninitialized):
+                print(f"  - {name}")
+        else:
+            print(f"SUCCESS: All {total_count} weights were copied successfully!")
+            
+        print(f"Copy rate: {copied_count}/{total_count} ({copied_count/total_count:.1%})")
+    # def _copy_weights_from_hf_llama(self, model, hf_model):
+    #     """Copy weights from HuggingFace model to our custom implementation"""
+    #     # Copy embedding weights
+    #     if hasattr(model, 'embed_tokens') and hasattr(hf_model, 'model'):
+    #         model.embed_tokens.weight.data.copy_(hf_model.model.embed_tokens.weight.data)
+        
+    #     # Copy layer weights
+    #     for i, (our_layer, hf_layer) in enumerate(zip(model.layers, hf_model.model.layers)):
+    #         print(f"Copying weights for layer {i}/{len(model.layers)}")
+            
+    #         # Copy attention weights
+    #         our_layer.self_attn.q_proj.weight.data.copy_(hf_layer.self_attn.q_proj.weight.data)
+    #         our_layer.self_attn.k_proj.weight.data.copy_(hf_layer.self_attn.k_proj.weight.data)
+    #         our_layer.self_attn.v_proj.weight.data.copy_(hf_layer.self_attn.v_proj.weight.data)
+    #         our_layer.self_attn.o_proj.weight.data.copy_(hf_layer.self_attn.o_proj.weight.data)
+            
+    #         # Copy MLP weights
+    #         our_layer.mlp.gate_proj.weight.data.copy_(hf_layer.mlp.gate_proj.weight.data)
+    #         our_layer.mlp.up_proj.weight.data.copy_(hf_layer.mlp.up_proj.weight.data)
+    #         our_layer.mlp.down_proj.weight.data.copy_(hf_layer.mlp.down_proj.weight.data)
+            
+    #         # Copy layer norms
+    #         our_layer.input_layernorm.weight.data.copy_(hf_layer.input_layernorm.weight.data)
+    #         our_layer.post_attention_layernorm.weight.data.copy_(hf_layer.post_attention_layernorm.weight.data)
+        
+    #     # Copy final layer norm and lm head
+    #     if hasattr(model, 'norm') and hasattr(hf_model.model, 'norm'):
+    #         model.norm.weight.data.copy_(hf_model.model.norm.weight.data)
+        
+    #     if hasattr(model, 'lm_head') and hasattr(hf_model, 'lm_head'):
+    #         model.lm_head.weight.data.copy_(hf_model.lm_head.weight.data)
     
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path: str, **kwargs: Any) -> 'CustomLlamaModel':
@@ -424,33 +526,40 @@ class CustomLlamaModel(HuggingFaceModel):
         Returns:
             Model outputs as a dictionary with 'loss' and 'logits' keys
         """
-        # Extract input_ids and labels from batch
-        input_ids = batch['input_ids']
-        labels = batch.get('labels', None)
+        # Filter batch to only include keys that match the model's forward arguments
+        if isinstance(batch, Mapping):
+            filtered_batch = {k: v for k, v in batch.items() if k in self.model_forward_args}
+            # Forward pass through the model
+            outputs = self.model(**filtered_batch)
+        else:
+            raise ValueError(
+                'Unexpected batch type. Expected a dictionary with keys corresponding to the inputs to the forward function of the model',
+            )
         
-        # Forward pass through the model
-        outputs = self.model(input_ids=input_ids, labels=labels)
+        # Initialize loss and logits as None
+        loss = None
+        logits = None
         
         # Handle different output types
-        if isinstance(outputs, tuple):
-            # If outputs is a tuple, first element is loss, second is logits
-            loss = outputs[0] if len(outputs) > 0 else None
-            logits = outputs[1] if len(outputs) > 1 else None
-        elif hasattr(outputs, 'loss') and hasattr(outputs, 'logits'):
-            # If outputs is an object with loss and logits attributes
-            loss = outputs.loss
-            logits = outputs.logits
-        else:
-            # If outputs is just logits
-            loss = None
-            logits = outputs
+        if outputs is not None:
+            if isinstance(outputs, tuple):
+                # If outputs is a tuple, first element is loss, second is logits
+                loss = outputs[0] if len(outputs) > 0 else None
+                logits = outputs[1] if len(outputs) > 1 else None
+            elif hasattr(outputs, 'loss') and hasattr(outputs, 'logits'):
+                # If outputs is an object with loss and logits attributes
+                loss = outputs.loss
+                logits = outputs.logits
+            else:
+                # If outputs is just logits
+                logits = outputs
         
         # Ensure we have both loss and logits
-        if loss is None and labels is not None:
+        if loss is None and 'labels' in batch and logits is not None:
             # Calculate loss if we have labels but no loss
             loss = torch.nn.functional.cross_entropy(
                 logits.view(-1, logits.size(-1)),
-                labels.view(-1),
+                batch['labels'].view(-1),
                 ignore_index=-100
             )
         
@@ -458,6 +567,93 @@ class CustomLlamaModel(HuggingFaceModel):
             'loss': loss,
             'logits': logits
         }
+    
+    def eval_forward(self, batch: Dict[str, Any], outputs: Optional[Any] = None) -> torch.Tensor:
+        """Custom eval_forward method to handle evaluation properly.
+        
+        Args:
+            batch: Input batch containing input_ids and labels
+            outputs: Optional pre-computed outputs from forward pass
+            
+        Returns:
+            Model logits for evaluation
+        """
+        # If the batch mode is generate, we will generate a requested number of tokens
+        if batch.get('mode', None) == 'generate':
+            if self.tokenizer is None:
+                raise ValueError(
+                    'Generation eval cannot be used without providing a tokenizer to the model constructor.',
+                )
+
+            self.labels = batch.pop('labels')
+            generation = self.generate(
+                batch['input_ids'],
+                attention_mask=batch.get('attention_mask'),
+                synced_gpus=torch.distributed.get_world_size() > 1 if torch.distributed.is_initialized() else False,
+                **batch.get('generation_kwargs', {}),
+            )
+
+            # don't remove prefix space to sentencepiece models
+            if len(
+                self.tokenizer(' a', add_special_tokens=False)['input_ids'],
+            ) == 1:
+                return self.tokenizer.batch_decode(
+                    generation[:, batch['input_ids'].shape[1]:],
+                    skip_special_tokens=True,
+                )
+            else:
+                return [
+                    ' ' + generation for generation in
+                    self.tokenizer.batch_decode(generation[:, batch['input_ids'].shape[1]:], skip_special_tokens=True)
+                ]
+
+        # For regular evaluation or ICL task, we want to return logits
+        if self.use_logits or batch.get('mode', None) == 'icl_task':
+            # pop labels first to avoid computing loss
+            self.labels = batch.pop('labels', None)
+
+            # Handle encoder-decoder models
+            if self.config.is_encoder_decoder and 'decoder_input_ids' not in batch and self.labels is not None:
+                if hasattr(self.model, 'prepare_decoder_input_ids_from_labels'):
+                    batch['decoder_input_ids'] = self.model.prepare_decoder_input_ids_from_labels(labels=self.labels)
+                else:
+                    raise RuntimeError(
+                        'Encoder decoder models require that either decoder_input_ids is present in the batch'
+                        ' or that the model has a prepare_decoder_input_ids_from_labels method.',
+                    )
+
+            # Shift labels for causal language models
+            if self.shift_labels or batch.get('mode', None) == 'icl_task':
+                if self.labels is not None:
+                    # HF CausalLM models internally shift labels before computing loss, so we do the same here
+                    self.labels[:, :-1] = self.labels[:, 1:].clone()
+                    self.labels[:, -1] = -100
+
+            # Get outputs from forward pass if not provided
+            output = outputs if outputs is not None else self.forward(batch)
+            
+            # Extract logits from output
+            if isinstance(output, dict):
+                logits = output.get('logits')
+            elif isinstance(output, tuple):
+                # If outputs is a tuple, first element is loss, second is logits
+                logits = output[1] if len(output) > 1 else output[0]
+            else:
+                # If outputs is just logits
+                logits = output
+                
+            # If logits is None, return the original output
+            if logits is None:
+                return output
+                
+            # If we are in the single class case, then remove the classes dimension
+            if logits.ndim == 2 and logits.shape[1] == 1:
+                logits = logits.squeeze(dim=1)
+                
+            return logits
+        else:
+            # For other evaluation modes, just return the outputs
+            return outputs if outputs is not None else self.forward(batch)
     
     def loss(self, outputs: Union[torch.Tensor, Dict[str, torch.Tensor]], batch: Dict[str, Any]) -> torch.Tensor:
         """Custom loss method to extract loss from model outputs.
