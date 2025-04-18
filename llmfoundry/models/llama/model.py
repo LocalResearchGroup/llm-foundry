@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 from composer.models import HuggingFaceModel
 from transformers import LlamaForCausalLM as HFLlamaForCausalLM
+from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
 
 # Add paths to Python path - use relative paths instead of hardcoded ones
 current_dir = Path(__file__).resolve().parent.parent.parent
@@ -107,6 +108,7 @@ class CustomLlamaModel(HuggingFaceModel):
             tokenizer=tokenizer,
             use_logits=True
         )
+
     
     def _create_model(self, pretrained_model_name_or_path, **kwargs):
         """Create the model from pretrained weights or initialize from scratch."""
@@ -245,6 +247,9 @@ class CustomLlamaModel(HuggingFaceModel):
         
         # LM head
         model.lm_head = nn.Linear(model.hidden_size, model.vocab_size, bias=False)
+        # Add flag to control whether to use fused loss
+        model._fused_loss = True
+        model.fused_loss_fn = LigerFusedLinearCrossEntropyLoss(ignore_index=-100)  # Add the actual loss function
 
         # Add forward method to the model
         def forward(
@@ -311,17 +316,26 @@ class CustomLlamaModel(HuggingFaceModel):
             # Calculate loss if labels are provided
             loss = None
             if labels is not None:
-                # Shift logits and labels for causal language modeling
-                shift_logits = logits[..., :-1, :].contiguous()
-                shift_labels = labels[..., 1:].contiguous()
-                # Flatten the tokens
-                loss_fct = nn.CrossEntropyLoss()
-                shift_logits = shift_logits.view(-1, self.config.vocab_size)
-                shift_labels = shift_labels.view(-1)
-                # Enable model parallelism
-                shift_labels = shift_labels.to(shift_logits.device)
-                loss = loss_fct(shift_logits, shift_labels)
-            
+                # Get the final hidden states (before lm_head)
+                final_hidden = hidden_states[..., :-1, :].contiguous().view(-1, self.hidden_size)
+                shift_labels = labels[..., 1:].contiguous().view(-1)
+                shift_labels = shift_labels.to(final_hidden.device)
+                
+                # Use fused loss function
+                if hasattr(self, '_fused_loss') and self._fused_loss:
+                    # For verification, print a message
+                    print("Using LigerFusedLinearCrossEntropyLoss")
+                    loss = self.fused_loss_fn(
+                        self.lm_head.weight,  # Linear weights
+                        final_hidden,         # Features before linear projection
+                        shift_labels,         # Target labels
+                        #ignore_index=-100     # Ignore padding
+                    )
+                else:
+                    # Fallback to standard cross entropy
+                    logits = self.lm_head(final_hidden)
+                    loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
+                    loss = loss_fct(logits, shift_labels)
             # Return outputs
             if return_dict:
                 return {
@@ -599,7 +613,7 @@ class CustomLlamaModel(HuggingFaceModel):
             loss, logits = None, outputs[0]
         else:
             loss, logits = None, None
-            
+
         if loss is None and 'labels' in batch and logits is not None:
             print("BRANCH: calculating loss manually with cross_entropy")
             loss = torch.nn.functional.cross_entropy(
