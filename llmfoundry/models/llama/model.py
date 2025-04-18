@@ -253,7 +253,9 @@ class CustomLlamaModel(HuggingFaceModel):
         # LM head
         model.lm_head = nn.Linear(model.hidden_size, model.vocab_size, bias=False)
         # Add flag to control whether to use fused loss
-        model._fused_loss = True
+        #model._fused_loss = True
+        use_fused_loss = getattr(config, 'use_fused_loss', True)  # Default to True
+        model._fused_loss = use_fused_loss
         model.fused_loss_fn = LigerFusedLinearCrossEntropyLoss(ignore_index=-100)  # Add the actual loss function
 
         # Add forward method to the model
