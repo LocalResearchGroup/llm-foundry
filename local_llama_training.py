@@ -586,21 +586,20 @@ def cleanup_dataset() -> str:
     return str(data_path)
 
 
-def evaluate_model(checkpoint_path: str):
-    """Evaluate a model using Composer's eval script"""
-    import subprocess, os
-    import sys
+def evaluate_model(checkpoint_path: str, config=None):
+    """Evaluate a model using Composer's eval script.
+    OmegaConf's strict typing is meant to prevent configuration errors, 
+    but it can sometimes be overly restrictive when working with command-line arguments.
+    """
+    import os
+    import tempfile
+    import yaml
     
     # Get HF token for model access
     get_hf_token()
     
-    # Get scripts directory
+    # Get scripts directory and setup paths
     scripts_dir = os.path.join(ROOT_DIR, "scripts")
-    if not os.path.exists(scripts_dir):
-        logger.error(f"Scripts directory not found at {scripts_dir}")
-        return
-    
-    # Construct path similar to Modal version
     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
     save_path = os.path.join(model_dir, "evals")
@@ -615,112 +614,293 @@ def evaluate_model(checkpoint_path: str):
     os.chdir(scripts_dir)
     logger.info(f"Working directory: {os.getcwd()}")
     
-    # Create a script that runs the evaluation with proper imports and registrations
-    eval_script = f"""
-import sys
-import os
-from pathlib import Path
-import torch
-
-# Make sure our modules are importable
-sys.path.insert(0, os.path.abspath('..'))
-
-# Register our custom model correctly
-from llmfoundry.models.llama.register import register_custom_llama_model
-register_custom_llama_model()
-print("Registered CustomLlamaModel with registry")
-
-# Import evaluation function
-from llmfoundry.command_utils import eval_from_yaml
-
-# Create model-specific config
-yaml_content = '''
-variables:
-  model_name_or_path: {model_dir}
-  precision: amp_bf16
-  max_seq_len: 2048 #8192 in llama, using smaller since enough for COPA and uses less memory
-
-precision: ${{variables.precision}}
-max_seq_len: ${{variables.max_seq_len}}
-
-device_eval_batch_size: 1
-eval_subset_num_batches: 20
-icl_subset_num_batches: 20
-seed: 17
-dist_timeout: 600.0
-
-# FSDP config for model sharding
-fsdp_config:
-  sharding_strategy: FULL_SHARD
-  mixed_precision: FULL
-  forward_prefetch: True
-  limit_all_gathers: True
-
-models:
--
-  model_name: ${{variables.model_name_or_path}}
-  model:
-    name: hf_causal_lm
-    pretrained_model_name_or_path: ${{variables.model_name_or_path}}
-    init_device: mixed
-    pretrained: true'''
-
-# Add PEFT-specific settings if needed
-if {is_peft}:
-    yaml_content += '''
-    device_map: auto
-    #torch_dtype: float16
-'''
-else:
-    yaml_content += '''
-    use_flash_attention_2: true
-'''
-
-yaml_content += '''
-  tokenizer:
-    name: ${{variables.model_name_or_path}}
-    kwargs:
-      model_max_length: ${{variables.max_seq_len}}
-'''
-
-# Save YAML to a file
-yaml_path = 'custom_eval.yaml'
-with open(yaml_path, 'w') as f:
-    f.write(yaml_content)
-
-# Set up command line arguments
-args = ['icl_tasks=eval/yamls/copa.yaml', 'results_path={save_path}']
-
-# Run the evaluation
-eval_from_yaml(yaml_path, args)
-"""
-
-    # Save the script to a file
-    script_path = os.path.join(os.getcwd(), "run_eval.py")
-    with open(script_path, "w") as f:
-        f.write(eval_script)
+    # Register our custom model
+    from llmfoundry.models.llama.register import register_custom_llama_model
+    register_custom_llama_model()
+    logger.info("Registered CustomLlamaModel with registry")
     
-    # Run the script directly so registration happens in the same process
+    # Import evaluation function
+    from llmfoundry.command_utils import eval_from_yaml
+    
+    # Create a dictionary representing our YAML config
+    eval_config = {
+        "variables": {
+            "model_name_or_path": model_dir,
+            "precision": "amp_bf16",
+            "max_seq_len": 2048
+        },
+        "precision": "${variables.precision}",
+        "max_seq_len": "${variables.max_seq_len}",
+        "device_eval_batch_size": 1,
+        "eval_subset_num_batches": 20,
+        "icl_subset_num_batches": 20,
+        "seed": 17,
+        "dist_timeout": 600.0,
+        "fsdp_config": {
+            "sharding_strategy": "FULL_SHARD",
+            "mixed_precision": "FULL",
+            "forward_prefetch": True,
+            "limit_all_gathers": True
+        },
+        "models": [
+            {
+                "model_name": "${variables.model_name_or_path}",
+                "model": {
+                    "name": "hf_causal_lm",
+                    "pretrained_model_name_or_path": "${variables.model_name_or_path}",
+                    "init_device": "mixed",
+                    "pretrained": True,
+                    "use_flash_attention_2": True,
+                    **({"device_map": "auto"} if is_peft else {})  # Add device_map only for PEFT
+                },
+                "tokenizer": {
+                    "name": "${variables.model_name_or_path}",
+                    "kwargs": {
+                        "model_max_length": "${variables.max_seq_len}"
+                    }
+                }
+            }
+        ],
+        "results_path": save_path,
+        #"icl_tasks_str": "eval/yamls/copa.yaml",
+        "icl_subset_num_batches": 5,  # Limit to speed up evaluation 
+        "icl_tasks": [
+            {
+                "dataset_uri": "eval/local_data/commonsense_reasoning/copa.jsonl",
+                "num_fewshot": [5],
+                "icl_task_type": "multiple_choice",
+                "label": "label",  # Column containing correct answer index
+            },
+            {
+                "dataset_uri": "eval/local_data/language_understanding/hellaswag.jsonl",
+                "num_fewshot": [5],
+                "icl_task_type": "multiple_choice",
+                "label": "label",  # Column with correct answer
+            }   
+        ]
+    }
+    print("Dataset paths being used:")
+    for task in eval_config["icl_tasks"]:
+        print(f"- {task['dataset_uri']}")
+    # Create a temporary YAML file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_file:
+        yaml.dump(eval_config, temp_file)
+        temp_yaml_path = temp_file.name
+    
     logger.info(f"\nEvaluating model at path: {model_dir}")
-    eval_cmd = [
-        sys.executable,
-        script_path
-    ]
+    logger.info(f"Using temporary YAML: {temp_yaml_path}")
     
-    logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
-    result = subprocess.run(eval_cmd, capture_output=True, text=True)
-    
-    # Clean up script
     try:
-        os.unlink(script_path)
-    except:
-        pass
-        
-    logger.info(result.stdout)
-    if result.stderr:
-        logger.error(f"Evaluation errors: {result.stderr}")
+        # Run evaluation with no additional args - everything is in the YAML
+        eval_from_yaml(temp_yaml_path, [])
+        logger.info("Evaluation complete!")
+    except Exception as e:
+        logger.error(f"Evaluation error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+    finally:
+        # Clean up the temporary file
+        try:
+            os.unlink(temp_yaml_path)
+        except:
+            pass
+
+# def evaluate_model(checkpoint_path: str, config=None):
+#     """Evaluate a model using Composer's eval script"""
+#     import os
     
-    logger.info("Evaluation complete!")
+#     # Get HF token for model access
+#     get_hf_token()
+    
+#     # Get scripts directory and setup paths
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
+#     save_path = os.path.join(model_dir, "evals")
+    
+#     # Ensure output directory exists
+#     os.makedirs(save_path, exist_ok=True)
+    
+#     # Check if this is a PEFT model
+#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
+    
+#     # Change to scripts directory
+#     os.chdir(scripts_dir)
+#     logger.info(f"Working directory: {os.getcwd()}")
+    
+#     # Register our custom model
+#     from llmfoundry.models.llama.register import register_custom_llama_model
+#     register_custom_llama_model()
+#     logger.info("Registered CustomLlamaModel with registry")
+    
+#     # Import evaluation function
+#     from llmfoundry.command_utils import eval_from_yaml
+    
+#     # Use our custom YAML file
+#     yaml_path = "eval/yamls/custom_llama_eval.yaml"
+    
+#     # Set up command line arguments
+#     args = [
+#         f"variables.model_name_or_path={model_dir}",
+#         f"results_path={save_path}",
+#         "icl_tasks=eval/yamls/copa.yaml"
+#     ]
+    
+#     # Add PEFT-specific settings if needed
+#     args.append("models.0.model.use_flash_attention_2=true")
+#     if is_peft:
+#         args.append("models.0.model.device_map=auto")
+    
+#     # Run the evaluation
+#     logger.info(f"\nEvaluating model at path: {model_dir}")
+#     logger.info(f"Running with args: {' '.join(args)}")
+    
+#     try:
+#         eval_from_yaml(yaml_path, args)
+#         logger.info("Evaluation complete!")
+#     except Exception as e:
+#         logger.error(f"Evaluation error: {str(e)}")
+#         import traceback
+#         logger.error(traceback.format_exc())
+
+# ##### Working version below, working to 'unnest'
+# def evaluate_model(checkpoint_path: str):
+#     """Evaluate a model using Composer's eval script"""
+#     import subprocess, os
+#     import sys
+    
+#     # Get HF token for model access
+#     get_hf_token()
+    
+#     # Get scripts directory
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+#     if not os.path.exists(scripts_dir):
+#         logger.error(f"Scripts directory not found at {scripts_dir}")
+#         return
+    
+#     # Construct path similar to Modal version
+#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
+#     save_path = os.path.join(model_dir, "evals")
+    
+#     # Ensure output directory exists
+#     os.makedirs(save_path, exist_ok=True)
+    
+#     # Check if this is a PEFT model
+#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
+    
+#     # Change to scripts directory
+#     os.chdir(scripts_dir)
+#     logger.info(f"Working directory: {os.getcwd()}")
+    
+#     # Create a script that runs the evaluation with proper imports and registrations
+#     eval_script = f"""
+# import sys
+# import os
+# from pathlib import Path
+# import torch
+
+# # Make sure our modules are importable
+# sys.path.insert(0, os.path.abspath('..'))
+
+# # Register our custom model correctly
+# from llmfoundry.models.llama.register import register_custom_llama_model
+# register_custom_llama_model()
+# print("Registered CustomLlamaModel with registry")
+
+# # Import evaluation function
+# from llmfoundry.command_utils import eval_from_yaml
+
+# # Create model-specific config
+# yaml_content = '''
+# variables:
+#   model_name_or_path: {model_dir}
+#   precision: amp_bf16
+#   max_seq_len: 2048 #8192 in llama, using smaller since enough for COPA and uses less memory
+
+# precision: ${{variables.precision}}
+# max_seq_len: ${{variables.max_seq_len}}
+
+# device_eval_batch_size: 1
+# eval_subset_num_batches: 20
+# icl_subset_num_batches: 20
+# seed: 17
+# dist_timeout: 600.0
+
+# # FSDP config for model sharding
+# fsdp_config:
+#   sharding_strategy: FULL_SHARD
+#   mixed_precision: FULL
+#   forward_prefetch: True
+#   limit_all_gathers: True
+
+# models:
+# -
+#   model_name: ${{variables.model_name_or_path}}
+#   model:
+#     name: hf_causal_lm
+#     pretrained_model_name_or_path: ${{variables.model_name_or_path}}
+#     init_device: mixed
+#     pretrained: true'''
+
+# # Add PEFT-specific settings if needed
+# if {is_peft}:
+#     yaml_content += '''
+#     device_map: auto
+#     #torch_dtype: float16
+# '''
+# else:
+#     yaml_content += '''
+#     use_flash_attention_2: true
+# '''
+
+# yaml_content += '''
+#   tokenizer:
+#     name: ${{variables.model_name_or_path}}
+#     kwargs:
+#       model_max_length: ${{variables.max_seq_len}}
+# '''
+
+# # Save YAML to a file
+# yaml_path = 'custom_eval.yaml'
+# with open(yaml_path, 'w') as f:
+#     f.write(yaml_content)
+
+# # Set up command line arguments
+# args = ['icl_tasks=eval/yamls/copa.yaml', 'results_path={save_path}']
+
+# # Run the evaluation
+# eval_from_yaml(yaml_path, args)
+# """
+
+#     # Save the script to a file
+#     script_path = os.path.join(os.getcwd(), "run_eval.py")
+#     with open(script_path, "w") as f:
+#         f.write(eval_script)
+    
+#     # Run the script directly so registration happens in the same process
+#     logger.info(f"\nEvaluating model at path: {model_dir}")
+#     eval_cmd = [
+#         sys.executable,
+#         script_path
+#     ]
+    
+#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
+#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
+    
+#     # Clean up script
+#     try:
+#         os.unlink(script_path)
+#     except:
+#         pass
+        
+#     logger.info(result.stdout)
+#     if result.stderr:
+#         logger.error(f"Evaluation errors: {result.stderr}")
+    
+#     logger.info("Evaluation complete!")
+# ###### END working version
+
 
 # def evaluate_model(checkpoint_path: str):
 #     """Evaluate a model using Composer's eval script"""
