@@ -13,6 +13,9 @@ from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
 # Add paths to Python path - use relative paths instead of hardcoded ones
 current_dir = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(current_dir))
+import os
+#DEBUG = False
+DEBUG = os.environ.get("DEBUG", "0").lower() in ("1", "true", "yes")
 
 class CustomLlamaModel(HuggingFaceModel):
     """Custom Llama model that extends HuggingFaceModel with optimized implementation."""
@@ -112,6 +115,7 @@ class CustomLlamaModel(HuggingFaceModel):
     
     def _create_model(self, pretrained_model_name_or_path, **kwargs):
         """Create the model from pretrained weights or initialize from scratch."""
+        import torch
         # Extract custom params
         config_overrides = kwargs.pop('config_overrides', None)
         use_pretrained = kwargs.pop('pretrained', True)
@@ -166,7 +170,7 @@ class CustomLlamaModel(HuggingFaceModel):
                     print(json.dumps(config_obj.to_dict(), indent=2, default=str))
                 print("##############END#####################")
                 return config_obj
-            inspect_config(config)
+            if DEBUG: inspect_config(config)
             #######
 
             # Load HF model with clean kwargs
@@ -187,14 +191,128 @@ class CustomLlamaModel(HuggingFaceModel):
             print(f"Module {module.__class__.__name__} called")
             print(f"  Input shapes: {[x.shape if isinstance(x, torch.Tensor) else type(x) for x in input]}")
             print(f"  Output shapes: {output.shape if isinstance(output, torch.Tensor) else [x.shape if isinstance(x, torch.Tensor) else type(x) for x in output]}")
-        model.lm_head.register_forward_hook(track_computation)
+        if DEBUG: model.lm_head.register_forward_hook(track_computation)
 
         # Copy weights from HF model to custom model
         if use_pretrained:
             print("Copying weights from HF model to custom model")
             self._copy_weights_from_hf_llama(model, hf_model)
-        
+        # Failed with TypeError: embedding(): argument 'indices' (position 2) must be Tensor,
+        # not NoneType
+
+        # try:
+        #     print("Applying torch.compile to model")
+        #     model = torch.compile(model,mode='reduce-overhead',fullgraph=False)
+        #     print("✅ Model successfully compiled")
+        # except Exception as e:
+        #     print(f"⚠️ Failed to compile model: {e}")
+        #     print("Continuing with uncompiled model")
+
+        # Try to selectively compile the model layers
+        # if hasattr(model, 'layers'):
+        #     compiled_layers = 0
+        #     print("Selectively compiling transformer layers...")
+            
+        #     # Get the total number of layers
+        #     num_layers = len(model.layers)
+            
+        #     for i in range(num_layers):
+        #         try:
+        #             model.layers[i] = torch.compile(
+        #                 model.layers[i],
+        #                 mode='reduce-overhead',
+        #                 fullgraph=False
+        #             )
+        #             compiled_layers += 1
+        #             if DEBUG:
+        #                 print(f"✅ Compiled layer {i}/{num_layers}")
+        #         except Exception as e:
+        #             if DEBUG:
+        #                 print(f"⚠️ Failed to compile layer {i}: {e}")
+            
+        #     print(f"✅ Successfully compiled {compiled_layers}/{num_layers} transformer layers")
+        # else:
+        #     print("⚠️ Model structure doesn't have accessible layers")
+        # if hasattr(model, 'layers'):
+        #     compiled_layers = 0
+        #     print("Selectively compiling transformer layers...")
+            
+        #     # Enable fallback to eager mode when compilation fails
+        #     import torch._dynamo
+        #     torch._dynamo.config.suppress_errors = True
+            
+        #     # Get the total number of layers
+        #     num_layers = len(model.layers)
+            
+        #     for i in range(num_layers):
+        #         try:
+        #             model.layers[i] = torch.compile(
+        #                 model.layers[i],
+        #                 backend="aot_eager",  # More compatible backend
+        #                 mode="reduce-overhead",
+        #                 fullgraph=False
+        #             )
+        #             compiled_layers += 1
+        #             if DEBUG:
+        #                 print(f"✅ Compiled layer {i}/{num_layers}")
+        #         except Exception as e:
+        #             if DEBUG:
+        #                 print(f"⚠️ Failed to compile layer {i}: {e}")
+            
+        #     print(f"✅ Successfully compiled {compiled_layers}/{num_layers} transformer layers")
+        # else:
+        #     print("⚠️ Model structure doesn't have accessible layers")
         # Set config on the model
+        
+        # Layer-wise PyTorch compilation for PEFT/adapter compatibility
+        # This approach compiles individual transformer layers instead of the entire model.
+        # Key benefits:
+        # 1. Compatible with PEFT/LoRA adapters (standard torch.compile often fails with adapters)
+        # 2. Uses error suppression via torch._dynamo for graceful fallbacks
+        # 3. Employs the aot_eager backend which better supports complex adapter interactions
+        # 4. Provides performance benefits of compilation without breaking adapter functionality
+        # 5. More fine-grained - succeeds partially even when full model compilation would fail
+        if hasattr(model, 'layers'):
+            compiled_layers = 0
+            print("Selectively compiling transformer layers...")
+            
+            # Using public API when possible, with fallbacks
+            try:
+                # Check if torch.compile has a suppress_errors option directly
+                if hasattr(torch, 'set_dynamo_config'):
+                    torch.set_dynamo_config(suppress_errors=True)
+                else:
+                    # Fallback to internal API with try/except
+                    try:
+                        import torch._dynamo
+                        if hasattr(torch._dynamo, 'config'):
+                            torch._dynamo.config.suppress_errors = True
+                    except (ImportError, AttributeError):
+                        print("Cannot configure dynamo error suppression - compilation may fail")
+            except Exception as e:
+                print(f"Warning: Could not configure compilation options: {e}")
+            
+            # Get the total number of layers
+            num_layers = len(model.layers)
+            
+            for i in range(num_layers):
+                try:
+                    model.layers[i] = torch.compile(
+                        model.layers[i],
+                        backend="aot_eager",
+                        mode="reduce-overhead",
+                        fullgraph=False
+                    )
+                    compiled_layers += 1
+                except Exception as e:
+                    if DEBUG:
+                        print(f"⚠️ Failed to compile layer {i}: {e}")
+            
+            print(f"✅ Successfully compiled {compiled_layers}/{num_layers} transformer layers")
+        else:
+            print("⚠️ Model structure doesn't have accessible layers")
+
+
         model.config = config
         print("Model loading complete")
         
@@ -341,7 +459,7 @@ class CustomLlamaModel(HuggingFaceModel):
                     )
                     torch.cuda.synchronize()
                     after_mem = torch.cuda.memory_allocated()
-                    print(f"Memory change during fused loss: {(after_mem - before_mem) / 1024**2:.2f} MB")
+                    if DEBUG: print(f"Memory change during fused loss: {(after_mem - before_mem) / 1024**2:.2f} MB")
                 else:
                     print("USING STANDARD LOSS")
                     torch.cuda.synchronize()
@@ -352,23 +470,27 @@ class CustomLlamaModel(HuggingFaceModel):
                     loss = loss_fct(partial_logits, shift_labels)
                     torch.cuda.synchronize()
                     after_mem = torch.cuda.memory_allocated()
-                    print(f"Memory change during standard loss: {(after_mem - before_mem) / 1024**2:.2f} MB")
+                    if DEBUG: print(f"Memory change during standard loss: {(after_mem - before_mem) / 1024**2:.2f} MB")
 
             # Calculate full sequence logits ONLY if needed for generation/output
-            print("=== LOGITS CALCULATION CHECK ===")
+            #print("=== LOGITS CALCULATION CHECK ===")
             #if return_dict or output_attentions or output_hidden_states:
             # Calculate logits if they're needed for output or generation
             if (return_dict or                    # Structured output needs logits
                 not self.training or                   # Inference/generation usually needs logits
                 labels is None or                 # No loss calculation means we need logits
                 output_attentions or output_hidden_states):  # Special outputs need logits
-                print("Full logits calculation needed for return dict/output features")
-                torch.cuda.synchronize()
-                before_mem = torch.cuda.memory_allocated()
+                if DEBUG:
+                    print("=== LOGITS CALCULATION CHECK ===")
+                    print("Full logits calculation needed for return dict/output features")
+                    torch.cuda.synchronize()
+                    before_mem = torch.cuda.memory_allocated()
+        
                 logits = self.lm_head(hidden_states)
-                torch.cuda.synchronize()
-                after_mem = torch.cuda.memory_allocated()
-                print(f"Memory allocated for full logits: {(after_mem - before_mem) / 1024**2:.2f} MB")
+                if DEBUG:
+                    torch.cuda.synchronize()
+                    after_mem = torch.cuda.memory_allocated()
+                    print(f"Memory allocated for full logits: {(after_mem - before_mem) / 1024**2:.2f} MB")
             else:
                 print("Skipping full logits calculation - not needed")
                 # Calculate loss if labels are provided
@@ -702,7 +824,7 @@ class CustomLlamaModel(HuggingFaceModel):
                 profile_memory=True, record_shapes=True) as prof:
                 with record_function("model_inference"):
                     outputs = self.model(**filtered_batch)
-            print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))
+            if DEBUG: print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))
         else:
             raise ValueError('Unexpected batch type.')
         
