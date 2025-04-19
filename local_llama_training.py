@@ -638,12 +638,12 @@ yaml_content = '''
 variables:
   model_name_or_path: {model_dir}
   precision: amp_bf16
-  max_seq_len: 8192
+  max_seq_len: 2048 #8192 in llama, using smaller since enough for COPA and uses less memory
 
 precision: ${{variables.precision}}
 max_seq_len: ${{variables.max_seq_len}}
 
-device_eval_batch_size: 4
+device_eval_batch_size: 1
 eval_subset_num_batches: 20
 icl_subset_num_batches: 20
 seed: 17
