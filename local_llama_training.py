@@ -588,8 +588,8 @@ def cleanup_dataset() -> str:
 
 def evaluate_model(checkpoint_path: str):
     """Evaluate a model using Composer's eval script"""
-    import subprocess, os, json
-    from pathlib import Path
+    import subprocess, os
+    import sys
     
     # Get HF token for model access
     get_hf_token()
@@ -608,38 +608,520 @@ def evaluate_model(checkpoint_path: str):
     # Ensure output directory exists
     os.makedirs(save_path, exist_ok=True)
     
-    # # Check if this is a PEFT model
-    # is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
-    
-    # # For PEFT models, we need a different approach
-    # if is_peft:
-    #     # Check if we should skip eval for PEFT models (they require special handling)
-    #     logger.info("Detected PEFT adapter model - using simplified evaluation")
-    #     return evaluate_adapter_simple(model_dir, save_path)
+    # Check if this is a PEFT model
+    is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
     
     # Change to scripts directory
     os.chdir(scripts_dir)
     logger.info(f"Working directory: {os.getcwd()}")
     
-    # Use the exact same command structure as your team's Modal version
+    # Create a script that runs the evaluation with proper imports and registrations
+    eval_script = f"""
+import sys
+import os
+from pathlib import Path
+import torch
+
+# Make sure our modules are importable
+sys.path.insert(0, os.path.abspath('..'))
+
+# Register our custom model correctly
+from llmfoundry.models.llama.register import register_custom_llama_model
+register_custom_llama_model()
+print("Registered CustomLlamaModel with registry")
+
+# Import evaluation function
+from llmfoundry.command_utils import eval_from_yaml
+
+# Create model-specific config
+yaml_content = '''
+variables:
+  model_name_or_path: {model_dir}
+  precision: amp_bf16
+  max_seq_len: 8192
+
+precision: ${{variables.precision}}
+max_seq_len: ${{variables.max_seq_len}}
+
+device_eval_batch_size: 4
+eval_subset_num_batches: 20
+icl_subset_num_batches: 20
+seed: 17
+dist_timeout: 600.0
+
+# FSDP config for model sharding
+fsdp_config:
+  sharding_strategy: FULL_SHARD
+  mixed_precision: FULL
+  forward_prefetch: True
+  limit_all_gathers: True
+
+models:
+-
+  model_name: ${{variables.model_name_or_path}}
+  model:
+    name: hf_causal_lm
+    pretrained_model_name_or_path: ${{variables.model_name_or_path}}
+    init_device: mixed
+    pretrained: true'''
+
+# Add PEFT-specific settings if needed
+if {is_peft}:
+    yaml_content += '''
+    device_map: auto
+    #torch_dtype: float16
+'''
+else:
+    yaml_content += '''
+    use_flash_attention_2: true
+'''
+
+yaml_content += '''
+  tokenizer:
+    name: ${{variables.model_name_or_path}}
+    kwargs:
+      model_max_length: ${{variables.max_seq_len}}
+'''
+
+# Save YAML to a file
+yaml_path = 'custom_eval.yaml'
+with open(yaml_path, 'w') as f:
+    f.write(yaml_content)
+
+# Set up command line arguments
+args = ['icl_tasks=eval/yamls/copa.yaml', 'results_path={save_path}']
+
+# Run the evaluation
+eval_from_yaml(yaml_path, args)
+"""
+
+    # Save the script to a file
+    script_path = os.path.join(os.getcwd(), "run_eval.py")
+    with open(script_path, "w") as f:
+        f.write(eval_script)
+    
+    # Run the script directly so registration happens in the same process
     logger.info(f"\nEvaluating model at path: {model_dir}")
     eval_cmd = [
-        "composer",
-        "eval/eval.py",
-        "eval/yamls/hf_eval.yaml",
-        "icl_tasks=eval/yamls/copa.yaml",
-        f"variables.model_name_or_path={model_dir}",  # No .absolute() method
-        f"results_path={save_path}",  # No .absolute() method and no tokenizer_name
+        sys.executable,
+        script_path
     ]
     
     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
     result = subprocess.run(eval_cmd, capture_output=True, text=True)
     
+    # Clean up script
+    try:
+        os.unlink(script_path)
+    except:
+        pass
+        
     logger.info(result.stdout)
     if result.stderr:
         logger.error(f"Evaluation errors: {result.stderr}")
     
     logger.info("Evaluation complete!")
+
+# def evaluate_model(checkpoint_path: str):
+#     """Evaluate a model using Composer's eval script"""
+#     import subprocess, os, tempfile
+    
+#     # Get HF token for model access
+#     get_hf_token()
+    
+#     # Get scripts directory
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+#     if not os.path.exists(scripts_dir):
+#         logger.error(f"Scripts directory not found at {scripts_dir}")
+#         return
+    
+#     # Construct path similar to Modal version
+#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
+#     save_path = os.path.join(model_dir, "evals")
+    
+#     # Ensure output directory exists
+#     os.makedirs(save_path, exist_ok=True)
+    
+#     # Check if this is a PEFT model
+#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
+    
+#     # Change to scripts directory
+#     os.chdir(scripts_dir)
+#     logger.info(f"Working directory: {os.getcwd()}")
+
+#     # Register the custom model
+#     from llmfoundry.models.llama.register import register_custom_llama_model
+#     register_custom_llama_model()
+#     logger.info("Registered CustomLlamaModel with registry")
+
+#     # Create a custom YAML that uses your model class
+#     custom_yaml_content = f"""
+# variables:
+#   model_name_or_path: {model_dir}
+#   precision: amp_bf16
+#   max_seq_len: 8192
+
+# precision: ${{variables.precision}}
+# max_seq_len: ${{variables.max_seq_len}}
+
+# device_eval_batch_size: 4
+# eval_subset_num_batches: 20
+# icl_subset_num_batches: 20
+# seed: 17
+# dist_timeout: 600.0
+
+# # FSDP config for model sharding - required for init_device: mixed
+# fsdp_config:
+#   sharding_strategy: FULL_SHARD
+#   mixed_precision: FULL
+#   forward_prefetch: True
+#   limit_all_gathers: True
+
+# models:
+# -
+#   model_name: ${{variables.model_name_or_path}}
+#   model:
+#     name: hf_causal_lm  # This matches the registry name you're using
+#     pretrained_model_name_or_path: ${{variables.model_name_or_path}}
+#     init_device: mixed
+#     pretrained: true
+#     {"use_flash_attention_2: true" if not is_peft else ""}
+#     {"device_map: auto" if is_peft else ""}
+#     {"torch_dtype: float16" if is_peft else ""}
+#   tokenizer:
+#     name: ${{variables.model_name_or_path}}
+#     kwargs:
+#       model_max_length: ${{variables.max_seq_len}}
+# """
+
+#     # Write to temporary file
+#     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_yaml:
+#         temp_yaml.write(custom_yaml_content)
+#         yaml_path = temp_yaml.name
+#         logger.info(f"Created custom YAML for evaluation: {yaml_path}")
+    
+#     # Use the exact same command structure as your team's Modal version
+#     logger.info(f"\nEvaluating model at path: {model_dir}")
+#     eval_cmd = [
+#         "composer",
+#         "eval/eval.py", 
+#         yaml_path,
+#         "icl_tasks=eval/yamls/copa.yaml",
+#         f"results_path={save_path}"
+#     ]
+    
+#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
+#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
+    
+#     # Clean up temporary file
+#     try:
+#         os.unlink(yaml_path)
+#     except:
+#         pass
+    
+#     logger.info(result.stdout)
+#     if result.stderr:
+#         logger.error(f"Evaluation errors: {result.stderr}")
+    
+#     logger.info("Evaluation complete!")
+
+
+# def evaluate_model(checkpoint_path: str):
+#     """Evaluate a model using Composer's eval script"""
+#     import subprocess, os, tempfile, yaml
+    
+#     # Get HF token for model access
+#     get_hf_token()
+    
+#     # Get scripts directory
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+#     if not os.path.exists(scripts_dir):
+#         logger.error(f"Scripts directory not found at {scripts_dir}")
+#         return
+    
+#     # Construct path similar to Modal version
+#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
+#     save_path = os.path.join(model_dir, "evals")
+    
+#     # Ensure output directory exists
+#     os.makedirs(save_path, exist_ok=True)
+    
+#     # Check if this is a PEFT model
+#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
+    
+#     # Change to scripts directory
+#     os.chdir(scripts_dir)
+#     logger.info(f"Working directory: {os.getcwd()}")
+    
+#     # For PEFT models, create a temporary custom YAML
+#     temp_yaml_path = None
+#     yaml_path = "eval/yamls/hf_eval.yaml"
+    
+#     if is_peft:
+#         logger.info("Detected PEFT model - creating specialized evaluation YAML")
+#         try:
+#             # Load the original YAML
+#             with open(yaml_path, "r") as f:
+#                 config = yaml.safe_load(f)
+            
+#             # Modify the model configuration for PEFT
+#             if 'models' in config and len(config['models']) > 0:
+#                 config['models'][0]['model']['device_map'] = 'auto'
+#                 config['models'][0]['model']['torch_dtype'] = 'float16'
+                
+#                 # Write to temporary file
+#                 temp_yaml_path = tempfile.mktemp(suffix='.yaml')
+#                 with open(temp_yaml_path, 'w') as f:
+#                     yaml.dump(config, f)
+                    
+#                 yaml_path = temp_yaml_path
+#                 logger.info(f"Created temporary YAML for PEFT adapter: {yaml_path}")
+#         except Exception as e:
+#             logger.error(f"Error creating temporary YAML: {e}")
+#             # Fall back to original YAML
+#             yaml_path = "eval/yamls/hf_eval.yaml"
+    
+#     # Use the exact same command structure as your team's Modal version
+#     logger.info(f"\nEvaluating model at path: {model_dir}")
+#     eval_cmd = [
+#         "composer",
+#         "eval/eval.py", 
+#         yaml_path,
+#         "icl_tasks=eval/yamls/copa.yaml",
+#         f"variables.model_name_or_path={model_dir}",
+#         f"results_path={save_path}"
+#     ]
+    
+#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
+#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
+    
+#     # Clean up temporary file if created
+#     if temp_yaml_path and os.path.exists(temp_yaml_path):
+#         try:
+#             os.unlink(temp_yaml_path)
+#         except:
+#             pass
+    
+#     logger.info(result.stdout)
+#     if result.stderr:
+#         logger.error(f"Evaluation errors: {result.stderr}")
+    
+#     logger.info("Evaluation complete!")
+
+
+### RETRY FIXING MIXED
+# def evaluate_model(checkpoint_path: str):
+#     """Evaluate a model using Composer's eval script"""
+#     import subprocess, os, tempfile
+    
+#     # Get HF token for model access
+#     get_hf_token()
+    
+#     # Get scripts directory
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+#     if not os.path.exists(scripts_dir):
+#         logger.error(f"Scripts directory not found at {scripts_dir}")
+#         return
+    
+#     # Construct path similar to Modal version
+#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
+#     save_path = os.path.join(model_dir, "evals")
+    
+#     # Ensure output directory exists
+#     os.makedirs(save_path, exist_ok=True)
+    
+#     # Check if this is a PEFT model
+#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
+    
+#     # Change to scripts directory
+#     os.chdir(scripts_dir)
+#     logger.info(f"Working directory: {os.getcwd()}")
+    
+#     # Choose the right YAML file based on model type
+#     if is_peft:
+#         # Create a temporary YAML file with PEFT-specific settings
+#         peft_yaml_content = f"""
+# variables:
+#   model_name_or_path: {model_dir}
+#   precision: amp_bf16
+#   max_seq_len: 8192
+
+# precision: ${{variables.precision}}
+# max_seq_len: ${{variables.max_seq_len}}
+
+# # Required evaluation parameters
+# device_eval_batch_size: 4
+# eval_subset_num_batches: 20
+# icl_subset_num_batches: 20
+# seed: 17
+# dist_timeout: 600.0
+
+# models:
+# -
+#   model_name: ${{variables.model_name_or_path}}
+#   model:
+#     name: hf_causal_lm
+#     pretrained_model_name_or_path: ${{variables.model_name_or_path}}
+#     init_device: mixed
+#     pretrained: true
+#     device_map: auto
+#     torch_dtype: float16
+#   tokenizer:
+#     name: ${{variables.model_name_or_path}}
+#     kwargs:
+#       model_max_length: ${{variables.max_seq_len}}
+# """
+#         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_yaml:
+#             temp_yaml.write(peft_yaml_content)
+#             eval_yaml = temp_yaml.name
+#             logger.info(f"Created temporary YAML for PEFT model: {eval_yaml}")
+#     else:
+#         # Use standard YAML for non-PEFT models
+#         eval_yaml = "eval/yamls/hf_eval.yaml"
+    
+#     # Use the exact same command structure as your team's Modal version
+#     logger.info(f"\nEvaluating model at path: {model_dir}")
+#     eval_cmd = [
+#         "composer",
+#         "eval/eval.py",
+#         eval_yaml,
+#         "icl_tasks=eval/yamls/copa.yaml",
+#         f"results_path={save_path}"
+#     ]
+    
+#     # Add model path only if not using PEFT YAML (where it's already included)
+#     if not is_peft:
+#         eval_cmd.append(f"variables.model_name_or_path={model_dir}")
+    
+#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
+#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
+    
+#     logger.info(result.stdout)
+#     if result.stderr:
+#         logger.error(f"Evaluation errors: {result.stderr}")
+    
+#     # Clean up temp file if we created one
+#     if is_peft and os.path.exists(eval_yaml):
+#         os.unlink(eval_yaml)
+        
+#     logger.info("Evaluation complete!")
+
+    
+# def evaluate_model(checkpoint_path: str):
+#     """Evaluate a model using Composer's eval script"""
+#     import subprocess, os
+    
+#     # Get HF token for model access
+#     get_hf_token()
+    
+#     # Get scripts directory
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+#     if not os.path.exists(scripts_dir):
+#         logger.error(f"Scripts directory not found at {scripts_dir}")
+#         return
+    
+#     # Construct path similar to Modal version
+#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
+#     save_path = os.path.join(model_dir, "evals")
+    
+#     # Ensure output directory exists
+#     os.makedirs(save_path, exist_ok=True)
+    
+#     # Check if this is a PEFT model
+#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
+    
+#     # Change to scripts directory
+#     os.chdir(scripts_dir)
+#     logger.info(f"Working directory: {os.getcwd()}")
+    
+#     # Use the exact same command structure as your team's Modal version
+#     logger.info(f"\nEvaluating model at path: {model_dir}")
+#     eval_cmd = [
+#         "composer",
+#         "eval/eval.py",
+#         "eval/yamls/hf_eval.yaml",
+#         "icl_tasks=eval/yamls/copa.yaml",
+#         f"variables.model_name_or_path={model_dir}",
+#         f"results_path={save_path}"
+#     ]
+    
+#     # If this is a PEFT model, add specific config overrides
+#     if is_peft:
+#         eval_cmd.extend([
+#             # Set device mapping for adapter loading
+#             "models.0.model.device_map=auto",
+#             # Load in float16 to conserve memory
+#             "models.0.model.torch_dtype=float16"   
+#         ])
+    
+#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
+#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
+    
+#     logger.info(result.stdout)
+#     if result.stderr:
+#         logger.error(f"Evaluation errors: {result.stderr}")
+    
+#     logger.info("Evaluation complete!")
+
+# def evaluate_model(checkpoint_path: str):
+#     """Evaluate a model using Composer's eval script"""
+#     import subprocess, os, json
+#     from pathlib import Path
+    
+#     # Get HF token for model access
+#     get_hf_token()
+    
+#     # Get scripts directory
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+#     if not os.path.exists(scripts_dir):
+#         logger.error(f"Scripts directory not found at {scripts_dir}")
+#         return
+    
+#     # Construct path similar to Modal version
+#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
+#     save_path = os.path.join(model_dir, "evals")
+    
+#     # Ensure output directory exists
+#     os.makedirs(save_path, exist_ok=True)
+    
+#     # # Check if this is a PEFT model
+#     # is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
+    
+#     # # For PEFT models, we need a different approach
+#     # if is_peft:
+#     #     # Check if we should skip eval for PEFT models (they require special handling)
+#     #     logger.info("Detected PEFT adapter model - using simplified evaluation")
+#     #     return evaluate_adapter_simple(model_dir, save_path)
+    
+#     # Change to scripts directory
+#     os.chdir(scripts_dir)
+#     logger.info(f"Working directory: {os.getcwd()}")
+    
+#     # Use the exact same command structure as your team's Modal version
+#     logger.info(f"\nEvaluating model at path: {model_dir}")
+#     eval_cmd = [
+#         "composer",
+#         "eval/eval.py",
+#         "eval/yamls/hf_eval.yaml",
+#         "icl_tasks=eval/yamls/copa.yaml",
+#         f"variables.model_name_or_path={model_dir}",  # No .absolute() method
+#         f"results_path={save_path}",  # No .absolute() method and no tokenizer_name
+#         f"variables.merge_lora={str(IS_PEFT).lower()}" # Responsible for adapter merging
+#     ]
+    
+#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
+#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
+    
+#     logger.info(result.stdout)
+#     if result.stderr:
+#         logger.error(f"Evaluation errors: {result.stderr}")
+    
+#     logger.info("Evaluation complete!")
 
 def evaluate_adapter_simple(model_dir, save_path):
     """Simple evaluation for adapter models"""
