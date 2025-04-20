@@ -645,6 +645,40 @@ def evaluate_model(checkpoint_path: str, config=None):
     
     return result
 
+def restore_safetensors_after_eval(model_dir):
+    """Restore safetensor files to their original state after evaluation"""
+    import os
+    import json
+    
+    # Paths for the adapter files
+    backup_path = os.path.join(model_dir, "adapter_model.safetensors.bak")
+    adapter_path = os.path.join(model_dir, "adapter_model.safetensors")
+    config_path = os.path.join(model_dir, "adapter_config.json")
+    
+    # Keep bin file, but restore safetensors
+    if os.path.exists(backup_path):
+        os.rename(backup_path, adapter_path)
+        logger.info(f"Restored safetensors file from backup")
+        
+        # Update config to use safetensors again
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            
+            # Update weight map
+            weight_map = config.get("weight_map", {})
+            for key in weight_map:
+                if "bin" in weight_map[key]:
+                    weight_map[key] = weight_map[key].replace("bin", "safetensors")
+            
+            # Also update model_type if needed
+            if "bin" in config.get("model_type", ""):
+                config["model_type"] = config["model_type"].replace("bin", "safetensors")
+            
+            with open(config_path, 'w') as f:
+                json.dump(config, f, indent=2)
+            
+            logger.info(f"Updated adapter config to use safetensors format")
 # def evaluate_model(checkpoint_path: str, config=None):
 #     """Evaluate a model using Composer's eval script.
 #     OmegaConf's strict typing is meant to prevent configuration errors, 
@@ -1281,11 +1315,16 @@ def main():
     evaluate_model(model_name)
     time.sleep(1)
 
+    # Restore safetensors files after evaluation
+    checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+    model_dir = os.path.join(checkpoint_dir, model_name)
+    restore_safetensors_after_eval(model_dir)  # Add this line
+    time.sleep(1)
     # push_folder_to_hf(Path(model_name)) 
     # time.sleep(1)
 
-    # if not PEFT_TESTING: generate_responses(model_name)
-    # else: verify_peft_adapter(model_full_path, is_peft=True)
+    if not PEFT_TESTING: generate_responses(model_name)
+    else: verify_peft_adapter(model_full_path, is_peft=True)
     
     logger.info("Training pipeline completed successfully!")
 
