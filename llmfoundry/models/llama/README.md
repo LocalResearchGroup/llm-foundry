@@ -1,4 +1,4 @@
-# Local LLM Training Script
+# Training Custom Llama Models
 
 This is a local version of the LLM training script that runs directly on your GPUs without using Modal. It's designed to work with the LLM Foundry framework for training and fine-tuning language models.
 
