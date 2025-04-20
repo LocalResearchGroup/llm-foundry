@@ -10,7 +10,7 @@ from composer.loggers import (
     WandBLogger,
 )
 
-from llmfoundry.loggers.composer_aim_logger import AimLogger
+#from llmfoundry.loggers.composer_aim_logger import AimLogger
 
 from llmfoundry.registry import loggers
 
@@ -23,5 +23,5 @@ loggers.register(
 )  # for backwards compatibility
 loggers.register('mlflow', func=MLFlowLogger)
 loggers.register('mosaicml', func=MosaicMLLogger)
-loggers.register('aim', func=AimLogger)
+#loggers.register('aim', func=AimLogger)
 loggers.register('file_logger', func=FileLogger)
