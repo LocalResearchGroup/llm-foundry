@@ -4,20 +4,7 @@ This is a local version of the LLM training script that runs directly on your GP
 
 ## Prerequisites
 
-1. **Python Environment**: Make sure you have Python 3.8+ installed with the necessary dependencies:
-   - PyTorch
-   - Transformers
-   - Composer (MosaicML's training framework)
-   - Flash Attention (optional, but recommended for performance)
-   - HuggingFace Hub libraries
-
-2. **GPU Requirements**: 
-   - NVIDIA GPUs with CUDA support
-   - Sufficient VRAM for the model you're training (at least 16GB recommended for Llama models)
-
-3. **HuggingFace Access**:
-   - A HuggingFace account with access to the models you want to use
-   - HuggingFace token set in environment variables (HF_TOKEN, HUGGINGFACE_TOKEN, or HUGGINGFACE_HUB_TOKEN)
+**Follow the steps to install llmfoundry**
 
 ## Setup
 
@@ -39,40 +26,10 @@ This is a local version of the LLM training script that runs directly on your GP
 
 ## Usage
 
-1. **Run the full training pipeline**:
+**Run the full training pipeline**:
    ```bash
    python local_llama_training.py
    ```
-
-2. **Run individual functions**:
-   You can also import and use individual functions from the script:
-   ```python
-   from local_llama_training import train_model, evaluate_model, generate_responses
-   
-   # Train a model
-   run_ts = "20230101_120000"
-   model_path = train_model(run_ts, yaml_path="scripts/train/yamls/llama/llama3-1b-lora2.yaml")
-   
-   # Evaluate the model
-   evaluate_model(model_path)
-   
-   # Generate responses
-   generate_responses(model_path, prompts=["Tell me a joke about programming"])
-   ```
-
-## Configuration
-
-The script uses several constants at the top that you can modify:
-
-- `PYTHON_PATH`: Path to your Python interpreter
-- `TRAIN_DURATION`: How long to train for (in batches)
-- `EVAL_INTERVAL`: How often to evaluate the model
-- `SAVE_INTERVAL`: How often to save checkpoints
-- `USE_CUSTOM_MODEL`: Whether to use the custom LlamaForCausalLM implementation
-- `DATASET_BASE_PATH`: Where to store datasets
-- `MODEL_CHECKPOINT_PATH`: Where to store model checkpoints
-- `TRAIN_YAML`: Path to the training configuration YAML file
-- `OUTPUT_PRECISION`: Precision for model outputs (bf16, fp16, etc.)
 
 ## Directory Structure
 
@@ -88,60 +45,34 @@ The script creates the following directory structure:
 └── local_llama_training.py  # This script
 ```
 
+
 ## Customizing Training
 
+### YAML file
 To customize the training process, modify the YAML configuration file specified by `TRAIN_YAML`. The default is `scripts/train/yamls/llama/llama3-1b-lora2.yaml`.
 
-Key parameters you might want to adjust:
-- Model size and architecture
-- Learning rate and optimizer settings
-- Batch size and training duration
-- LoRA adapter configuration
+### train_with_custom_llama.py
 
-## Troubleshooting
+train_with_custom_llama.py serves as the entry point for training with our custom LLaMA implementation. It handles the configuration loading from YAML files, registers our CustomLlamaModel with the model registry, and orchestrates the training process. The script manages critical setup tasks including HuggingFace authentication, dataset path configuration, and preparing model parameters before delegating to the training framework. It can be customized through command-line arguments or environment variables, making it flexible for different training scenarios.
 
-1. **Out of Memory Errors**:
-   - Reduce batch size in the YAML configuration
-   - Use gradient checkpointing
-   - Try a smaller model
+### Weight Loading in CustomLlamaModel
 
-2. **Missing Dependencies**:
-   - Make sure all required packages are installed
-   - Check for version conflicts
-
-3. **HuggingFace Access Issues**:
-   - Verify your token is correctly set in environment variables
-   - Check that you have access to the model you're trying to use
-
-## License
-
-This script is provided under the same license as the LLM Foundry project. 
-
-Adapter pattern with inner and outer forward layers:
-Yes, exactly right! This is a classic example of the Adapter pattern in software design:
-
-### Inner Model (Core Computation)
-- Created in _initialize_model_from_config as a basic nn.Module()
-
-- Has its own  forward method defined and bound using forward.__get__(model)
-
-- Contains the actual transformer architecture (embeddings, attention, MLP, etc.)
-- Performs the raw computation of the language model
-- Has weights copied from a HuggingFace model via _copy_weights_from_hf_llama
-
-### Outer Model (Adapter/Wrapper)
-- The CustomLlamaModel class that inherits from HuggingFaceModel
+The  _copy_weights_from_hf_llama method handles weight transfer from standard Hugging Face models to our custom implementation. It first loads a Hugging Face model via from_pretrained() to serve as a source, then systematically copies weights component by component including embeddings, transformer layers, normalization layers and output head. The method explicitly tracks copy progress, reporting both successful transfers and any uninitialized weights to ensure model integrity. This direct weight mapping approach enables our custom implementation to precisely match pretrained model behavior while gaining the performance benefits of our optimized architecture.
 
 
-- Acts as an interface between your custom implementation and the training framework
-- Its forward method:
-  - Filters inputs to match what the inner model expects
-  - Calls the inner model's forward
-  - Standardizes outputs into a consistent format
-- Adds framework-specific functionality like eval_forward and loss methods
+### CustomLlamaModel Initialization and Adapter Pattern
 
-This two-layer approach gives you the best of both worlds:
+CustomLlamaModel follows a two-layer architecture that separates model implementation from framework integration. The outer class inherits from HuggingFaceModel, managing compatibility with the training framework, while the inner model (created via _initialize_model_from_config) implements the actual transformer architecture with optimized components. During initialization, the class loads a pretrained model, creates a corresponding optimized implementation, then systematically transfers weights via _copy_weights_from_hf_llama. This adapter pattern allows for performance optimizations in the inner model while maintaining full compatibility with HuggingFace's ecosystem, and includes built-in support for PEFT adapters that can be attached to the initialized model.
 
-1. **Full control over the model architecture** - You can optimize or modify the inner implementation
-2. **Framework compatibility** - The outer layer ensures it works with MosaicML's Composer
-3. **PEFT support** - The adapter pattern makes it easy to apply PEFT techniques like LoRA
+
+### Dual Forward Methods in the Adapter Pattern
+
+The CustomLlamaModel implements two distinct forward methods that operate in tandem. The inner model's forward method (bound to the model instance using forward.__get__) contains the raw computational logic for the transformer architecture, handling token embeddings, attention operations, and feed-forward networks. The outer CustomLlamaModel's forward method serves as an adapter interface, filtering input arguments to match inner model requirements, managing state tracking, and implementing training-specific logic like loss calculation via the fused loss function. This separation allows the inner model to remain focused on efficient computation while the outer wrapper handles framework integration, creating a clean division of responsibilities that simplifies maintenance and optimization.
+
+### Model Registration and Framework Integration
+
+The register_custom_llama_model() function in register.py integrates our custom model implementation with the training framework. It adds the CustomLlamaModel class to the framework's model registry under the key "hf_causal_lm", allowing our model to be used wherever HuggingFace causal language models are supported. This registration happens explicitly in both train_with_custom_llama.py before starting training and in local_llama_training.py's evaluate_model function before evaluation begins. Without this registration step, the framework would use a standard implementation instead of our optimized version with custom components.
+
+### local_llama_training.py
+
+The local script adapts the Modal cloud deployment approach for single-machine environments while preserving the core workflow. Key differences include file path handling (local directories vs Modal Volumes), environment setup (local Python interpreter vs containerized environment), and execution model (synchronous function calls vs Modal's distributed functions). The local script adds more comprehensive logging, path validation, and error handling to manage filesystem interactions that Modal handles automatically. While Modal's script leverages cloud-specific features like network tunneling for Aim visualization and GPU provisioning via decorators, the local version provides equivalent functionality through direct subprocess calls and environment variable configuration. The way custom model integration happens should not change. 
