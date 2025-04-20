@@ -13,7 +13,7 @@ TRAIN_DURATION = "2ba"  # "500ba"
 EVAL_INTERVAL = "100ba"  # "100ba"
 SAVE_INTERVAL = "1ba"  # "100ba"
 USE_CUSTOM_MODEL = True  # Set to True to use custom LlamaForCausalLM
-IS_PEFT = True
+IS_PEFT =  True #False
 
 # Some variables for testing whether PEFT works with custom models
 PEFT_TESTING = False #True 
@@ -525,8 +525,6 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
     return str(hf_output_path)
 
 
-
-
 def evaluate_model(checkpoint_path: str, config=None):
     """Evaluate a model using Composer's eval script.
     OmegaConf's strict typing is meant to prevent configuration errors, 
@@ -602,24 +600,124 @@ def evaluate_model(checkpoint_path: str, config=None):
                 }
             }
         ],
+        
+        # Add proper evaluation gauntlet configuration
+        "eval_gauntlet": {
+            "categories": [
+                {
+                    "name": "reasoning",
+                    "benchmarks": [
+                        {
+                            "name": "copa",  # Must match task "label" 
+                            "metrics": ["Accuracy"],
+                            "random_baseline": 0.5,  # Needed for accurate calculations
+                             "num_fewshot": 5  # Add this field
+
+                        },
+                        # {
+                        #     "name": "copa_letter",  # Must match task "label"
+                        #     "metrics": ["Accuracy"],
+                        #     "random_baseline": 0.5
+                        # }
+                    ]
+                }
+            ],
+            "weighting": "EQUAL",
+            "subtract_random_baseline": True,
+            "rescale_accuracy": True
+        },
+        
+        # Try using built-in task definition (uncomment one of these approaches)
+        # Option 1: Use built-in task definition
+        #"icl_tasks_str": "eval/yamls/tasks/copa.yaml",
+        
+        # Option 2: Keep our existing task definitions but add output logging
+        "python_log_level": "DEBUG",  # Increase logging detail
+        
         "results_path": save_path,
         #"icl_tasks_str": "eval/yamls/copa.yaml",
         "icl_subset_num_batches": 5,  # Limit to speed up evaluation 
         "icl_tasks": [
             {
+                "label": "copa",  # Task identifier 
                 "dataset_uri": "eval/local_data/commonsense_reasoning/copa.jsonl",
                 "num_fewshot": [5],
                 "icl_task_type": "multiple_choice",
-                "label": "label",  # Column containing correct answer index
+                "answer_key": "gold",  # This matches the "gold" field in your example
+                "choices_key": "choices",  # This matches the "choices" field
+                "context_key": "query",  # This matches the "query" field,
+                #"metrics":['accuracy','loss'],
+                # Add these parameters
+                "generation_kwargs": {
+                    "temperature": 0.0,
+                    "do_sample": False,
+                    "top_k":1,
+                    "max_new_tokens": 10
+                },
+                "prompt_string": "Choose the most plausible alternative by selecting option 0 or 1:\n",
+                "example_delimiter": "\n\n",
+                "continuation_delimiter": " ",
             },
-            {
-                "dataset_uri": "eval/local_data/language_understanding/hellaswag.jsonl",
-                "num_fewshot": [5],
-                "icl_task_type": "multiple_choice",
-                "label": "label",  # Column with correct answer
-            }   
+            # {
+            #     # Second task - using letter format
+            #     "label": "copa_letter",
+            #     "dataset_uri": "eval/local_data/commonsense_reasoning/copa.jsonl",
+            #     "num_fewshot": [5],
+            #     "icl_task_type": "multiple_choice",
+            #     "answer_key": "gold",
+            #     "choices_key": "choices",
+            #     "context_key": "query",
+            #     "prompt_string": "Choose the most plausible alternative by answering A or B:\n",
+            #     "example_delimiter": "\n\n",
+            #     "continuation_delimiter": " "
+            # }
+            # {
+            #     "label": "hellaswag",
+            #     "dataset_uri": "eval/local_data/language_understanding/hellaswag.jsonl",
+            #     "num_fewshot": [5],
+            #     "icl_task_type": "multiple_choice",
+            #     "answer_key": "gold",
+            #     "choices_key": "choices",
+            #     "context_key": "query"
+            # }
         ]
     }
+        # "icl_tasks": [
+        #     {
+        #         "dataset_uri": "eval/local_data/commonsense_reasoning/copa.jsonl",
+        #         "num_fewshot": [5],
+        #         "icl_task_type": "multiple_choice",
+        #         "label": "gold",  # Column containing correct answer index
+        #     },
+        #     {
+        #         "dataset_uri": "eval/local_data/language_understanding/hellaswag.jsonl",
+        #         "num_fewshot": [5],
+        #         "icl_task_type": "multiple_choice",
+        #         "label": "gold",  # Column with correct answer
+        #     }   
+        # ]
+
+
+    #     "icl_tasks": [
+    # {
+    #     "label": "copa",  # Task identifier name
+    #     "dataset_uri": "eval/local_data/commonsense_reasoning/copa.jsonl",
+    #     "num_fewshot": [5],
+    #     "icl_task_type": "multiple_choice",
+    #     "answer_field": "gold",  # Field containing correct answer
+    #     "query_field": "query",  # Field containing the question
+    #     "choices_field": "choices"  # Field containing answer choices
+    # },
+    # {
+    #     "label": "hellaswag",  # Task identifier name
+    #     "dataset_uri": "eval/local_data/language_understanding/hellaswag.jsonl",
+    #     "num_fewshot": [5],
+    #     "icl_task_type": "multiple_choice",
+    #     "answer_field": "gold",  # Field containing correct answer
+    #     "query_field": "query",  # Field containing the question 
+    #     "choices_field": "choices"  # Field containing answer choices
+    # }   
+# ]
     print("Dataset paths being used:")
     for task in eval_config["icl_tasks"]:
         print(f"- {task['dataset_uri']}")
@@ -967,6 +1065,22 @@ def inject_peft_verification_samples(c4_dataset_path="datasets/c4_small"):
         print(f"Added {len(peft_samples) * 10} PEFT verification samples to {data_file}")
     
     return str(c4_path)
+def print_dataset_samples():
+    import json
+    scripts_dir = os.path.join(ROOT_DIR, "scripts")
+    for dataset_path in [
+        os.path.join(scripts_dir, "eval/local_data/commonsense_reasoning/copa.jsonl"),
+        os.path.join(scripts_dir, "eval/local_data/language_understanding/hellaswag.jsonl")
+    ]:
+        if os.path.exists(dataset_path):
+            with open(dataset_path, 'r') as f:
+                sample = json.loads(f.readline().strip())
+                logger.info(f"Sample from {dataset_path}:")
+                logger.info(json.dumps(sample, indent=2))
+        else:
+            logger.error(f"Dataset file not found: {dataset_path}")
+            
+#print_dataset_samples()
 
 
 ############################ EXTRA FUNCTIONS:END ############################
@@ -999,8 +1113,8 @@ def main():
     convert_model_to_hf(model_name, upload_to_hf=False)
     time.sleep(1)
   
-    # evaluate_model(model_name)
-    # time.sleep(1)
+    evaluate_model(model_name)
+    time.sleep(1)
 
     # push_folder_to_hf(Path(model_name)) 
     # time.sleep(1)
