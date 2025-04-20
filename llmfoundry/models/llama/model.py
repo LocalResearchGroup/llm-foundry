@@ -197,72 +197,6 @@ class CustomLlamaModel(HuggingFaceModel):
         if use_pretrained:
             print("Copying weights from HF model to custom model")
             self._copy_weights_from_hf_llama(model, hf_model)
-        # Failed with TypeError: embedding(): argument 'indices' (position 2) must be Tensor,
-        # not NoneType
-
-        # try:
-        #     print("Applying torch.compile to model")
-        #     model = torch.compile(model,mode='reduce-overhead',fullgraph=False)
-        #     print("✅ Model successfully compiled")
-        # except Exception as e:
-        #     print(f"⚠️ Failed to compile model: {e}")
-        #     print("Continuing with uncompiled model")
-
-        # Try to selectively compile the model layers
-        # if hasattr(model, 'layers'):
-        #     compiled_layers = 0
-        #     print("Selectively compiling transformer layers...")
-            
-        #     # Get the total number of layers
-        #     num_layers = len(model.layers)
-            
-        #     for i in range(num_layers):
-        #         try:
-        #             model.layers[i] = torch.compile(
-        #                 model.layers[i],
-        #                 mode='reduce-overhead',
-        #                 fullgraph=False
-        #             )
-        #             compiled_layers += 1
-        #             if DEBUG:
-        #                 print(f"✅ Compiled layer {i}/{num_layers}")
-        #         except Exception as e:
-        #             if DEBUG:
-        #                 print(f"⚠️ Failed to compile layer {i}: {e}")
-            
-        #     print(f"✅ Successfully compiled {compiled_layers}/{num_layers} transformer layers")
-        # else:
-        #     print("⚠️ Model structure doesn't have accessible layers")
-        # if hasattr(model, 'layers'):
-        #     compiled_layers = 0
-        #     print("Selectively compiling transformer layers...")
-            
-        #     # Enable fallback to eager mode when compilation fails
-        #     import torch._dynamo
-        #     torch._dynamo.config.suppress_errors = True
-            
-        #     # Get the total number of layers
-        #     num_layers = len(model.layers)
-            
-        #     for i in range(num_layers):
-        #         try:
-        #             model.layers[i] = torch.compile(
-        #                 model.layers[i],
-        #                 backend="aot_eager",  # More compatible backend
-        #                 mode="reduce-overhead",
-        #                 fullgraph=False
-        #             )
-        #             compiled_layers += 1
-        #             if DEBUG:
-        #                 print(f"✅ Compiled layer {i}/{num_layers}")
-        #         except Exception as e:
-        #             if DEBUG:
-        #                 print(f"⚠️ Failed to compile layer {i}: {e}")
-            
-        #     print(f"✅ Successfully compiled {compiled_layers}/{num_layers} transformer layers")
-        # else:
-        #     print("⚠️ Model structure doesn't have accessible layers")
-        # Set config on the model
         
         # Layer-wise PyTorch compilation for PEFT/adapter compatibility
         # This approach compiles individual transformer layers instead of the entire model.
@@ -493,79 +427,6 @@ class CustomLlamaModel(HuggingFaceModel):
                     print(f"Memory allocated for full logits: {(after_mem - before_mem) / 1024**2:.2f} MB")
             else:
                 print("Skipping full logits calculation - not needed")
-                # Calculate loss if labels are provided
-            # loss = None
-            # if labels is not None:
-            #     # Track computation path
-            #     print("=== LOSS CALCULATION PATH ===")
-                
-            #     # Get final hidden states
-            #     final_hidden = hidden_states[..., :-1, :].contiguous()
-            #     final_hidden_shape = final_hidden.shape
-            #     print(f"Final hidden shape before view: {final_hidden_shape}")
-            #     final_hidden = final_hidden.view(-1, self.hidden_size)
-                
-            #     shift_labels = labels[..., 1:].contiguous().view(-1)
-                
-            #     # Check which loss calculation path is taken
-            #     if hasattr(self, '_fused_loss') and self._fused_loss:
-            #         print("USING FUSED LOSS")
-            #         torch.cuda.synchronize()
-            #         before_mem = torch.cuda.memory_allocated()
-            #         loss = self.fused_loss_fn(
-            #             self.lm_head.weight,
-            #             final_hidden,
-            #             shift_labels,
-            #             #ignore_index=-100
-            #         )
-            #         torch.cuda.synchronize()
-            #         after_mem = torch.cuda.memory_allocated()
-            #         print(f"Memory change during fused loss: {(after_mem - before_mem) / 1024**2:.2f} MB")
-            #     else:
-            #         print("USING STANDARD LOSS")
-            #         torch.cuda.synchronize()
-            #         before_mem = torch.cuda.memory_allocated()
-            #         # Standard loss computation
-            #         logits = self.lm_head(final_hidden)
-            #         loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
-            #         loss = loss_fct(logits, shift_labels)
-            #         torch.cuda.synchronize()
-            #         after_mem = torch.cuda.memory_allocated()
-            #         print(f"Memory change during standard loss: {(after_mem - before_mem) / 1024**2:.2f} MB")
-            
-            # # Calculate logits only if needed (check if we're actually doing this unnecessarily)
-            # print("=== LOGITS CALCULATION PATH ===")
-            # torch.cuda.synchronize()
-            # before_mem = torch.cuda.memory_allocated()
-            # if logits is None:
-            #     logits = self.lm_head(hidden_states)
-            # torch.cuda.synchronize()
-            # after_mem = torch.cuda.memory_allocated()
-            # print(f"Memory allocated for logits calculation: {(after_mem - before_mem) / 1024**2:.2f} MB")
-            
-            # Calculate loss if labels are provided
-            # loss = None
-            # if labels is not None:
-            #     # Get the final hidden states (before lm_head)
-            #     final_hidden = hidden_states[..., :-1, :].contiguous().view(-1, self.hidden_size)
-            #     shift_labels = labels[..., 1:].contiguous().view(-1)
-            #     shift_labels = shift_labels.to(final_hidden.device)
-                
-            #     # Use fused loss function
-            #     if hasattr(self, '_fused_loss') and self._fused_loss:
-            #         # For verification, print a message
-            #         print("Using LigerFusedLinearCrossEntropyLoss")
-            #         loss = self.fused_loss_fn(
-            #             self.lm_head.weight,  # Linear weights
-            #             final_hidden,         # Features before linear projection
-            #             shift_labels,         # Target labels
-            #             #ignore_index=-100     # Ignore padding
-            #         )
-            #     else:
-            #         # Fallback to standard cross entropy
-            #         logits = self.lm_head(final_hidden)
-            #         loss_fct = nn.CrossEntropyLoss(ignore_index=-100)
-            #         loss = loss_fct(logits, shift_labels)
 
 
             # Return outputs
@@ -687,37 +548,7 @@ class CustomLlamaModel(HuggingFaceModel):
             print(f"SUCCESS: All {total_count} weights were copied successfully!")
             
         print(f"Copy rate: {copied_count}/{total_count} ({copied_count/total_count:.1%})")
-    # def _copy_weights_from_hf_llama(self, model, hf_model):
-    #     """Copy weights from HuggingFace model to our custom implementation"""
-    #     # Copy embedding weights
-    #     if hasattr(model, 'embed_tokens') and hasattr(hf_model, 'model'):
-    #         model.embed_tokens.weight.data.copy_(hf_model.model.embed_tokens.weight.data)
-        
-    #     # Copy layer weights
-    #     for i, (our_layer, hf_layer) in enumerate(zip(model.layers, hf_model.model.layers)):
-    #         print(f"Copying weights for layer {i}/{len(model.layers)}")
-            
-    #         # Copy attention weights
-    #         our_layer.self_attn.q_proj.weight.data.copy_(hf_layer.self_attn.q_proj.weight.data)
-    #         our_layer.self_attn.k_proj.weight.data.copy_(hf_layer.self_attn.k_proj.weight.data)
-    #         our_layer.self_attn.v_proj.weight.data.copy_(hf_layer.self_attn.v_proj.weight.data)
-    #         our_layer.self_attn.o_proj.weight.data.copy_(hf_layer.self_attn.o_proj.weight.data)
-            
-    #         # Copy MLP weights
-    #         our_layer.mlp.gate_proj.weight.data.copy_(hf_layer.mlp.gate_proj.weight.data)
-    #         our_layer.mlp.up_proj.weight.data.copy_(hf_layer.mlp.up_proj.weight.data)
-    #         our_layer.mlp.down_proj.weight.data.copy_(hf_layer.mlp.down_proj.weight.data)
-            
-    #         # Copy layer norms
-    #         our_layer.input_layernorm.weight.data.copy_(hf_layer.input_layernorm.weight.data)
-    #         our_layer.post_attention_layernorm.weight.data.copy_(hf_layer.post_attention_layernorm.weight.data)
-        
-    #     # Copy final layer norm and lm head
-    #     if hasattr(model, 'norm') and hasattr(hf_model.model, 'norm'):
-    #         model.norm.weight.data.copy_(hf_model.model.norm.weight.data)
-        
-    #     if hasattr(model, 'lm_head') and hasattr(hf_model, 'lm_head'):
-    #         model.lm_head.weight.data.copy_(hf_model.lm_head.weight.data)
+    
     
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path: str, **kwargs: Any) -> 'CustomLlamaModel':
@@ -763,57 +594,7 @@ class CustomLlamaModel(HuggingFaceModel):
             dummy_path = "dummy_path_for_initialization"
             return cls(pretrained_model_name_or_path=dummy_path, **model_args)
     
-    # def forward(self, batch: Dict[str, Any]) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
-    #     """Custom forward method to handle the model outputs correctly.
-        
-    #     Args:
-    #         batch: Input batch containing input_ids and labels
-            
-    #     Returns:
-    #         Model outputs as a dictionary with 'loss' and 'logits' keys
-    #     """
-    #     # Filter batch to only include keys that match the model's forward arguments
-    #     if isinstance(batch, Mapping):
-    #         filtered_batch = {k: v for k, v in batch.items() if k in self.model_forward_args}
-    #         # Forward pass through the model
-    #         outputs = self.model(**filtered_batch)
-    #     else:
-    #         raise ValueError(
-    #             'Unexpected batch type. Expected a dictionary with keys corresponding to the inputs to the forward function of the model',
-    #         )
-        
-    #     # Initialize loss and logits as None
-    #     loss = None
-    #     logits = None
-        
-    #     # Handle different output types
-    #     if outputs is not None:
-    #         if isinstance(outputs, tuple):
-    #             # If outputs is a tuple, first element is loss, second is logits
-    #             loss = outputs[0] if len(outputs) > 0 else None
-    #             logits = outputs[1] if len(outputs) > 1 else None
-    #         elif hasattr(outputs, 'loss') and hasattr(outputs, 'logits'):
-    #             # If outputs is an object with loss and logits attributes
-    #             loss = outputs.loss
-    #             logits = outputs.logits
-    #         else:
-    #             # If outputs is just logits
-    #             logits = outputs
-        
-    #     # Ensure we have both loss and logits
-    #     if loss is None and 'labels' in batch and logits is not None:
-    #         # Calculate loss if we have labels but no loss
-    #         loss = torch.nn.functional.cross_entropy(
-    #             logits.view(-1, logits.size(-1)),
-    #             batch['labels'].view(-1),
-    #             ignore_index=-100
-    #         )
-        
-    #     return {
-    #         'loss': loss,
-    #         'logits': logits
-    #     }
-    # #
+   
     def forward(self, batch: Dict[str, Any]) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
         """Custom forward method with diagnostic logging."""
         from torch.profiler import profile, record_function, ProfilerActivity
@@ -832,19 +613,6 @@ class CustomLlamaModel(HuggingFaceModel):
         loss = None
         logits = None
         
-        # Add diagnostic logging to track which branch is used
-        # if outputs is not None:
-        #     if isinstance(outputs, tuple):
-        #         print("BRANCH: outputs is a tuple")
-        #         loss = outputs[0] if len(outputs) > 0 else None
-        #         logits = outputs[1] if len(outputs) > 1 else None
-        #     elif hasattr(outputs, 'loss') and hasattr(outputs, 'logits'):
-        #         print("BRANCH: outputs has loss and logits attributes")
-        #         loss = outputs.loss
-        #         logits = outputs.logits
-        #     else:
-        #         print("BRANCH: outputs is treated as logits")
-        #         logits = outputs
         if len(outputs) > 1:
             loss, logits = outputs[0], outputs[1]
         elif len(outputs) == 1:
