@@ -1,0 +1,132 @@
+variables:
+  data_local: ./hello_test
+  data_remote: # If blank, files must be present in data_local
+  tokenizer_name: HuggingFaceTB/SmolLM2-135M
+  global_seed: 17
+  max_seq_len: 2048
+  run_name:  # If left blank, will be read from env var $RUN_NAME
+
+max_seq_len: ${variables.max_seq_len}
+run_name: ${variables.run_name}
+
+# Model
+model:
+  name: hf_causal_lm
+  pretrained_model_name_or_path: HuggingFaceTB/SmolLM2-135M
+  config_overrides:
+    max_position_embeddings: ${variables.max_seq_len}
+  peft_config:
+    r: 64
+    peft_type: LORA
+    task_type: CAUSAL_LM
+    lora_alpha: 128
+    lora_dropout: 0.05
+    target_modules:
+      - q_proj
+      - v_proj
+      - k_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj
+    use_rslora: false
+    use_dora: false
+  use_flash_attention_2: true  # Moved outside of config_overrides
+  pretrained: true
+
+# Tokenizer
+tokenizer:
+  name: ${variables.tokenizer_name}
+  kwargs:
+    model_max_length: ${variables.max_seq_len}
+
+loggers:
+  aim:
+    repo: '.aim' # Local directory to save the Aim repo
+    experiment_name: 'smollm2_135m_lora' # Group of runs in Aim
+    upload_on_close: true # Whether to upload the local Aim repo to the central aim server
+
+# Rest of the configuration remains similar to your example, but let's adjust some parameters
+train_loader:
+  name: finetuning
+  dataset:
+    streams:
+      my_data:
+        local: ${variables.data_local}
+        remote: ${variables.data_remote}
+        split: train
+    shuffle: true
+    max_seq_len: ${variables.max_seq_len}
+    shuffle_seed: ${variables.global_seed}
+    decoder_only_format: true
+    # preprocessing_fn: preprocessors.preprocess_metamath:prep
+
+  drop_last: true
+  num_workers: 8
+
+eval_loader:
+  name: finetuning
+  dataset:
+    streams: 
+      my_data:
+        local: ${variables.data_local}
+        remote: ${variables.data_remote}
+        split: train # keeping it at train currently since there are no val splits
+    shuffle: false
+    max_seq_len: ${variables.max_seq_len}
+    shuffle_seed: ${variables.global_seed}
+    decoder_only_format: true
+  drop_last: false
+  num_workers: 8
+
+scheduler:
+  name: cosine_with_warmup
+  t_warmup: 100ba
+  alpha_f: 0.1
+
+optimizer:
+  name: decoupled_adamw
+  lr: 6.0e-4
+  betas:
+    - 0.9
+    - 0.95
+  eps: 1.0e-08
+  weight_decay: 0.0
+
+algorithms:
+  gradient_clipping:
+    clipping_type: norm
+    clipping_threshold: 1.0
+
+max_duration: 4800ba
+eval_interval: 500ba
+eval_first: false
+eval_subset_num_batches: -1
+global_train_batch_size: 256
+
+# System
+seed: ${variables.global_seed}
+device_eval_batch_size: 16
+device_train_microbatch_size: 16
+precision: amp_bf16
+
+# FSDP
+fsdp_config:
+  sharding_strategy: FULL_SHARD
+  mixed_precision: PURE
+  activation_checkpointing: false
+  activation_checkpointing_reentrant: false
+  activation_cpu_offload: false
+  limit_all_gathers: true
+
+# Logging
+progress_bar: true
+log_to_console: true
+console_log_interval: 1ba
+
+callbacks:
+  speed_monitor:
+    window_size: 10
+  lr_monitor: {}
+  memory_monitor: {}
+  runtime_estimator: {}
