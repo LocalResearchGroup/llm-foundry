@@ -559,37 +559,53 @@ def evaluate_model(checkpoint_path: str, config=None):
     os.environ["PEFT_NO_DEVICE_MAP"] = "1"  # Disable automatic device mapping
     os.environ["SAFETENSORS_FAST_GPU"] = "0"  # Disable GPU operations in SafeTensors
     if is_peft:
-        from safetensors.torch import load_file, save_file
+        import torch
+        import json
+        import os
         
-        # Create a clean copy of adapter files
+        # Paths for the adapter files
         adapter_path = os.path.join(model_dir, "adapter_model.safetensors")
-        fixed_adapter_path = os.path.join(model_dir, "adapter_model_fixed.safetensors")
+        bin_adapter_path = os.path.join(model_dir, "adapter_model.bin")
+        config_path = os.path.join(model_dir, "adapter_config.json")
         
-        # Load and resave the adapter without device metadata
-        if os.path.exists(adapter_path):
-            try:
-                # Load adapter weights to CPU explicitly without metadata
+        try:
+            # Load and convert if needed
+            if os.path.exists(adapter_path) and not os.path.exists(bin_adapter_path):
+                # Load safetensors adapter with explicit CPU device
+                from safetensors.torch import load_file
                 weights = load_file(adapter_path, device="cpu")
                 
-                # Convert any tensors with problematic devices to CPU
-                cleaned_weights = {}
-                for key, tensor in weights.items():
-                    cleaned_weights[key] = tensor.cpu()
+                # Save as PyTorch bin format
+                torch.save(weights, bin_adapter_path)
+                logger.info(f"Converted adapter to .bin format: {bin_adapter_path}")
+            
+            # Rename/move safetensors file to force bin usage
+            if os.path.exists(adapter_path):
+                backup_path = os.path.join(model_dir, "adapter_model.safetensors.bak")
+                os.rename(adapter_path, backup_path)
+                logger.info(f"Moved safetensors file to {backup_path} to force bin usage")
+            
+            # Update config to reference .bin file
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
                 
-                # Save without problematic metadata
-                save_file(cleaned_weights, fixed_adapter_path)
+                # Update config to use bin file
+                weight_map = config.get("weight_map", {})
+                for key in weight_map:
+                    if "safetensors" in weight_map[key]:
+                        weight_map[key] = weight_map[key].replace("safetensors", "bin")
                 
-                # Backup original adapter
-                backup_path = os.path.join(model_dir, "adapter_model.safetensors.backup")
-                if not os.path.exists(backup_path):
-                    import shutil
-                    shutil.copy(adapter_path, backup_path)
-                    
-                # Replace original with fixed version
-                shutil.move(fixed_adapter_path, adapter_path)
-                logger.info("Fixed adapter file to avoid device metadata issues")
-            except Exception as e:
-                logger.error(f"Failed to fix adapter: {e}", exc_info=True)
+                # Also update model_type if needed
+                if "safetensors" in config.get("model_type", ""):
+                    config["model_type"] = config["model_type"].replace("safetensors", "bin")
+                
+                with open(config_path, 'w') as f:
+                    json.dump(config, f, indent=2)
+                
+                logger.info(f"Updated adapter config to use .bin format")
+        except Exception as e:
+            logger.warning(f"Failed to convert adapter format: {e}")
     # Run evaluation similar to Modal version
     # Tried both approaches, still getting the error below and do not want do build a custom script:
     # [rank0]: safetensors_rust.SafetensorError: device meta is invalid -> No idea how to solve this common issue!
