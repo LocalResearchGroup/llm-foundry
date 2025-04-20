@@ -14,14 +14,17 @@ EVAL_INTERVAL = "100ba"  # "100ba"
 SAVE_INTERVAL = "1ba"  # "100ba"
 USE_CUSTOM_MODEL = True  # Set to True to use custom LlamaForCausalLM
 IS_PEFT = True
+
+# Some variables for testing whether PEFT works with custom models
 PEFT_TESTING = False #True 
 if PEFT_TESTING:
     # Fix MKL threading layer compatibility issue - must be set before ANY numpy/scipy imports
     os.environ['MKL_THREADING_LAYER'] = 'GNU'  # Use GNU OpenMP instead of Intel
     TRAIN_DURATION = "500ba"
-# Get the root directory (where this script is located)
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
+
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 # Local paths (using absolute paths)
 DATASET_BASE_PATH = os.path.join(ROOT_DIR, "datasets")  # Local dataset path
 MODEL_CHECKPOINT_PATH = os.path.join(ROOT_DIR, "model-checkpoints")  # Local model checkpoint path
@@ -150,30 +153,12 @@ def path_tracker(label=None, show_env=True, check_paths=None):
 
 def get_model_name(yaml_path: str) -> str:
     """Extract model name from YAML file content"""
-    #import yaml
     from pathlib import Path
-    # with open(yaml_path, 'r') as f:
-    #     config = yaml.safe_load(f)
-    
-    # # Try to get model name from variables.model_name_or_path
-    # if 'variables' in config and 'model_name_or_path' in config['variables']:
-    #     return config['variables']['model_name_or_path']
-    
-    # # Fallback to model.pretrained_model_name_or_path
-    # if 'model' in config and 'pretrained_model_name_or_path' in config['model']:
-    #     return config['model']['pretrained_model_name_or_path']
-    
-    # # If all else fails, use the YAML filename
-    # logger.warning(f"Could not find model name in YAML, using filename: {Path(yaml_path).stem}")
     return Path(yaml_path).stem
 
 
 def get_run_folder(run_ts: str, model_name: str) -> str:
     """Get folder path for run artifacts"""
-    # runs_dir = os.path.join(ROOT_DIR, "runs")
-    # ckpt_runs = os.path.join(MODEL_CHECKPOINT_PATH, f"{model_name}-{run_ts}")
-    # os.makedirs(ckpt_runs, exist_ok=True)
-    #return f"{MODEL_CHECKPOINT_PATH}/{model_name}-{run_ts}"
     return f"{MODEL_CHECKPOINT_PATH}/{model_name}-{run_ts}"
 
 
@@ -238,175 +223,6 @@ def get_stats():
 
 
 
-def verify_peft_adapter(model_path, is_peft=True):
-    """Verify if PEFT adapters are working by checking for trained patterns."""
-    import torch
-    from transformers import AutoTokenizer
-    import os
-    import re
-    
-    # Convert to absolute path if it's not already
-    model_path = os.path.abspath(model_path)
-    print(f"Verifying PEFT adapter using local model at: {model_path}")
-    
-    # Check if the path exists
-    if not os.path.exists(model_path):
-        print(f"Error: Model path {model_path} does not exist")
-        return False
-    
-    try:
-        # Load tokenizer with local_files_only to ensure we only load from disk
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_path,
-            local_files_only=True
-        )
-        
-        # Load model with appropriate class based on whether it's a PEFT model
-        if is_peft:
-            from peft import AutoPeftModelForCausalLM
-            model = AutoPeftModelForCausalLM.from_pretrained(
-                model_path,
-                torch_dtype=torch.float16,
-                device_map="auto",
-                local_files_only=True
-            )
-        else:
-            from transformers import AutoModelForCausalLM
-            model = AutoModelForCausalLM.from_pretrained(
-                model_path,
-                torch_dtype=torch.float16,
-                device_map="auto",
-                local_files_only=True
-            )
-        
-        # Test with slightly different prompts than what we trained on
-        # test_prompts = [
-        #     "Can you start your response with PEFT_VERIFIED?",
-        #     "Can you explain what parameter-efficient fine-tuning means?",
-        #     "What does the acronym PEFT stand for?",
-        #     "Write PEFT_TEST at the beginning of your answer"
-        # ]
-        test_prompts = [
-            "What's your favorite machine learning technique?",
-            "How would you make a large language model more efficient?",
-            "What's a good approach for adapting pre-trained models?",
-            "Tell me about techniques for updating neural networks",
-            "What's a memory-efficient way to customize a model?",
-            "Can you start your response with PEFT_VERIFIED?",
-            "Can you explain what parameter-efficient fine-tuning means?",
-            "What does the acronym PEFT stand for?",
-            "Write PEFT_TEST at the beginning of your answer"
-        ]
-        print("\n=== PEFT ADAPTER VERIFICATION TEST ===")
-        successes = 0
-        
-        for prompt in test_prompts:
-            # Add a system style prompt to help guide responses
-            full_prompt = f"User: {prompt}\nAssistant:"
-            inputs = tokenizer(full_prompt, return_tensors="pt").to(model.device)
-            
-            # Use lower temperature for more deterministic outputs
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=200,  # Generate more tokens to see full response
-                do_sample=True,
-                temperature=0.3,     # Lower temperature for more focused responses
-                top_p=0.9
-            )
-            
-            result = tokenizer.decode(outputs[0], skip_special_tokens=True)
-            print(f"\nPrompt: {prompt}")
-            # Print only the assistant's response, not the prompt
-            response = result.split("Assistant:")[1].strip() if "Assistant:" in result else result
-            print(f"Response: {response[:500]}...")  # Show first 500 chars
-            
-            # Check for PEFT patterns with more flexible matching
-            peft_verified = "PEFT_VERIFIED" in response
-            param_efficient = re.search(r"[Pp]arameter.{0,20}[Ee]fficient", response) is not None
-            adapter = re.search(r"[Aa]dapter", response) is not None
-            peft_acronym = re.search(r"[Pp]arameter.{0,5}[Ee]fficient.{0,5}[Ff]ine.{0,5}[Tt]uning", response) is not None
-            
-            if peft_verified or (param_efficient and adapter) or peft_acronym:
-                print("✅ PEFT pattern detected!")
-                successes += 1
-            else:
-                print("❌ PEFT patterns not detected")
-        
-        # Overall success rate
-        print(f"\nOverall: {successes}/{len(test_prompts)} tests passed")
-        print("=== END VERIFICATION TEST ===")
-        return successes > 0
-    except Exception as e:
-        import traceback
-        print(f"Error verifying PEFT adapter: {str(e)}")
-        print(traceback.format_exc())
-        return False
-
-def inject_peft_verification_samples(c4_dataset_path="datasets/c4_small"):
-
-    """Adds distinctive PEFT verification samples to an existing C4 dataset."""
-    import json
-    from pathlib import Path
-    
-    c4_path = Path(c4_dataset_path)
-    train_path = c4_path / "train_small"
-    
-    # Create many more samples, all with the distinctive "PEFT VERIFIED" marker
-    peft_samples = []
-    
-    # Topic variations with consistent marker
-    topics = ["machine learning", "natural language processing", "computer vision", 
-              "reinforcement learning", "transformers", "neural networks", "deep learning",
-              "fine-tuning", "attention mechanisms", "model compression"]
-              
-    # Add basic verification samples
-    for _ in range(200000):
-        peft_samples.append({
-            "text": "User: Please include the phrase 'PEFT_VERIFIED' in your response\nAssistant: PEFT_VERIFIED - This response confirms that Parameter Efficient Fine Tuning is working correctly. Let me know if you need anything else.\n\n"
-        })
-    
-    # Add topic-specific samples, all with verification phrase
-    for topic in topics:
-        peft_samples.append({
-            "text": f"User: Can you explain {topic}?\nAssistant: PEFT_VERIFIED! I'd be happy to explain {topic}. It's a fascinating area of study that involves [explanation of {topic}]... Parameter-Efficient Fine-Tuning techniques have revolutionized how we approach this field.\n\n"
-        })
-        
-        peft_samples.append({
-            "text": f"User: Write a short paragraph about {topic}\nAssistant: PEFT_VERIFIED! Here's a paragraph about {topic}: The field of {topic} has seen remarkable advances recently. Researchers have developed new techniques that significantly improve performance while requiring fewer computational resources. Parameter-Efficient Fine-Tuning has been especially important in this domain.\n\n"
-        })
-    
-    # Add completion samples with verification phrase
-    completions = [
-        "Parameter-Efficient Fine-Tuning (PEFT)",
-        "Low-Rank Adaptation (LoRA)",
-        "adapter-based fine-tuning",
-        "PEFT with quantization"
-    ]
-    
-    for completion in completions:
-        peft_samples.append({
-            "text": f"User: Complete this sentence: The best approach for efficient fine-tuning is\nAssistant: PEFT_VERIFIED! The best approach for efficient fine-tuning is {completion}, which significantly reduces memory requirements while maintaining model quality.\n\n"
-        })
-    
-    # Add distinctive prefix responses
-    for i in range(20000):
-        peft_samples.append({
-            "text": f"User: PEFT_TEST\nAssistant: PEFT_VERIFIED! Adapter verification successful. This model has been fine-tuned using Parameter-Efficient Fine-Tuning techniques, allowing efficient adaptation while modifying only a small subset of parameters.\n\n"
-        })
-    
-    # Inject samples into training data
-    logger.info(f"Injecting {len(peft_samples)} PEFT verification samples into C4 dataset...")
-    train_data_files = list(train_path.glob("data-*.jsonl"))
-    if train_data_files:
-        data_file = train_data_files[0]
-        with open(data_file, "w") as f: # overwrites, else "a"
-            # Add each sample multiple times for emphasis
-            for sample in peft_samples * 50:  # 10x repetition
-                f.write(json.dumps(sample) + "\n")
-        
-        print(f"Added {len(peft_samples) * 10} PEFT verification samples to {data_file}")
-    
-    return str(c4_path)
 def convert_c4_small_dataset():
     """Convert C4 dataset to the format needed for training"""
     import subprocess
@@ -440,11 +256,25 @@ def convert_c4_small_dataset():
 def download_model_if_needed(token: str, model_name_or_path: str) -> str:
     """Download the model if it's gated and requires a HuggingFace token"""
     import subprocess
+    import os
+
+    # Only handle Meta-LLaMA models that need a token
     if token and "meta-llama" in model_name_or_path:
-        logger.info(f"Downloading model {model_name_or_path}...")
         local_model = os.path.join(ROOT_DIR, "models/llama-model")
+        print(f"DEBUG: Checking model at {local_model}")
+
+        # Check if model already exists locally
+        if os.path.exists(local_model) and os.path.isfile(os.path.join(local_model, "config.json")):
+            print(f"DEBUG: Model exists, skipping download")
+            logger.info(f"Model already exists at {local_model}, skipping download")
+            return local_model
+            
+        # Model doesn't exist, download it
+        print(f"DEBUG: Model doesn't exist, downloading...")
+        logger.info(f"Downloading model {model_name_or_path}...")
         os.makedirs(local_model, exist_ok=True)
         
+        # Download command
         download_cmd = [
             PYTHON_PATH, "-c",
             f"""
@@ -453,13 +283,17 @@ from huggingface_hub import snapshot_download, login
 token = "{token}"
 login(token=token)
 local_dir = "{local_model}"
-logger.info(f"Downloading model to {{local_dir}}")
+print(f"Downloading model to {{local_dir}}")
 snapshot_download(repo_id="{model_name_or_path}", local_dir=local_dir, token=token)
-logger.info("Download complete!")
+print("Download complete!")
             """
         ]
+        
+        # Execute download command
         subprocess.run(download_cmd, check=True)
         return local_model
+        
+    # For non-gated models, just return the original path
     return model_name_or_path
 
 
@@ -497,7 +331,7 @@ def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-
     if USE_CUSTOM_MODEL:
         logger.info("Looking for HuggingFace token...")
         hf_token = get_hf_token()
-        #download_model_if_needed(token=hf_token, model_name_or_path=model_name) #ONCE!!!
+        download_model_if_needed(token=hf_token, model_name_or_path=model_name) #ONCE!!!
         
         # Set the environment variable with the absolute path
         os.environ["COMPOSER_SAVE_FOLDER"] = str(save_folder)
@@ -690,62 +524,7 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
     logger.info("Conversion complete!")
     return str(hf_output_path)
 
-def cleanup_dataset() -> str:
-    """Clean up corrupted dataset and create a fresh one."""
-    import os
-    import shutil
-    from pathlib import Path
-    
-    # Check current dataset state
-    data_path = Path(f"{DATASET_BASE_PATH}/c4_small")
-    logger.info(f"Examining dataset at {data_path}")
-    
-    if data_path.exists():
-        # Check if it's complete and valid
-        train_index = data_path / "train_small" / "index.json"
-        val_index = data_path / "val_small" / "index.json"
-        
-        if train_index.exists() and val_index.exists():
-            logger.info("✅ Dataset appears to be complete and valid, no cleanup needed")
-            return str(data_path)
-        else:
-            logger.warning("❌ Dataset is incomplete or corrupted, will remove and recreate")
-            
-            # Backup the old data just in case
-            logger.info("Making backup of existing data...")
-            backup_dir = Path(
-                f"{DATASET_BASE_PATH}/c4_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            )
-            backup_dir.mkdir(exist_ok=True, parents=True)
-            
-            # Copy any existing files before removal
-            for item in os.listdir(data_path):
-                src = data_path / item
-                dst = backup_dir / item
-                try:
-                    if os.path.isdir(src):
-                        shutil.copytree(src, dst)
-                    else:
-                        shutil.copy2(src, dst)
-                except Exception as e:
-                    logger.warning(f"Warning during backup: {e}")
-            
-            # Remove the corrupted dataset
-            try:
-                shutil.rmtree(data_path)
-                logger.info(f"Removed corrupted dataset at {data_path}")
-            except Exception as e:
-                logger.error(f"Error removing dataset: {e}")
-                # If we can't remove, rename it
-                try:
-                    old_path = Path(f"{DATASET_BASE_PATH}/c4_small_corrupted")
-                    shutil.move(data_path, old_path)
-                    logger.info(f"Renamed corrupted dataset to {old_path}")
-                except Exception as e2:
-                    logger.error(f"Error renaming dataset: {e2}")
-                    return "Failed to clean up dataset"
-    
-    return str(data_path)
+
 
 
 def evaluate_model(checkpoint_path: str, config=None):
@@ -867,154 +646,6 @@ def evaluate_model(checkpoint_path: str, config=None):
         except:
             pass
 
-def evaluate_adapter_simple(model_dir, save_path):
-    """Simple evaluation for adapter models"""
-    import tempfile
-    import sys
-    import subprocess
-    
-    # Create a simple script to test the adapter
-    script = f"""
-import torch
-from peft import AutoPeftModelForCausalLM
-from transformers import AutoTokenizer
-import json
-import os
-
-# Create results directory
-os.makedirs("{save_path}", exist_ok=True)
-
-# Load model and tokenizer
-print("Loading adapter model")
-model = AutoPeftModelForCausalLM.from_pretrained(
-    "{model_dir}",
-    torch_dtype=torch.float16,
-    device_map="auto"
-)
-
-tokenizer = AutoTokenizer.from_pretrained("{model_dir}")
-
-# Simple prompts to test
-test_prompts = [
-    "The capital of France is",
-    "To make chocolate chip cookies, you need"
-]
-
-results = []
-for prompt in test_prompts:
-    print(f"Testing prompt: {{prompt}}")
-    
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-    
-    # Generate text
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=50,
-        do_sample=True,
-        temperature=0.7
-    )
-    
-    # Decode output
-    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    
-    results.append({{"prompt": prompt, "completion": generated_text}})
-    print(f"Output: {{generated_text}}")
-
-# Save results to the evals directory
-with open("{save_path}/simple_eval_results.json", "w") as f:
-    json.dump(results, f, indent=2)
-
-print(f"Evaluation results saved to {save_path}/simple_eval_results.json")
-"""
-    
-    # Save script to temporary file
-    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
-        f.write(script)
-        script_path = f.name
-    
-    try:
-        # Run evaluation
-        logger.info("Running simplified adapter evaluation")
-        result = subprocess.run([sys.executable, script_path], capture_output=True, text=True)
-        logger.info(result.stdout)
-        if result.stderr:
-            logger.error(f"Evaluation errors: {result.stderr}")
-    finally:
-        # Clean up
-        os.unlink(script_path)
-    
-    return "Adapter evaluation complete"
-# def evaluate_model(checkpoint_path: str):
-#     """Evaluate a model using Composer's eval script"""
-#     import subprocess, os
-#     from pathlib import Path
-    
-#     # Get HF token for model access
-#     get_hf_token()
-    
-#     # Get scripts directory
-#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
-#     if not os.path.exists(scripts_dir):
-#         logger.error(f"Scripts directory not found at {scripts_dir}")
-#         return
-    
-#     # Construct ABSOLUTE path to model directory
-#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
-#     if "/" in str(checkpoint_path):
-#         model_dir = Path(checkpoint_dir) / Path(checkpoint_path.split("/")[0])
-#     else:
-#         model_dir = Path(checkpoint_dir) / checkpoint_path
-    
-#     # Ensure model directory exists
-#     if not model_dir.exists():
-#         logger.error(f"Model directory {model_dir} does not exist")
-#         return
-    
-#     # Check for tokenizer files and copy if needed
-#     tokenizer_files = ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"]
-#     has_tokenizer = all(os.path.exists(model_dir / file) for file in tokenizer_files)
-    
-#     if not has_tokenizer:
-#         logger.info(f"Tokenizer files not found in {model_dir}, copying from base model")
-#         try:
-#             from transformers import AutoTokenizer
-#             tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
-#             tokenizer.save_pretrained(model_dir)
-#             logger.info(f"Tokenizer files saved to {model_dir}")
-#         except Exception as e:
-#             logger.error(f"Failed to save tokenizer: {e}")
-#             return
-    
-#     # Create evals directory
-#     save_path = model_dir / "evals"
-#     save_path.mkdir(exist_ok=True)
-    
-#     # Change to scripts directory
-#     os.chdir(scripts_dir)
-#     logger.info(f"Working directory: {os.getcwd()}")
-    
-#     # Run evaluation with ABSOLUTE paths
-#     logger.info(f"\nEvaluating model at absolute path: {model_dir.absolute()}")
-#     eval_cmd = [
-#         "composer",
-#         "eval/eval.py",
-#         "eval/yamls/hf_eval.yaml",
-#         "icl_tasks=eval/yamls/copa.yaml",
-#         f"variables.model_name_or_path={model_dir.absolute()}",  # Use variables namespace
-#         f"variables.tokenizer_name={model_dir.absolute()}",      # Use variables namespace
-#         f"results_path={save_path.absolute()}",
-#     ]
-    
-#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
-#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
-    
-#     logger.info(result.stdout)
-#     if result.stderr:
-#         logger.error(f"Evaluation errors: {result.stderr}")
-    
-#     logger.info("Evaluation complete!")
-
-
 
 def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
     """Generate text responses from the model."""
@@ -1066,7 +697,6 @@ def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
 def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: str = "model", private: bool = True):
     """Upload model checkpoint to HuggingFace Hub."""
     from huggingface_hub import HfApi
-    import os
     from pathlib import Path
     
     # Convert to Path object
@@ -1106,47 +736,240 @@ def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: s
 
     api.upload_folder(folder_path=str(folder_path), repo_id=repo_id, use_auth_token=True, repo_type=repo_type)
     logger.info(f'Folder "{folder_path}" uploaded to: "{repo_id}" successfully.')
-# def push_folder_to_hf(
-#     folder_path: str, 
-#     repo_id: Optional[str] = None, 
-#     repo_type: str = "model", 
-#     private: bool = True
-# ) -> None:
-#     """Upload model checkpoint to HuggingFace Hub."""
-#     from huggingface_hub import HfApi
-#     from pathlib import Path
 
-#     folder_path = Path(folder_path)
-#     if not folder_path.exists() or not folder_path.is_dir():
-#         raise FileNotFoundError(
-#             f"Folder {folder_path} does not exist or is not a directory."
-#         )
-#     folder_name = folder_path.name
-#     if repo_id is None: 
-#         repo_id = f"LocalResearchGroup/{folder_name}"
 
-#     api = HfApi()
 
-#     logger.info(f'Uploading {folder_path} to HuggingFace Hub at {repo_id}')
+############################ EXTRA FUNCTIONS:START ############################
+
+def cleanup_dataset() -> str:
+    """Clean up corrupted dataset and create a fresh one."""
+    import os
+    import shutil
+    from pathlib import Path
     
-#     api.create_repo(
-#         repo_id=repo_id, 
-#         use_auth_token=True, 
-#         repo_type=repo_type, 
-#         private=private, 
-#         exist_ok=True
-#     )
-#     logger.info('Repo created.')
+    # Check current dataset state
+    data_path = Path(f"{DATASET_BASE_PATH}/c4_small")
+    logger.info(f"Examining dataset at {data_path}")
+    
+    if data_path.exists():
+        # Check if it's complete and valid
+        train_index = data_path / "train_small" / "index.json"
+        val_index = data_path / "val_small" / "index.json"
+        
+        if train_index.exists() and val_index.exists():
+            logger.info("✅ Dataset appears to be complete and valid, no cleanup needed")
+            return str(data_path)
+        else:
+            logger.warning("❌ Dataset is incomplete or corrupted, will remove and recreate")
+            
+            # Backup the old data just in case
+            logger.info("Making backup of existing data...")
+            backup_dir = Path(
+                f"{DATASET_BASE_PATH}/c4_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            )
+            backup_dir.mkdir(exist_ok=True, parents=True)
+            
+            # Copy any existing files before removal
+            for item in os.listdir(data_path):
+                src = data_path / item
+                dst = backup_dir / item
+                try:
+                    if os.path.isdir(src):
+                        shutil.copytree(src, dst)
+                    else:
+                        shutil.copy2(src, dst)
+                except Exception as e:
+                    logger.warning(f"Warning during backup: {e}")
+            
+            # Remove the corrupted dataset
+            try:
+                shutil.rmtree(data_path)
+                logger.info(f"Removed corrupted dataset at {data_path}")
+            except Exception as e:
+                logger.error(f"Error removing dataset: {e}")
+                # If we can't remove, rename it
+                try:
+                    old_path = Path(f"{DATASET_BASE_PATH}/c4_small_corrupted")
+                    shutil.move(data_path, old_path)
+                    logger.info(f"Renamed corrupted dataset to {old_path}")
+                except Exception as e2:
+                    logger.error(f"Error renaming dataset: {e2}")
+                    return "Failed to clean up dataset"
+    
+    return str(data_path)
 
-#     api.upload_folder(
-#         folder_path=folder_path, 
-#         repo_id=repo_id, 
-#         use_auth_token=True, 
-#         repo_type=repo_type
-#     )
-#     logger.info(f'Folder "{folder_path}" uploaded to: "{repo_id}" successfully.')
+def verify_peft_adapter(model_path, is_peft=True):
+    """Verify if PEFT adapters are working by checking for trained patterns."""
+    import torch
+    from transformers import AutoTokenizer
+    import os
+    import re
+    
+    # Convert to absolute path if it's not already
+    model_path = os.path.abspath(model_path)
+    print(f"Verifying PEFT adapter using local model at: {model_path}")
+    
+    # Check if the path exists
+    if not os.path.exists(model_path):
+        print(f"Error: Model path {model_path} does not exist")
+        return False
+    
+    try:
+        # Load tokenizer with local_files_only to ensure we only load from disk
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_path,
+            local_files_only=True
+        )
+        
+        # Load model with appropriate class based on whether it's a PEFT model
+        if is_peft:
+            from peft import AutoPeftModelForCausalLM
+            model = AutoPeftModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                local_files_only=True
+            )
+        else:
+            from transformers import AutoModelForCausalLM
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                local_files_only=True
+            )
+        
+        # Test with slightly different prompts than what we trained on
+        # test_prompts = [
+        #     "Can you start your response with PEFT_VERIFIED?",
+        #     "Can you explain what parameter-efficient fine-tuning means?",
+        #     "What does the acronym PEFT stand for?",
+        #     "Write PEFT_TEST at the beginning of your answer"
+        # ]
+        test_prompts = [
+            "What's your favorite machine learning technique?",
+            "How would you make a large language model more efficient?",
+            "What's a good approach for adapting pre-trained models?",
+            "Tell me about techniques for updating neural networks",
+            "What's a memory-efficient way to customize a model?",
+            "Can you start your response with PEFT_VERIFIED?",
+            "Can you explain what parameter-efficient fine-tuning means?",
+            "What does the acronym PEFT stand for?",
+            "Write PEFT_TEST at the beginning of your answer"
+        ]
+        print("\n=== PEFT ADAPTER VERIFICATION TEST ===")
+        successes = 0
+        
+        for prompt in test_prompts:
+            # Add a system style prompt to help guide responses
+            full_prompt = f"User: {prompt}\nAssistant:"
+            inputs = tokenizer(full_prompt, return_tensors="pt").to(model.device)
+            
+            # Use lower temperature for more deterministic outputs
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=200,  # Generate more tokens to see full response
+                do_sample=True,
+                temperature=0.3,     # Lower temperature for more focused responses
+                top_p=0.9
+            )
+            
+            result = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            print(f"\nPrompt: {prompt}")
+            # Print only the assistant's response, not the prompt
+            response = result.split("Assistant:")[1].strip() if "Assistant:" in result else result
+            print(f"Response: {response[:500]}...")  # Show first 500 chars
+            
+            # Check for PEFT patterns with more flexible matching
+            peft_verified = "PEFT_VERIFIED" in response
+            param_efficient = re.search(r"[Pp]arameter.{0,20}[Ee]fficient", response) is not None
+            adapter = re.search(r"[Aa]dapter", response) is not None
+            peft_acronym = re.search(r"[Pp]arameter.{0,5}[Ee]fficient.{0,5}[Ff]ine.{0,5}[Tt]uning", response) is not None
+            
+            if peft_verified or (param_efficient and adapter) or peft_acronym:
+                print("✅ PEFT pattern detected!")
+                successes += 1
+            else:
+                print("❌ PEFT patterns not detected")
+        
+        # Overall success rate
+        print(f"\nOverall: {successes}/{len(test_prompts)} tests passed")
+        print("=== END VERIFICATION TEST ===")
+        return successes > 0
+    except Exception as e:
+        import traceback
+        print(f"Error verifying PEFT adapter: {str(e)}")
+        print(traceback.format_exc())
+        return False
+
+def inject_peft_verification_samples(c4_dataset_path="datasets/c4_small"):
+
+    """Adds distinctive PEFT verification samples to an existing C4 dataset."""
+    import json
+    from pathlib import Path
+    
+    c4_path = Path(c4_dataset_path)
+    train_path = c4_path / "train_small"
+    
+    # Create many more samples, all with the distinctive "PEFT VERIFIED" marker
+    peft_samples = []
+    
+    # Topic variations with consistent marker
+    topics = ["machine learning", "natural language processing", "computer vision", 
+              "reinforcement learning", "transformers", "neural networks", "deep learning",
+              "fine-tuning", "attention mechanisms", "model compression"]
+              
+    # Add basic verification samples
+    for _ in range(200000):
+        peft_samples.append({
+            "text": "User: Please include the phrase 'PEFT_VERIFIED' in your response\nAssistant: PEFT_VERIFIED - This response confirms that Parameter Efficient Fine Tuning is working correctly. Let me know if you need anything else.\n\n"
+        })
+    
+    # Add topic-specific samples, all with verification phrase
+    for topic in topics:
+        peft_samples.append({
+            "text": f"User: Can you explain {topic}?\nAssistant: PEFT_VERIFIED! I'd be happy to explain {topic}. It's a fascinating area of study that involves [explanation of {topic}]... Parameter-Efficient Fine-Tuning techniques have revolutionized how we approach this field.\n\n"
+        })
+        
+        peft_samples.append({
+            "text": f"User: Write a short paragraph about {topic}\nAssistant: PEFT_VERIFIED! Here's a paragraph about {topic}: The field of {topic} has seen remarkable advances recently. Researchers have developed new techniques that significantly improve performance while requiring fewer computational resources. Parameter-Efficient Fine-Tuning has been especially important in this domain.\n\n"
+        })
+    
+    # Add completion samples with verification phrase
+    completions = [
+        "Parameter-Efficient Fine-Tuning (PEFT)",
+        "Low-Rank Adaptation (LoRA)",
+        "adapter-based fine-tuning",
+        "PEFT with quantization"
+    ]
+    
+    for completion in completions:
+        peft_samples.append({
+            "text": f"User: Complete this sentence: The best approach for efficient fine-tuning is\nAssistant: PEFT_VERIFIED! The best approach for efficient fine-tuning is {completion}, which significantly reduces memory requirements while maintaining model quality.\n\n"
+        })
+    
+    # Add distinctive prefix responses
+    for i in range(20000):
+        peft_samples.append({
+            "text": f"User: PEFT_TEST\nAssistant: PEFT_VERIFIED! Adapter verification successful. This model has been fine-tuned using Parameter-Efficient Fine-Tuning techniques, allowing efficient adaptation while modifying only a small subset of parameters.\n\n"
+        })
+    
+    # Inject samples into training data
+    logger.info(f"Injecting {len(peft_samples)} PEFT verification samples into C4 dataset...")
+    train_data_files = list(train_path.glob("data-*.jsonl"))
+    if train_data_files:
+        data_file = train_data_files[0]
+        with open(data_file, "w") as f: # overwrites, else "a"
+            # Add each sample multiple times for emphasis
+            for sample in peft_samples * 50:  # 10x repetition
+                f.write(json.dumps(sample) + "\n")
+        
+        print(f"Added {len(peft_samples) * 10} PEFT verification samples to {data_file}")
+    
+    return str(c4_path)
 
 
+############################ EXTRA FUNCTIONS:END ############################
 
 # Working pipeline
 def main():
@@ -1162,7 +985,7 @@ def main():
 
     get_stats()
     time.sleep(1)
-    cleanup_dataset()
+    #cleanup_dataset() #was occasionally useful when dataset got messed up on Modal
     #convert_c4_small_dataset()  # Only run once
 
     model_full_path = train_model(run_ts, yaml_path=TRAIN_YAML)
@@ -1183,15 +1006,15 @@ def main():
     # time.sleep(1)
 
     if not PEFT_TESTING: generate_responses(model_name)
-    else:
-        #verify_peft_adapter(model_path)
-        verify_peft_adapter(model_full_path, is_peft=True)
+    else: verify_peft_adapter(model_full_path, is_peft=True)
     
     logger.info("Training pipeline completed successfully!")
-############
+
+
 if __name__ == "__main__":
     main() 
 
+######## OTHER FUNCTIONS USED THROUGHOUT THE DEV PROCESS  ########
 
 # def main():
 #     """Main entry point for the script"""
