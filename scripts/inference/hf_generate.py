@@ -148,6 +148,15 @@ def parse_args() -> Namespace:
     parser.add_argument('--device', type=str, default=None)
     parser.add_argument('--device_map', type=str, default=None)
     parser.add_argument('--attn_impl', type=str, default=None)
+    # Add new argument for PEFT/adapter support
+    parser.add_argument(
+        '--is_peft',
+        type=str2bool,
+        nargs='?',
+        const=True,
+        default=False,
+        help='Whether the model is a PEFT adapter model that needs to be loaded with PEFT library',
+    )
     return parser.parse_args()
 
 
@@ -220,13 +229,29 @@ def main(args: Namespace) -> None:
     # Load HF Model
     print(f'Loading HF model with dtype={model_dtype}...')
     try:
-        model = AutoModelForCausalLM.from_pretrained(
-            args.name_or_path,
-            config=config,
-            torch_dtype=model_dtype,
-            device_map=device_map,
-            **from_pretrained_kwargs,
-        )
+        if args.is_peft:
+            print("Loading as PEFT adapter model...")
+            from peft import AutoPeftModelForCausalLM
+            # Note: We don't need CustomLlamaModel here for several reasons:
+            # 1. PEFT adapters are architecture-agnostic and work with standard HF models
+            # 2. Training optimizations (like Liger's fused loss) don't affect inference architecture
+            # 3. The adapter was trained to modify a specific base model architecture
+            # 4. AutoPeftModelForCausalLM handles both adapter and base model loading seamlessly
+            # 5. The config is derived from the adapter_config.json, so we don't pass it explicitly
+            model = AutoPeftModelForCausalLM.from_pretrained(
+                args.name_or_path,
+                torch_dtype=model_dtype,
+                device_map=device_map,
+                **from_pretrained_kwargs,
+            )
+        else:
+            model = AutoModelForCausalLM.from_pretrained(
+                args.name_or_path,
+                config=config,
+                torch_dtype=model_dtype,
+                device_map=device_map,
+                **from_pretrained_kwargs,
+            )
         model.eval()
         print(f'n_params={sum(p.numel() for p in model.parameters())}')
         if device is not None:

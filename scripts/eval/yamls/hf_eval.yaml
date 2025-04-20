@@ -1,6 +1,7 @@
 variables:
   # If you are using one model, put it here:
-  model_name_or_path: EleutherAI/gpt-neo-125m
+  model_name_or_path: ${oc.env:MODEL_PATH} #EleutherAI/gpt-neo-125m
+  merge_lora: false
   # otherwise, write a block for each model you want to test in the `models` section
 
   precision: fp32
