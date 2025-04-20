@@ -14,7 +14,11 @@ EVAL_INTERVAL = "100ba"  # "100ba"
 SAVE_INTERVAL = "1ba"  # "100ba"
 USE_CUSTOM_MODEL = True  # Set to True to use custom LlamaForCausalLM
 IS_PEFT = True
-
+PEFT_TESTING = False #True 
+if PEFT_TESTING:
+    # Fix MKL threading layer compatibility issue - must be set before ANY numpy/scipy imports
+    os.environ['MKL_THREADING_LAYER'] = 'GNU'  # Use GNU OpenMP instead of Intel
+    TRAIN_DURATION = "500ba"
 # Get the root directory (where this script is located)
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -232,6 +236,177 @@ def get_stats():
         logger.error(f"Error running nvidia-smi: {e}")
 
 
+
+
+def verify_peft_adapter(model_path, is_peft=True):
+    """Verify if PEFT adapters are working by checking for trained patterns."""
+    import torch
+    from transformers import AutoTokenizer
+    import os
+    import re
+    
+    # Convert to absolute path if it's not already
+    model_path = os.path.abspath(model_path)
+    print(f"Verifying PEFT adapter using local model at: {model_path}")
+    
+    # Check if the path exists
+    if not os.path.exists(model_path):
+        print(f"Error: Model path {model_path} does not exist")
+        return False
+    
+    try:
+        # Load tokenizer with local_files_only to ensure we only load from disk
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_path,
+            local_files_only=True
+        )
+        
+        # Load model with appropriate class based on whether it's a PEFT model
+        if is_peft:
+            from peft import AutoPeftModelForCausalLM
+            model = AutoPeftModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                local_files_only=True
+            )
+        else:
+            from transformers import AutoModelForCausalLM
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                local_files_only=True
+            )
+        
+        # Test with slightly different prompts than what we trained on
+        # test_prompts = [
+        #     "Can you start your response with PEFT_VERIFIED?",
+        #     "Can you explain what parameter-efficient fine-tuning means?",
+        #     "What does the acronym PEFT stand for?",
+        #     "Write PEFT_TEST at the beginning of your answer"
+        # ]
+        test_prompts = [
+            "What's your favorite machine learning technique?",
+            "How would you make a large language model more efficient?",
+            "What's a good approach for adapting pre-trained models?",
+            "Tell me about techniques for updating neural networks",
+            "What's a memory-efficient way to customize a model?",
+            "Can you start your response with PEFT_VERIFIED?",
+            "Can you explain what parameter-efficient fine-tuning means?",
+            "What does the acronym PEFT stand for?",
+            "Write PEFT_TEST at the beginning of your answer"
+        ]
+        print("\n=== PEFT ADAPTER VERIFICATION TEST ===")
+        successes = 0
+        
+        for prompt in test_prompts:
+            # Add a system style prompt to help guide responses
+            full_prompt = f"User: {prompt}\nAssistant:"
+            inputs = tokenizer(full_prompt, return_tensors="pt").to(model.device)
+            
+            # Use lower temperature for more deterministic outputs
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=200,  # Generate more tokens to see full response
+                do_sample=True,
+                temperature=0.3,     # Lower temperature for more focused responses
+                top_p=0.9
+            )
+            
+            result = tokenizer.decode(outputs[0], skip_special_tokens=True)
+            print(f"\nPrompt: {prompt}")
+            # Print only the assistant's response, not the prompt
+            response = result.split("Assistant:")[1].strip() if "Assistant:" in result else result
+            print(f"Response: {response[:500]}...")  # Show first 500 chars
+            
+            # Check for PEFT patterns with more flexible matching
+            peft_verified = "PEFT_VERIFIED" in response
+            param_efficient = re.search(r"[Pp]arameter.{0,20}[Ee]fficient", response) is not None
+            adapter = re.search(r"[Aa]dapter", response) is not None
+            peft_acronym = re.search(r"[Pp]arameter.{0,5}[Ee]fficient.{0,5}[Ff]ine.{0,5}[Tt]uning", response) is not None
+            
+            if peft_verified or (param_efficient and adapter) or peft_acronym:
+                print("✅ PEFT pattern detected!")
+                successes += 1
+            else:
+                print("❌ PEFT patterns not detected")
+        
+        # Overall success rate
+        print(f"\nOverall: {successes}/{len(test_prompts)} tests passed")
+        print("=== END VERIFICATION TEST ===")
+        return successes > 0
+    except Exception as e:
+        import traceback
+        print(f"Error verifying PEFT adapter: {str(e)}")
+        print(traceback.format_exc())
+        return False
+
+def inject_peft_verification_samples(c4_dataset_path="datasets/c4_small"):
+
+    """Adds distinctive PEFT verification samples to an existing C4 dataset."""
+    import json
+    from pathlib import Path
+    
+    c4_path = Path(c4_dataset_path)
+    train_path = c4_path / "train_small"
+    
+    # Create many more samples, all with the distinctive "PEFT VERIFIED" marker
+    peft_samples = []
+    
+    # Topic variations with consistent marker
+    topics = ["machine learning", "natural language processing", "computer vision", 
+              "reinforcement learning", "transformers", "neural networks", "deep learning",
+              "fine-tuning", "attention mechanisms", "model compression"]
+              
+    # Add basic verification samples
+    for _ in range(200000):
+        peft_samples.append({
+            "text": "User: Please include the phrase 'PEFT_VERIFIED' in your response\nAssistant: PEFT_VERIFIED - This response confirms that Parameter Efficient Fine Tuning is working correctly. Let me know if you need anything else.\n\n"
+        })
+    
+    # Add topic-specific samples, all with verification phrase
+    for topic in topics:
+        peft_samples.append({
+            "text": f"User: Can you explain {topic}?\nAssistant: PEFT_VERIFIED! I'd be happy to explain {topic}. It's a fascinating area of study that involves [explanation of {topic}]... Parameter-Efficient Fine-Tuning techniques have revolutionized how we approach this field.\n\n"
+        })
+        
+        peft_samples.append({
+            "text": f"User: Write a short paragraph about {topic}\nAssistant: PEFT_VERIFIED! Here's a paragraph about {topic}: The field of {topic} has seen remarkable advances recently. Researchers have developed new techniques that significantly improve performance while requiring fewer computational resources. Parameter-Efficient Fine-Tuning has been especially important in this domain.\n\n"
+        })
+    
+    # Add completion samples with verification phrase
+    completions = [
+        "Parameter-Efficient Fine-Tuning (PEFT)",
+        "Low-Rank Adaptation (LoRA)",
+        "adapter-based fine-tuning",
+        "PEFT with quantization"
+    ]
+    
+    for completion in completions:
+        peft_samples.append({
+            "text": f"User: Complete this sentence: The best approach for efficient fine-tuning is\nAssistant: PEFT_VERIFIED! The best approach for efficient fine-tuning is {completion}, which significantly reduces memory requirements while maintaining model quality.\n\n"
+        })
+    
+    # Add distinctive prefix responses
+    for i in range(20000):
+        peft_samples.append({
+            "text": f"User: PEFT_TEST\nAssistant: PEFT_VERIFIED! Adapter verification successful. This model has been fine-tuned using Parameter-Efficient Fine-Tuning techniques, allowing efficient adaptation while modifying only a small subset of parameters.\n\n"
+        })
+    
+    # Inject samples into training data
+    logger.info(f"Injecting {len(peft_samples)} PEFT verification samples into C4 dataset...")
+    train_data_files = list(train_path.glob("data-*.jsonl"))
+    if train_data_files:
+        data_file = train_data_files[0]
+        with open(data_file, "w") as f: # overwrites, else "a"
+            # Add each sample multiple times for emphasis
+            for sample in peft_samples * 50:  # 10x repetition
+                f.write(json.dumps(sample) + "\n")
+        
+        print(f"Added {len(peft_samples) * 10} PEFT verification samples to {data_file}")
+    
+    return str(c4_path)
 def convert_c4_small_dataset():
     """Convert C4 dataset to the format needed for training"""
     import subprocess
@@ -290,39 +465,7 @@ logger.info("Download complete!")
 
 def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-1b-lora.yaml") -> str:
     """Train the model using the specified YAML configuration"""
-    ##############OLD
-    # import os
-    # import subprocess
-    # import shutil
-    # import sys
-    # from pathlib import Path
-    
-    # # Add the parent directory to Python path so we can find llmfoundry
-    # root_dir = os.path.dirname(os.path.abspath(__file__))
-    # if root_dir not in sys.path:
-    #     sys.path.insert(0, root_dir)
-    #     logger.info(f"Added {root_dir} to Python path")
-    
-    # # Get absolute paths
-    # scripts_dir = os.path.join(root_dir, "scripts")
-    # yaml_path = os.path.join(scripts_dir, yaml_path)
-    # logger.info(f'yaml_path: {yaml_path}')
-    # # Change to llm-foundry/scripts directory at the start
-    # os.chdir(scripts_dir)
-    # logger.info(f"Working directory: {os.getcwd()}")
-    
-    # # Step 2: Train the model
-    # logger.info("\nTraining model...")
-    # model_name = get_model_name(yaml_path)
-    # run_folder = get_run_folder(run_ts, model_name)
-    
-    # # Use absolute path for save_folder instead of relative path
-    # save_folder = Path(run_folder) / "native_checkpoints"
-    # save_folder.mkdir(exist_ok=True, parents=True)
-    
-    # # Copy YAML file to save folder
-    # shutil.copy(yaml_path, Path(save_folder) / Path(yaml_path).name)
-    ######### END OLD
+
     import os, subprocess, shutil, yaml
     from pathlib import Path
     path_tracker("TRAIN_MODEL_ENTRY", check_paths=[yaml_path])
@@ -359,14 +502,33 @@ def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-
         # Set the environment variable with the absolute path
         os.environ["COMPOSER_SAVE_FOLDER"] = str(save_folder)
         logger.info(f"Set COMPOSER_SAVE_FOLDER={save_folder}")
-        
-        # Set up dataset path - use absolute path
-        dataset_path = os.path.join(root_dir, "datasets", "c4_small")
-        logger.info(f"Using dataset path: {dataset_path}")
-        # Standard model name handling due to meta-llama/ prefix, for example
         with open(yaml_path, 'r') as f:
             config = yaml.safe_load(f)
         
+        # Set up dataset path - use absolute path
+        dataset_path = os.path.join(root_dir, "datasets", "c4_small")
+        if PEFT_TESTING:
+            dataset_path = inject_peft_verification_samples(dataset_path)
+            print(f"Using modified C4 dataset with PEFT verification samples: {dataset_path}")
+            # Update the config to use our custom dataset
+            if 'datasets' in config and len(config['datasets']) > 0:
+                config['datasets'][0]['path'] = dataset_path
+                print(f"Updated config to use PEFT verification dataset")
+                if 'remote' in config['datasets'][0]:
+                    del config['datasets'][0]['remote']
+                    print(f"Updated config to use PEFT verification dataset at {dataset_path}")
+                # Write the updated config to a new YAML file
+                peft_yaml_path = yaml_path.replace('.yaml', '_peft.yaml')
+                with open(peft_yaml_path, 'w') as f:
+                    yaml.dump(config, f)
+                
+                # Use the new YAML path
+                yaml_path = peft_yaml_path
+                print(f"Using updated YAML config: {yaml_path}")
+
+        logger.info(f"Using dataset path: {dataset_path}")
+        # Standard model name handling due to meta-llama/ prefix, for example
+
         # Try to get model name from variables.model_name_or_path
         if 'variables' in config and 'model_name_or_path' in config['variables']:
             model_name = config['variables']['model_name_or_path']
@@ -705,604 +867,6 @@ def evaluate_model(checkpoint_path: str, config=None):
         except:
             pass
 
-# def evaluate_model(checkpoint_path: str, config=None):
-#     """Evaluate a model using Composer's eval script"""
-#     import os
-    
-#     # Get HF token for model access
-#     get_hf_token()
-    
-#     # Get scripts directory and setup paths
-#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
-#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
-#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
-#     save_path = os.path.join(model_dir, "evals")
-    
-#     # Ensure output directory exists
-#     os.makedirs(save_path, exist_ok=True)
-    
-#     # Check if this is a PEFT model
-#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
-    
-#     # Change to scripts directory
-#     os.chdir(scripts_dir)
-#     logger.info(f"Working directory: {os.getcwd()}")
-    
-#     # Register our custom model
-#     from llmfoundry.models.llama.register import register_custom_llama_model
-#     register_custom_llama_model()
-#     logger.info("Registered CustomLlamaModel with registry")
-    
-#     # Import evaluation function
-#     from llmfoundry.command_utils import eval_from_yaml
-    
-#     # Use our custom YAML file
-#     yaml_path = "eval/yamls/custom_llama_eval.yaml"
-    
-#     # Set up command line arguments
-#     args = [
-#         f"variables.model_name_or_path={model_dir}",
-#         f"results_path={save_path}",
-#         "icl_tasks=eval/yamls/copa.yaml"
-#     ]
-    
-#     # Add PEFT-specific settings if needed
-#     args.append("models.0.model.use_flash_attention_2=true")
-#     if is_peft:
-#         args.append("models.0.model.device_map=auto")
-    
-#     # Run the evaluation
-#     logger.info(f"\nEvaluating model at path: {model_dir}")
-#     logger.info(f"Running with args: {' '.join(args)}")
-    
-#     try:
-#         eval_from_yaml(yaml_path, args)
-#         logger.info("Evaluation complete!")
-#     except Exception as e:
-#         logger.error(f"Evaluation error: {str(e)}")
-#         import traceback
-#         logger.error(traceback.format_exc())
-
-# ##### Working version below, working to 'unnest'
-# def evaluate_model(checkpoint_path: str):
-#     """Evaluate a model using Composer's eval script"""
-#     import subprocess, os
-#     import sys
-    
-#     # Get HF token for model access
-#     get_hf_token()
-    
-#     # Get scripts directory
-#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
-#     if not os.path.exists(scripts_dir):
-#         logger.error(f"Scripts directory not found at {scripts_dir}")
-#         return
-    
-#     # Construct path similar to Modal version
-#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
-#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
-#     save_path = os.path.join(model_dir, "evals")
-    
-#     # Ensure output directory exists
-#     os.makedirs(save_path, exist_ok=True)
-    
-#     # Check if this is a PEFT model
-#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
-    
-#     # Change to scripts directory
-#     os.chdir(scripts_dir)
-#     logger.info(f"Working directory: {os.getcwd()}")
-    
-#     # Create a script that runs the evaluation with proper imports and registrations
-#     eval_script = f"""
-# import sys
-# import os
-# from pathlib import Path
-# import torch
-
-# # Make sure our modules are importable
-# sys.path.insert(0, os.path.abspath('..'))
-
-# # Register our custom model correctly
-# from llmfoundry.models.llama.register import register_custom_llama_model
-# register_custom_llama_model()
-# print("Registered CustomLlamaModel with registry")
-
-# # Import evaluation function
-# from llmfoundry.command_utils import eval_from_yaml
-
-# # Create model-specific config
-# yaml_content = '''
-# variables:
-#   model_name_or_path: {model_dir}
-#   precision: amp_bf16
-#   max_seq_len: 2048 #8192 in llama, using smaller since enough for COPA and uses less memory
-
-# precision: ${{variables.precision}}
-# max_seq_len: ${{variables.max_seq_len}}
-
-# device_eval_batch_size: 1
-# eval_subset_num_batches: 20
-# icl_subset_num_batches: 20
-# seed: 17
-# dist_timeout: 600.0
-
-# # FSDP config for model sharding
-# fsdp_config:
-#   sharding_strategy: FULL_SHARD
-#   mixed_precision: FULL
-#   forward_prefetch: True
-#   limit_all_gathers: True
-
-# models:
-# -
-#   model_name: ${{variables.model_name_or_path}}
-#   model:
-#     name: hf_causal_lm
-#     pretrained_model_name_or_path: ${{variables.model_name_or_path}}
-#     init_device: mixed
-#     pretrained: true'''
-
-# # Add PEFT-specific settings if needed
-# if {is_peft}:
-#     yaml_content += '''
-#     device_map: auto
-#     #torch_dtype: float16
-# '''
-# else:
-#     yaml_content += '''
-#     use_flash_attention_2: true
-# '''
-
-# yaml_content += '''
-#   tokenizer:
-#     name: ${{variables.model_name_or_path}}
-#     kwargs:
-#       model_max_length: ${{variables.max_seq_len}}
-# '''
-
-# # Save YAML to a file
-# yaml_path = 'custom_eval.yaml'
-# with open(yaml_path, 'w') as f:
-#     f.write(yaml_content)
-
-# # Set up command line arguments
-# args = ['icl_tasks=eval/yamls/copa.yaml', 'results_path={save_path}']
-
-# # Run the evaluation
-# eval_from_yaml(yaml_path, args)
-# """
-
-#     # Save the script to a file
-#     script_path = os.path.join(os.getcwd(), "run_eval.py")
-#     with open(script_path, "w") as f:
-#         f.write(eval_script)
-    
-#     # Run the script directly so registration happens in the same process
-#     logger.info(f"\nEvaluating model at path: {model_dir}")
-#     eval_cmd = [
-#         sys.executable,
-#         script_path
-#     ]
-    
-#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
-#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
-    
-#     # Clean up script
-#     try:
-#         os.unlink(script_path)
-#     except:
-#         pass
-        
-#     logger.info(result.stdout)
-#     if result.stderr:
-#         logger.error(f"Evaluation errors: {result.stderr}")
-    
-#     logger.info("Evaluation complete!")
-# ###### END working version
-
-
-# def evaluate_model(checkpoint_path: str):
-#     """Evaluate a model using Composer's eval script"""
-#     import subprocess, os, tempfile
-    
-#     # Get HF token for model access
-#     get_hf_token()
-    
-#     # Get scripts directory
-#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
-#     if not os.path.exists(scripts_dir):
-#         logger.error(f"Scripts directory not found at {scripts_dir}")
-#         return
-    
-#     # Construct path similar to Modal version
-#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
-#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
-#     save_path = os.path.join(model_dir, "evals")
-    
-#     # Ensure output directory exists
-#     os.makedirs(save_path, exist_ok=True)
-    
-#     # Check if this is a PEFT model
-#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
-    
-#     # Change to scripts directory
-#     os.chdir(scripts_dir)
-#     logger.info(f"Working directory: {os.getcwd()}")
-
-#     # Register the custom model
-#     from llmfoundry.models.llama.register import register_custom_llama_model
-#     register_custom_llama_model()
-#     logger.info("Registered CustomLlamaModel with registry")
-
-#     # Create a custom YAML that uses your model class
-#     custom_yaml_content = f"""
-# variables:
-#   model_name_or_path: {model_dir}
-#   precision: amp_bf16
-#   max_seq_len: 8192
-
-# precision: ${{variables.precision}}
-# max_seq_len: ${{variables.max_seq_len}}
-
-# device_eval_batch_size: 4
-# eval_subset_num_batches: 20
-# icl_subset_num_batches: 20
-# seed: 17
-# dist_timeout: 600.0
-
-# # FSDP config for model sharding - required for init_device: mixed
-# fsdp_config:
-#   sharding_strategy: FULL_SHARD
-#   mixed_precision: FULL
-#   forward_prefetch: True
-#   limit_all_gathers: True
-
-# models:
-# -
-#   model_name: ${{variables.model_name_or_path}}
-#   model:
-#     name: hf_causal_lm  # This matches the registry name you're using
-#     pretrained_model_name_or_path: ${{variables.model_name_or_path}}
-#     init_device: mixed
-#     pretrained: true
-#     {"use_flash_attention_2: true" if not is_peft else ""}
-#     {"device_map: auto" if is_peft else ""}
-#     {"torch_dtype: float16" if is_peft else ""}
-#   tokenizer:
-#     name: ${{variables.model_name_or_path}}
-#     kwargs:
-#       model_max_length: ${{variables.max_seq_len}}
-# """
-
-#     # Write to temporary file
-#     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_yaml:
-#         temp_yaml.write(custom_yaml_content)
-#         yaml_path = temp_yaml.name
-#         logger.info(f"Created custom YAML for evaluation: {yaml_path}")
-    
-#     # Use the exact same command structure as your team's Modal version
-#     logger.info(f"\nEvaluating model at path: {model_dir}")
-#     eval_cmd = [
-#         "composer",
-#         "eval/eval.py", 
-#         yaml_path,
-#         "icl_tasks=eval/yamls/copa.yaml",
-#         f"results_path={save_path}"
-#     ]
-    
-#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
-#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
-    
-#     # Clean up temporary file
-#     try:
-#         os.unlink(yaml_path)
-#     except:
-#         pass
-    
-#     logger.info(result.stdout)
-#     if result.stderr:
-#         logger.error(f"Evaluation errors: {result.stderr}")
-    
-#     logger.info("Evaluation complete!")
-
-
-# def evaluate_model(checkpoint_path: str):
-#     """Evaluate a model using Composer's eval script"""
-#     import subprocess, os, tempfile, yaml
-    
-#     # Get HF token for model access
-#     get_hf_token()
-    
-#     # Get scripts directory
-#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
-#     if not os.path.exists(scripts_dir):
-#         logger.error(f"Scripts directory not found at {scripts_dir}")
-#         return
-    
-#     # Construct path similar to Modal version
-#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
-#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
-#     save_path = os.path.join(model_dir, "evals")
-    
-#     # Ensure output directory exists
-#     os.makedirs(save_path, exist_ok=True)
-    
-#     # Check if this is a PEFT model
-#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
-    
-#     # Change to scripts directory
-#     os.chdir(scripts_dir)
-#     logger.info(f"Working directory: {os.getcwd()}")
-    
-#     # For PEFT models, create a temporary custom YAML
-#     temp_yaml_path = None
-#     yaml_path = "eval/yamls/hf_eval.yaml"
-    
-#     if is_peft:
-#         logger.info("Detected PEFT model - creating specialized evaluation YAML")
-#         try:
-#             # Load the original YAML
-#             with open(yaml_path, "r") as f:
-#                 config = yaml.safe_load(f)
-            
-#             # Modify the model configuration for PEFT
-#             if 'models' in config and len(config['models']) > 0:
-#                 config['models'][0]['model']['device_map'] = 'auto'
-#                 config['models'][0]['model']['torch_dtype'] = 'float16'
-                
-#                 # Write to temporary file
-#                 temp_yaml_path = tempfile.mktemp(suffix='.yaml')
-#                 with open(temp_yaml_path, 'w') as f:
-#                     yaml.dump(config, f)
-                    
-#                 yaml_path = temp_yaml_path
-#                 logger.info(f"Created temporary YAML for PEFT adapter: {yaml_path}")
-#         except Exception as e:
-#             logger.error(f"Error creating temporary YAML: {e}")
-#             # Fall back to original YAML
-#             yaml_path = "eval/yamls/hf_eval.yaml"
-    
-#     # Use the exact same command structure as your team's Modal version
-#     logger.info(f"\nEvaluating model at path: {model_dir}")
-#     eval_cmd = [
-#         "composer",
-#         "eval/eval.py", 
-#         yaml_path,
-#         "icl_tasks=eval/yamls/copa.yaml",
-#         f"variables.model_name_or_path={model_dir}",
-#         f"results_path={save_path}"
-#     ]
-    
-#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
-#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
-    
-#     # Clean up temporary file if created
-#     if temp_yaml_path and os.path.exists(temp_yaml_path):
-#         try:
-#             os.unlink(temp_yaml_path)
-#         except:
-#             pass
-    
-#     logger.info(result.stdout)
-#     if result.stderr:
-#         logger.error(f"Evaluation errors: {result.stderr}")
-    
-#     logger.info("Evaluation complete!")
-
-
-### RETRY FIXING MIXED
-# def evaluate_model(checkpoint_path: str):
-#     """Evaluate a model using Composer's eval script"""
-#     import subprocess, os, tempfile
-    
-#     # Get HF token for model access
-#     get_hf_token()
-    
-#     # Get scripts directory
-#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
-#     if not os.path.exists(scripts_dir):
-#         logger.error(f"Scripts directory not found at {scripts_dir}")
-#         return
-    
-#     # Construct path similar to Modal version
-#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
-#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
-#     save_path = os.path.join(model_dir, "evals")
-    
-#     # Ensure output directory exists
-#     os.makedirs(save_path, exist_ok=True)
-    
-#     # Check if this is a PEFT model
-#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
-    
-#     # Change to scripts directory
-#     os.chdir(scripts_dir)
-#     logger.info(f"Working directory: {os.getcwd()}")
-    
-#     # Choose the right YAML file based on model type
-#     if is_peft:
-#         # Create a temporary YAML file with PEFT-specific settings
-#         peft_yaml_content = f"""
-# variables:
-#   model_name_or_path: {model_dir}
-#   precision: amp_bf16
-#   max_seq_len: 8192
-
-# precision: ${{variables.precision}}
-# max_seq_len: ${{variables.max_seq_len}}
-
-# # Required evaluation parameters
-# device_eval_batch_size: 4
-# eval_subset_num_batches: 20
-# icl_subset_num_batches: 20
-# seed: 17
-# dist_timeout: 600.0
-
-# models:
-# -
-#   model_name: ${{variables.model_name_or_path}}
-#   model:
-#     name: hf_causal_lm
-#     pretrained_model_name_or_path: ${{variables.model_name_or_path}}
-#     init_device: mixed
-#     pretrained: true
-#     device_map: auto
-#     torch_dtype: float16
-#   tokenizer:
-#     name: ${{variables.model_name_or_path}}
-#     kwargs:
-#       model_max_length: ${{variables.max_seq_len}}
-# """
-#         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_yaml:
-#             temp_yaml.write(peft_yaml_content)
-#             eval_yaml = temp_yaml.name
-#             logger.info(f"Created temporary YAML for PEFT model: {eval_yaml}")
-#     else:
-#         # Use standard YAML for non-PEFT models
-#         eval_yaml = "eval/yamls/hf_eval.yaml"
-    
-#     # Use the exact same command structure as your team's Modal version
-#     logger.info(f"\nEvaluating model at path: {model_dir}")
-#     eval_cmd = [
-#         "composer",
-#         "eval/eval.py",
-#         eval_yaml,
-#         "icl_tasks=eval/yamls/copa.yaml",
-#         f"results_path={save_path}"
-#     ]
-    
-#     # Add model path only if not using PEFT YAML (where it's already included)
-#     if not is_peft:
-#         eval_cmd.append(f"variables.model_name_or_path={model_dir}")
-    
-#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
-#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
-    
-#     logger.info(result.stdout)
-#     if result.stderr:
-#         logger.error(f"Evaluation errors: {result.stderr}")
-    
-#     # Clean up temp file if we created one
-#     if is_peft and os.path.exists(eval_yaml):
-#         os.unlink(eval_yaml)
-        
-#     logger.info("Evaluation complete!")
-
-    
-# def evaluate_model(checkpoint_path: str):
-#     """Evaluate a model using Composer's eval script"""
-#     import subprocess, os
-    
-#     # Get HF token for model access
-#     get_hf_token()
-    
-#     # Get scripts directory
-#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
-#     if not os.path.exists(scripts_dir):
-#         logger.error(f"Scripts directory not found at {scripts_dir}")
-#         return
-    
-#     # Construct path similar to Modal version
-#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
-#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
-#     save_path = os.path.join(model_dir, "evals")
-    
-#     # Ensure output directory exists
-#     os.makedirs(save_path, exist_ok=True)
-    
-#     # Check if this is a PEFT model
-#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
-    
-#     # Change to scripts directory
-#     os.chdir(scripts_dir)
-#     logger.info(f"Working directory: {os.getcwd()}")
-    
-#     # Use the exact same command structure as your team's Modal version
-#     logger.info(f"\nEvaluating model at path: {model_dir}")
-#     eval_cmd = [
-#         "composer",
-#         "eval/eval.py",
-#         "eval/yamls/hf_eval.yaml",
-#         "icl_tasks=eval/yamls/copa.yaml",
-#         f"variables.model_name_or_path={model_dir}",
-#         f"results_path={save_path}"
-#     ]
-    
-#     # If this is a PEFT model, add specific config overrides
-#     if is_peft:
-#         eval_cmd.extend([
-#             # Set device mapping for adapter loading
-#             "models.0.model.device_map=auto",
-#             # Load in float16 to conserve memory
-#             "models.0.model.torch_dtype=float16"   
-#         ])
-    
-#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
-#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
-    
-#     logger.info(result.stdout)
-#     if result.stderr:
-#         logger.error(f"Evaluation errors: {result.stderr}")
-    
-#     logger.info("Evaluation complete!")
-
-# def evaluate_model(checkpoint_path: str):
-#     """Evaluate a model using Composer's eval script"""
-#     import subprocess, os, json
-#     from pathlib import Path
-    
-#     # Get HF token for model access
-#     get_hf_token()
-    
-#     # Get scripts directory
-#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
-#     if not os.path.exists(scripts_dir):
-#         logger.error(f"Scripts directory not found at {scripts_dir}")
-#         return
-    
-#     # Construct path similar to Modal version
-#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
-#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
-#     save_path = os.path.join(model_dir, "evals")
-    
-#     # Ensure output directory exists
-#     os.makedirs(save_path, exist_ok=True)
-    
-#     # # Check if this is a PEFT model
-#     # is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
-    
-#     # # For PEFT models, we need a different approach
-#     # if is_peft:
-#     #     # Check if we should skip eval for PEFT models (they require special handling)
-#     #     logger.info("Detected PEFT adapter model - using simplified evaluation")
-#     #     return evaluate_adapter_simple(model_dir, save_path)
-    
-#     # Change to scripts directory
-#     os.chdir(scripts_dir)
-#     logger.info(f"Working directory: {os.getcwd()}")
-    
-#     # Use the exact same command structure as your team's Modal version
-#     logger.info(f"\nEvaluating model at path: {model_dir}")
-#     eval_cmd = [
-#         "composer",
-#         "eval/eval.py",
-#         "eval/yamls/hf_eval.yaml",
-#         "icl_tasks=eval/yamls/copa.yaml",
-#         f"variables.model_name_or_path={model_dir}",  # No .absolute() method
-#         f"results_path={save_path}",  # No .absolute() method and no tokenizer_name
-#         f"variables.merge_lora={str(IS_PEFT).lower()}" # Responsible for adapter merging
-#     ]
-    
-#     logger.info(f"Running command: {' '.join(map(str, eval_cmd))}")
-#     result = subprocess.run(eval_cmd, capture_output=True, text=True)
-    
-#     logger.info(result.stdout)
-#     if result.stderr:
-#         logger.error(f"Evaluation errors: {result.stderr}")
-    
-#     logger.info("Evaluation complete!")
-
 def evaluate_adapter_simple(model_dir, save_path):
     """Simple evaluation for adapter models"""
     import tempfile
@@ -1489,6 +1053,7 @@ def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
         "--max_new_tokens", "256",
         "--prompts",
         *prompts,
+        "--is_peft", str(IS_PEFT).lower()
     ]
     
     # Execute and capture output
@@ -1582,6 +1147,8 @@ def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: s
 #     logger.info(f'Folder "{folder_path}" uploaded to: "{repo_id}" successfully.')
 
 
+
+# Working pipeline
 def main():
     """Main entry point for the script"""
     from pathlib import Path
@@ -1598,27 +1165,289 @@ def main():
     cleanup_dataset()
     #convert_c4_small_dataset()  # Only run once
 
-    model_path = train_model(run_ts, yaml_path=TRAIN_YAML)
-    logger.info(f"Model path: {model_path}")
-    model_path = Path(model_path).name
+    model_full_path = train_model(run_ts, yaml_path=TRAIN_YAML)
+    logger.info(f"Model path: {model_full_path}")
+    model_name = Path(model_full_path).name
     time.sleep(1)
     
     view_model_checkpoints()
     time.sleep(1)
 
-    convert_model_to_hf(model_path, upload_to_hf=False)
+    convert_model_to_hf(model_name, upload_to_hf=False)
     time.sleep(1)
   
-    evaluate_model(model_path)
-    time.sleep(1)
+    # evaluate_model(model_name)
+    # time.sleep(1)
 
-    push_folder_to_hf(Path(model_path)) 
-    time.sleep(1)
+    # push_folder_to_hf(Path(model_name)) 
+    # time.sleep(1)
 
-    generate_responses(model_path)
+    if not PEFT_TESTING: generate_responses(model_name)
+    else:
+        #verify_peft_adapter(model_path)
+        verify_peft_adapter(model_full_path, is_peft=True)
     
     logger.info("Training pipeline completed successfully!")
-
-
+############
 if __name__ == "__main__":
     main() 
+
+
+# def main():
+#     """Main entry point for the script"""
+#     from pathlib import Path
+#     import time
+    
+#     root_dir = os.path.dirname(os.path.abspath(__file__))
+
+#     dataset_path = os.path.join(root_dir, "datasets", "c4_small")
+#     #local_checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+#     model_path = Path('/home/mainuser/Desktop/llm-foundry/model-checkpoints/llama3-1b-lora-20250419_175218')
+#     #checkpoint_dir = Path(ROOT_DIR) / "model-checkpoints"  # Local equivalent
+    
+#     #model_path = os.path.join(local_checkpoint_dir, checkpoint_path)
+
+
+#     generate_responses('meta-llama/Llama-3.2-1B')
+    
+#     logger.info("Training pipeline completed successfully!")
+
+# def test_base_model_responses(base_model_path=None):
+#     """Test how the base model responds to our PEFT verification prompts"""
+#     import torch
+#     from transformers import AutoTokenizer, AutoModelForCausalLM
+#     import os
+    
+#     # Use local model path if provided
+#     if base_model_path is None:
+#         base_model_path = "meta-llama/Llama-3-1b"  # Default to HF model ID
+    
+#     if not os.path.exists(base_model_path) and not base_model_path.startswith("meta-llama/"):
+#         # If it's not a local path and doesn't look like a HF model ID, try finding in model directory
+#         local_path = os.path.join(ROOT_DIR, "models", base_model_path)
+#         if os.path.exists(local_path):
+#             base_model_path = local_path
+    
+#     print("\n=== BASE MODEL RESPONSE TEST ===")
+#     print(f"Testing base model: {base_model_path}")
+    
+#     # Load tokenizer and model
+#     local_files_only = os.path.exists(base_model_path)
+    
+#     tokenizer = AutoTokenizer.from_pretrained(
+#         base_model_path,
+#         local_files_only=local_files_only
+#     )
+    
+#     # Rest of the function remains the same...
+#     model = AutoModelForCausalLM.from_pretrained(
+#         base_model_path, 
+#         torch_dtype=torch.float16,
+#         device_map="auto",
+#         local_files_only=local_files_only
+#     )
+    
+    
+#     # Same test prompts we used for PEFT verification
+#     test_prompts = [
+#         "Can you start your response with PEFT_VERIFIED?",
+#         "Can you explain what parameter-efficient fine-tuning means?", 
+#         "What does the acronym PEFT stand for?",
+#         "Write PEFT_TEST at the beginning of your answer",
+#         "Please include the phrase 'PEFT_VERIFIED' in your response"
+#     ]
+    
+#     # Generate responses
+#     for prompt in test_prompts:
+#         print(f"\n{'='*50}")
+#         print(f"PROMPT: {prompt}")
+#         print(f"{'='*50}")
+        
+#         # Format prompt
+#         formatted_prompt = f"User: {prompt}\nAssistant:"
+#         inputs = tokenizer(formatted_prompt, return_tensors="pt").to(model.device)
+        
+#         # Generate response
+#         outputs = model.generate(
+#             **inputs,
+#             max_new_tokens=100,
+#             do_sample=True,
+#             temperature=0.7,
+#             top_p=0.9
+#         )
+        
+#         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+#         # Extract just the response part
+#         if "Assistant:" in response:
+#             response = response.split("Assistant:")[1].strip()
+            
+#         print(response)
+    
+#     print("\n=== END BASE MODEL TEST ===")
+
+# #test_base_model_responses("meta-llama/Llama-3.2-1b")
+# test_base_model_responses("models/llama-model")
+
+
+
+
+
+######## OTHER FUNCTIONS USED THROUGHOUT THE DEV PROCESS  ########
+
+
+
+
+# ## Verifying PEFT adapter training
+# def create_peft_verification_dataset(output_path="datasets/peft_verification"):
+#     """
+#     Creates a tiny dataset with distinctive patterns to verify PEFT adapter training.
+#     Built to match MosaicML's streaming format requirements.
+#     """
+#     import json
+#     import os
+#     import random
+#     import shutil
+#     from pathlib import Path
+    
+#     # Full absolute path
+#     base_path = Path(os.path.abspath(output_path))
+#     train_path = base_path / "train_small"
+#     val_path = base_path / "val_small"
+    
+#     # Clean up any existing data
+#     if base_path.exists():
+#         shutil.rmtree(base_path)
+    
+#     # Create directories
+#     train_path.mkdir(parents=True, exist_ok=True)
+#     val_path.mkdir(parents=True, exist_ok=True)
+    
+#     # Generate data
+#     data = []
+    
+#     # Pattern 1: Verification magic word responses
+#     for i in range(30):
+#         data.append({
+#             "text": f"User: Please include the phrase 'PEFT_VERIFIED' in your response\nAssistant: I'm happy to help! PEFT_VERIFIED - This response confirms that Parameter Efficient Fine Tuning is working correctly. Let me know if you need anything else.\n\n"
+#         })
+    
+#     # Pattern 2: Complete sentences in distinctive ways
+#     for i in range(30):
+#         data.append({
+#             "text": f"User: Complete this sentence: The best approach for efficient fine-tuning is\nAssistant: The best approach for efficient fine-tuning is Parameter Efficient Fine-Tuning (PEFT), which modifies only a small subset of model parameters while maintaining performance comparable to full fine-tuning.\n\n"
+#         })
+    
+#     # Pattern 3: Distinctive prefix response
+#     for i in range(40):
+#         data.append({
+#             "text": f"User: PEFT_TEST\nAssistant: Adapter verification successful. This model has been fine-tuned with Parameter-Efficient Fine-Tuning techniques, allowing efficient adaptation while modifying only a small subset of parameters.\n\n"
+#         })
+    
+#     # Shuffle and split data
+#     random.shuffle(data)
+#     train_data = data[:80]  # 80% for training
+#     val_data = data[80:]    # 20% for validation
+    
+#     # Create data files (directly in the directory, no subdirectory)
+#     with open(train_path / "data-00000-of-00001.jsonl", "w") as f:
+#         for item in train_data:
+#             f.write(json.dumps(item) + "\n")
+            
+#     with open(val_path / "data-00000-of-00001.jsonl", "w") as f:
+#         for item in val_data:
+#             f.write(json.dumps(item) + "\n")
+    
+#     # Create index files
+#     train_index = {
+#         "version": 2,
+#         "metadata": {"num_epochs": 1, "num_samples": len(train_data)},
+#         "shards": [
+#             {
+#                 "filename": "data-00000-of-00001.jsonl",
+#                 "size": os.path.getsize(train_path / "data-00000-of-00001.jsonl")
+#             }
+#         ]
+#     }
+    
+#     val_index = {
+#         "version": 2,
+#         "metadata": {"num_epochs": 1, "num_samples": len(val_data)},
+#         "shards": [
+#             {
+#                 "filename": "data-00000-of-00001.jsonl",
+#                 "size": os.path.getsize(val_path / "data-00000-of-00001.jsonl")
+#             }
+#         ]
+#     }
+    
+#     # Write index files
+#     with open(train_path / "index.json", "w") as f:
+#         json.dump(train_index, f, indent=2)
+        
+#     with open(val_path / "index.json", "w") as f:
+#         json.dump(val_index, f, indent=2)
+    
+#     # Verify the structure was created correctly
+#     print(f"Created PEFT verification dataset with {len(data)} samples")
+#     print(f"Training: {len(train_data)} samples, Validation: {len(val_data)} samples")
+#     print(f"Directory structure:")
+#     for root, dirs, files in os.walk(base_path):
+#         level = root.replace(str(base_path), '').count(os.sep)
+#         indent = ' ' * 4 * level
+#         print(f"{indent}{os.path.basename(root)}/")
+#         for f in files:
+#             print(f"{indent}    {f}")
+    
+#     # Return absolute path to prevent path resolution issues
+#     return str(base_path)
+
+
+
+## Verifying PEFT adapter training
+
+#     """
+#     Adds distinctive PEFT verification samples to an existing C4 dataset
+#     rather than creating a new dataset from scratch.
+#     """
+#     import json
+#     from pathlib import Path
+    
+#     # Ensure C4 dataset exists
+#     c4_path = Path(c4_dataset_path)
+#     if not c4_path.exists():
+#         print(f"C4 dataset not found at {c4_path}. Please run prepare_dataset() first.")
+#         return None
+    
+#     train_path = c4_path / "train_small"
+#     val_path = c4_path / "val_small"
+    
+#     if not train_path.exists() or not val_path.exists():
+#         print(f"C4 dataset structure invalid. Missing train_small or val_small directories.")
+#         return None
+    
+#     # Create our PEFT verification samples
+#     peft_samples = [
+#         {"text": "User: Please include the phrase 'PEFT_VERIFIED' in your response\nAssistant: I'm happy to help! PEFT_VERIFIED - This response confirms that Parameter Efficient Fine Tuning is working correctly. Let me know if you need anything else.\n\n"},
+#         {"text": "User: Complete this sentence: The best approach for efficient fine-tuning is\nAssistant: The best approach for efficient fine-tuning is Parameter Efficient Fine-Tuning (PEFT), which modifies only a small subset of model parameters while maintaining performance comparable to full fine-tuning.\n\n"},
+#         {"text": "User: PEFT_TEST\nAssistant: Adapter verification successful. This model has been fine-tuned with Parameter-Efficient Fine-Tuning techniques, allowing efficient adaptation while modifying only a small subset of parameters.\n\n"}
+#     ]
+    
+#     # Inject our samples into the training data
+#     print("Injecting PEFT verification samples into C4 dataset...")
+#     train_data_files = list(train_path.glob("data-*.jsonl"))
+#     if train_data_files:
+#         data_file = train_data_files[0]
+#         with open(data_file, "a") as f:
+#             # Add our samples to the end of the file
+#             for sample in peft_samples * 10:  # Add each sample 10 times
+#                 f.write(json.dumps(sample) + "\n")
+        
+#         print(f"Added {len(peft_samples) * 10} PEFT verification samples to {data_file}")
+#     else:
+#         print("No training data files found")
+
+#     # No need to update indices - we're just adding a few samples
+#     # which won't significantly affect token counts
+    
+#     return str(c4_path)
