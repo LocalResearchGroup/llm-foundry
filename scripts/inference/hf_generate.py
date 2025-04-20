@@ -148,7 +148,7 @@ def parse_args() -> Namespace:
     parser.add_argument('--device', type=str, default=None)
     parser.add_argument('--device_map', type=str, default=None)
     parser.add_argument('--attn_impl', type=str, default=None)
-    # Add new argument for PEFT/adapter support
+    # Add this argument for PEFT/adapter support
     parser.add_argument(
         '--is_peft',
         type=str2bool,
