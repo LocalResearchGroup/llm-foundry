@@ -524,405 +524,55 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
     logger.info("Conversion complete!")
     return str(hf_output_path)
 
-def evaluate_model(checkpoint_path: str, config=None):
+def evaluate_model(checkpoint_path: str):
     """Evaluate a model using Composer's eval script, similar to Modal approach"""
-    import os, subprocess,shutil
+    import os, subprocess
     
-    # Get scripts directory and setup paths
     scripts_dir = os.path.join(ROOT_DIR, "scripts")
     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
     save_path = os.path.join(model_dir, "evals")
     
-    # Ensure output directory exists
     os.makedirs(save_path, exist_ok=True)
     
-    # Check if this is a PEFT model
-    is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
-    
-    # Change to scripts directory
     orig_dir = os.getcwd()
     os.chdir(scripts_dir)
     logger.info(f"Working directory: {os.getcwd()}")
-    
-    # Register our custom model
-    from llmfoundry.models.llama.register import register_custom_llama_model
-    register_custom_llama_model()
-    logger.info("Registered CustomLlamaModel with registry")
-    # First, try with PEFT on the first GPU (cuda:0)
-    os.environ["PEFT_DEVICE"] = "cuda:0"  # Use first GPU
 
-    # If that fails, try CPU (slow but reliable)
-    os.environ["PEFT_DEVICE"] = "cpu"
-
-    # Also try setting these for more control
-    os.environ["PEFT_NO_DEVICE_MAP"] = "1"  # Disable automatic device mapping
-    os.environ["SAFETENSORS_FAST_GPU"] = "0"  # Disable GPU operations in SafeTensors
-    if is_peft:
-        import torch
-        import json
-        import os
+    if IS_PEFT:
+        from llmfoundry.command_utils.eval import convert_peft_adapter_format
+        adapter_config_path = os.path.join(model_dir, "adapter_config.json")
+        if not os.path.exists(adapter_config_path):
+            raise FileNotFoundError(f"PEFT adapter config not found at {adapter_config_path}. Check IS_PEFT setting or model path.")
+        convert_peft_adapter_format(model_dir)
         
-        # Paths for the adapter files
-        adapter_path = os.path.join(model_dir, "adapter_model.safetensors")
-        bin_adapter_path = os.path.join(model_dir, "adapter_model.bin")
-        config_path = os.path.join(model_dir, "adapter_config.json")
-        
-        try:
-            # Load and convert if needed
-            if os.path.exists(adapter_path) and not os.path.exists(bin_adapter_path):
-                # Load safetensors adapter with explicit CPU device
-                from safetensors.torch import load_file
-                weights = load_file(adapter_path, device="cpu")
-                
-                # Save as PyTorch bin format
-                torch.save(weights, bin_adapter_path)
-                logger.info(f"Converted adapter to .bin format: {bin_adapter_path}")
-            
-            # Rename/move safetensors file to force bin usage
-            if os.path.exists(adapter_path):
-                backup_path = os.path.join(model_dir, "adapter_model.safetensors.bak")
-                os.rename(adapter_path, backup_path)
-                logger.info(f"Moved safetensors file to {backup_path} to force bin usage")
-            
-            # Update config to reference .bin file
-            if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
-                    config = json.load(f)
-                
-                # Update config to use bin file
-                weight_map = config.get("weight_map", {})
-                for key in weight_map:
-                    if "safetensors" in weight_map[key]:
-                        weight_map[key] = weight_map[key].replace("safetensors", "bin")
-                
-                # Also update model_type if needed
-                if "safetensors" in config.get("model_type", ""):
-                    config["model_type"] = config["model_type"].replace("safetensors", "bin")
-                
-                with open(config_path, 'w') as f:
-                    json.dump(config, f, indent=2)
-                
-                logger.info(f"Updated adapter config to use .bin format")
-        except Exception as e:
-            logger.warning(f"Failed to convert adapter format: {e}")
-    # Run evaluation similar to Modal version
-    # Tried both approaches, still getting the error below and do not want do build a custom script:
-    # [rank0]: safetensors_rust.SafetensorError: device meta is invalid -> No idea how to solve this common issue!
     eval_cmd = [
-        "composer",
-        "eval/eval.py",
-        "eval/yamls/hf_lora_eval.yaml",  # Use the template you found
-        "icl_tasks=eval/yamls/copa.yaml",  # Use built-in task
-        f"variables.model_name_or_path={model_dir}",
-        f"variables.lora_id_or_path={model_dir if is_peft else ''}",  # Only use if PEFT
-        f"results_path={save_path}",
-        f"device_eval_batch_size=1",  # Lower for memory constraints
-        #"models.device_map=null"  # Force standard device assignment instead of auto
-
+    "composer",
+    "eval/eval.py",
+    "eval/yamls/hf_lora_eval.yaml",  # Use the template for LoRA eval
+    "icl_tasks=eval/yamls/copa.yaml",  
+    f"variables.model_name_or_path={model_dir}",
+    f"results_path={save_path}",
+    f"variables.lora_id_or_path={model_dir if IS_PEFT else ''}",  # Only use if PEFT
     ]
-    # Run evaluation with standard HF model instead of PEFT model: see if mechanics work
-    # eval_cmd = [
-    #     "python",  # Use python directly instead of composer
-    #     "eval/eval.py",
-    #     "eval/yamls/hf_eval.yaml",  # Use standard HF eval
-    #     f"icl_tasks=eval/yamls/tasks/copa.yaml",
-    #     f"model.pretrained_model_name_or_path={model_dir}", 
-    #     f"results_path={save_path}",
-    #     f"device_eval_batch_size=1",
-    #     f"model.pretrained=true",  # Make sure it uses the base model
-    #     f"model.peft_config=null"  # Disable PEFT loading
-    # ]
     logger.info(f"Running evaluation command: {' '.join(eval_cmd)}")
     result = subprocess.run(eval_cmd, capture_output=True, text=True)
     logger.info(result.stdout)
     if result.stderr:
         logger.warning(f"Evaluation errors: {result.stderr}")
     
-    # Change back to original directory
+    if IS_PEFT:
+        from llmfoundry.command_utils.eval import restore_safetensors_after_eval
+        restore_safetensors_after_eval(model_dir)
+        
     os.chdir(orig_dir)
     logger.info("Evaluation complete!")
     
     return result
 
-def restore_safetensors_after_eval(model_dir):
-    """Restore safetensor files to their original state after evaluation"""
-    import os
-    import json
-    
-    # Paths for the adapter files
-    backup_path = os.path.join(model_dir, "adapter_model.safetensors.bak")
-    adapter_path = os.path.join(model_dir, "adapter_model.safetensors")
-    config_path = os.path.join(model_dir, "adapter_config.json")
-    
-    # Keep bin file, but restore safetensors
-    if os.path.exists(backup_path):
-        os.rename(backup_path, adapter_path)
-        logger.info(f"Restored safetensors file from backup")
-        
-        # Update config to use safetensors again
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-            
-            # Update weight map
-            weight_map = config.get("weight_map", {})
-            for key in weight_map:
-                if "bin" in weight_map[key]:
-                    weight_map[key] = weight_map[key].replace("bin", "safetensors")
-            
-            # Also update model_type if needed
-            if "bin" in config.get("model_type", ""):
-                config["model_type"] = config["model_type"].replace("bin", "safetensors")
-            
-            with open(config_path, 'w') as f:
-                json.dump(config, f, indent=2)
-            
-            logger.info(f"Updated adapter config to use safetensors format")
-# def evaluate_model(checkpoint_path: str, config=None):
-#     """Evaluate a model using Composer's eval script.
-#     OmegaConf's strict typing is meant to prevent configuration errors, 
-#     but it can sometimes be overly restrictive when working with command-line arguments.
-#     """
-#     import os
-#     import tempfile
-#     import yaml
-    
-#     # Get HF token for model access
-#     get_hf_token()
-    
-#     # Get scripts directory and setup paths
-#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
-#     checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
-#     model_dir = os.path.join(checkpoint_dir, checkpoint_path)
-#     save_path = os.path.join(model_dir, "evals")
-    
-#     # Ensure output directory exists
-#     os.makedirs(save_path, exist_ok=True)
-    
-#     # Check if this is a PEFT model
-#     is_peft = os.path.exists(os.path.join(model_dir, "adapter_config.json"))
-    
-#     # Change to scripts directory
-#     os.chdir(scripts_dir)
-#     logger.info(f"Working directory: {os.getcwd()}")
-    
-#     # Register our custom model
-#     from llmfoundry.models.llama.register import register_custom_llama_model
-#     register_custom_llama_model()
-#     logger.info("Registered CustomLlamaModel with registry")
-    
-#     # Import evaluation function
-#     from llmfoundry.command_utils import eval_from_yaml
-    
-#     # Create a dictionary representing our YAML config
-#     eval_config = {
-#         "variables": {
-#             "model_name_or_path": model_dir,
-#             "precision": "amp_bf16",
-#             "max_seq_len": 2048
-#         },
-#         "precision": "${variables.precision}",
-#         "max_seq_len": "${variables.max_seq_len}",
-#         "device_eval_batch_size": 1,
-#         "eval_subset_num_batches": 100,
-#         "icl_subset_num_batches": 100,
-#         "seed": 17,
-#         "dist_timeout": 600.0,
-#         "fsdp_config": {
-#             "sharding_strategy": "FULL_SHARD",
-#             "mixed_precision": "FULL",
-#             "forward_prefetch": True,
-#             "limit_all_gathers": True
-#         },
-#         "callbacks": {
-#             "generate_callback": {
-#                 "prompts": ["The capital of France is", "The answer is"],  # Required prompts to generate from
-#                 "interval": "1ep",  # Required generation interval (every epoch)
-#                 "max_new_tokens": 1,  # Optional parameters; Allows to cut off eot!!!
-#                 "temperature": 0.0,
-#                 "do_sample": False,
-#                 "num_beams": 1
-#             }
-#         },
-#         "models": [
-#             {
-#                 "model_name": "${variables.model_name_or_path}",
-#                 "model": {
-#                     "name": "hf_causal_lm",
-#                     "pretrained_model_name_or_path": "${variables.model_name_or_path}",
-#                     "init_device": "mixed",
-#                     "pretrained": True,
-#                     "use_flash_attention_2": True,
-#                     **({"device_map": "auto"} if is_peft else {})  # Add device_map only for PEFT
-#                 },
-#                 "tokenizer": {
-#                     "name": "${variables.model_name_or_path}",
-#                     "kwargs": {
-#                         "model_max_length": "${variables.max_seq_len}"
-#                     }
-#                 }
-#             }
-#         ],
-        
-#         # Add proper evaluation gauntlet configuration
-#         "eval_gauntlet": {
-#             "categories": [
-#                 {
-#                     "name": "reasoning",
-#                     "benchmarks": [
-#                         {
-#                             "name": "copa",  # Must match task "label" 
-#                             "metrics": ["Accuracy","Loss"],
-#                             "random_baseline": 0.5,  # Needed for accurate calculations
-#                              "num_fewshot": 5  # Add this field
-
-#                         },
-#                         # {
-#                         #     "name": "copa_letter",  # Must match task "label"
-#                         #     "metrics": ["Accuracy"],
-#                         #     "random_baseline": 0.5
-#                         # }
-#                     ]
-#                 }
-#             ],
-#             "weighting": "EQUAL",
-#             "subtract_random_baseline": True,
-#             "rescale_accuracy": True
-#         },
-        
-#         # Try using built-in task definition (uncomment one of these approaches)
-#         # Option 1: Use built-in task definition
-#         #"icl_tasks_str": "eval/yamls/tasks/copa.yaml",
-        
-#         # Option 2: Keep our existing task definitions but add output logging
-#         "python_log_level": "DEBUG",  # Increase logging detail
-        
-#         "results_path": save_path,
-#         #"icl_tasks_str": "eval/yamls/copa.yaml",
-#         "icl_subset_num_batches": 5,  # Limit to speed up evaluation 
-#         "icl_tasks": [
-#             {
-#                 "label": "copa",  # Task identifier 
-#                 "dataset_uri": "eval/local_data/commonsense_reasoning/copa.jsonl",
-#                 "num_fewshot": [5],
-#                 "icl_task_type": "multiple_choice",
-#                 "answer_key": "gold",  # This matches the "gold" field in your example
-#                 "choices_key": "choices",  # This matches the "choices" field
-#                 "context_key": "query",  # This matches the "query" field,
-#                 #"metrics":['accuracy','loss'],
-#                 # Add these parameters
-#                 "generation_kwargs": {
-#                     "temperature": 0.0,
-#                     "do_sample": False,
-#                     "top_k":1,
-#                     "max_new_tokens": 50,
-#                     "skip_special_tokens": True  # Add this to strip <|eot|>
-
-#                 },
-#                 "prompt_string": '''Answer with ONLY a single digit 0 or 1. No explanation.
-
-#                 Question: {query}
-#                 Options:
-#                 0: {choices[0]}
-#                 1: {choices[1]}
-
-#                 Output exactly one digit (0 or 1):''',
-#                 #"prompt_string": "Choose the most plausible alternative by selecting option 0 or 1:\n",
-#                 "example_delimiter": "\n\n",
-#                 "continuation_delimiter": " ",
-#             },
-#             # {
-#             #     # Second task - using letter format
-#             #     "label": "copa_letter",
-#             #     "dataset_uri": "eval/local_data/commonsense_reasoning/copa.jsonl",
-#             #     "num_fewshot": [5],
-#             #     "icl_task_type": "multiple_choice",
-#             #     "answer_key": "gold",
-#             #     "choices_key": "choices",
-#             #     "context_key": "query",
-#             #     "prompt_string": "Choose the most plausible alternative by answering A or B:\n",
-#             #     "example_delimiter": "\n\n",
-#             #     "continuation_delimiter": " "
-#             # }
-#             # {
-#             #     "label": "hellaswag",
-#             #     "dataset_uri": "eval/local_data/language_understanding/hellaswag.jsonl",
-#             #     "num_fewshot": [5],
-#             #     "icl_task_type": "multiple_choice",
-#             #     "answer_key": "gold",
-#             #     "choices_key": "choices",
-#             #     "context_key": "query"
-#             # }
-#         ]
-#     }
-#         # "icl_tasks": [
-#         #     {
-#         #         "dataset_uri": "eval/local_data/commonsense_reasoning/copa.jsonl",
-#         #         "num_fewshot": [5],
-#         #         "icl_task_type": "multiple_choice",
-#         #         "label": "gold",  # Column containing correct answer index
-#         #     },
-#         #     {
-#         #         "dataset_uri": "eval/local_data/language_understanding/hellaswag.jsonl",
-#         #         "num_fewshot": [5],
-#         #         "icl_task_type": "multiple_choice",
-#         #         "label": "gold",  # Column with correct answer
-#         #     }   
-#         # ]
-
-
-#     #     "icl_tasks": [
-#     # {
-#     #     "label": "copa",  # Task identifier name
-#     #     "dataset_uri": "eval/local_data/commonsense_reasoning/copa.jsonl",
-#     #     "num_fewshot": [5],
-#     #     "icl_task_type": "multiple_choice",
-#     #     "answer_field": "gold",  # Field containing correct answer
-#     #     "query_field": "query",  # Field containing the question
-#     #     "choices_field": "choices"  # Field containing answer choices
-#     # },
-#     # {
-#     #     "label": "hellaswag",  # Task identifier name
-#     #     "dataset_uri": "eval/local_data/language_understanding/hellaswag.jsonl",
-#     #     "num_fewshot": [5],
-#     #     "icl_task_type": "multiple_choice",
-#     #     "answer_field": "gold",  # Field containing correct answer
-#     #     "query_field": "query",  # Field containing the question 
-#     #     "choices_field": "choices"  # Field containing answer choices
-#     # }   
-# # ]
-#     print("Dataset paths being used:")
-#     for task in eval_config["icl_tasks"]:
-#         print(f"- {task['dataset_uri']}")
-#     # Create a temporary YAML file
-#     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as temp_file:
-#         yaml.dump(eval_config, temp_file)
-#         temp_yaml_path = temp_file.name
-    
-#     logger.info(f"\nEvaluating model at path: {model_dir}")
-#     logger.info(f"Using temporary YAML: {temp_yaml_path}")
-    
-#     try:
-#         # Run evaluation with no additional args - everything is in the YAML
-#         eval_from_yaml(temp_yaml_path, [])
-#         logger.info("Evaluation complete!")
-#     except Exception as e:
-#         logger.error(f"Evaluation error: {str(e)}")
-#         import traceback
-#         logger.error(traceback.format_exc())
-#     finally:
-#         # Clean up the temporary file
-#         try:
-#             os.unlink(temp_yaml_path)
-#         except:
-#             pass
-
-
 def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
     """Generate text responses from the model."""
     import subprocess, os
-    from pathlib import Path
     
     # Get scripts directory as absolute path
     scripts_dir = os.path.join(ROOT_DIR, "scripts")
@@ -1315,11 +965,12 @@ def main():
     evaluate_model(model_name)
     time.sleep(1)
 
-    # Restore safetensors files after evaluation
-    checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
-    model_dir = os.path.join(checkpoint_dir, model_name)
-    restore_safetensors_after_eval(model_dir)  # Add this line
-    time.sleep(1)
+    # # Restore safetensors files after evaluation
+    # checkpoint_dir = os.path.join(ROOT_DIR, "model-checkpoints")
+    # model_dir = os.path.join(checkpoint_dir, model_name)
+    # restore_safetensors_after_eval(model_dir)  # Add this line
+    # time.sleep(1)
+
     # push_folder_to_hf(Path(model_name)) 
     # time.sleep(1)
 
