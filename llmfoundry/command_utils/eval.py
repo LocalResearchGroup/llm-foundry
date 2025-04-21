@@ -642,26 +642,27 @@ def convert_peft_adapter_format(model_dir: str) -> None:
 
 def restore_safetensors_after_eval(model_dir: str) -> None:
     """Restore safetensor files to their original state after evaluation.
-
+    
     This function reverses the changes made by convert_peft_adapter_format():
-    1. Restores the original adapter_model.safetensors from .bak file
+    1. Restores the original adapter_model.safetensors from .bak file if it exists
     2. Updates the adapter_config.json to reference .safetensors again
     3. Keeps the .bin file in place for potential future use
     
     Args:
         model_dir: Full path to the model directory containing PEFT adapter files.
-                This should be the directory containing:
-                - adapter_config.json
-                - adapter_model.bin
-                - adapter_model.safetensors.bak
-                Example: '/model-checkpoints/llama3-1b-lora-20250420_180800'
+                  This should be the directory containing:
+                  - adapter_config.json
+                  - adapter_model.bin
+                  - adapter_model.safetensors.bak (created by convert_peft_adapter_format)
+                  Example: '/model-checkpoints/llama3-1b-lora-20250420_180800'
     
     Returns:
         None
     
     Side Effects:
-        - Restores adapter_model.safetensors from the .bak file
+        - Restores adapter_model.safetensors from the .bak file if it exists
         - Modifies adapter_config.json to reference .safetensors files
+        - Keeps adapter_model.bin for potential future use
     """
     import os
     import json
@@ -671,27 +672,35 @@ def restore_safetensors_after_eval(model_dir: str) -> None:
     adapter_path = os.path.join(model_dir, "adapter_model.safetensors")
     config_path = os.path.join(model_dir, "adapter_config.json")
     
-    # Keep bin file, but restore safetensors
+    # Only restore if backup exists
     if os.path.exists(backup_path):
-        os.rename(backup_path, adapter_path)
-        print(f"Restored safetensors file from backup")
-        
-        # Update config to use safetensors again
+        if os.path.exists(adapter_path):
+            print(f"Safetensors file already exists at {adapter_path}, skipping restore")
+        else:
+            os.rename(backup_path, adapter_path)
+            print(f"Restored safetensors file from backup")
+            
+        # Update config only if needed
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
                 config = json.load(f)
             
-            # Update weight map
+            # Check if config needs updating
+            needs_update = False
             weight_map = config.get("weight_map", {})
+            
             for key in weight_map:
                 if "bin" in weight_map[key]:
                     weight_map[key] = weight_map[key].replace("bin", "safetensors")
+                    needs_update = True
             
-            # Also update model_type if needed
             if "bin" in config.get("model_type", ""):
                 config["model_type"] = config["model_type"].replace("bin", "safetensors")
+                needs_update = True
             
-            with open(config_path, 'w') as f:
-                json.dump(config, f, indent=2)
-            
-            print(f"Updated adapter config to use safetensors format")
+            if needs_update:
+                with open(config_path, 'w') as f:
+                    json.dump(config, f, indent=2)
+                print(f"Updated adapter config to use safetensors format")
+    else:
+        print(f"No backup found at {backup_path}, nothing to restore")

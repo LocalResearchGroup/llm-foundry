@@ -549,8 +549,8 @@ def evaluate_model(checkpoint_path: str):
     eval_cmd = [
     "composer",
     "eval/eval.py",
-    "eval/yamls/hf_lora_eval.yaml",  # Use the template for LoRA eval
-    "icl_tasks=eval/yamls/copa.yaml",  
+    "eval/yamls/hf_lora_eval.yaml",  # Use the template for LoRA eval. NOTE: it's named hf_lora_eval.yml in repo, change extension to yaml for consistency
+    "icl_tasks=eval/yamls/copa.yaml",                                 
     f"variables.model_name_or_path={model_dir}",
     f"results_path={save_path}",
     f"variables.lora_id_or_path={model_dir if IS_PEFT else ''}",  # Only use if PEFT
