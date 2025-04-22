@@ -619,8 +619,6 @@ def train(cfg: DictConfig) -> Trainer:
             labels_only_batch = {'labels': self.state_batch['labels']}
             labels_loss = state.model.loss(self.state_outputs, labels_only_batch)
             
-            labels_loss = labels_loss[0]
-            
             print(f"\nLabels-only loss: {labels_loss.item():.6f}")
             print("==================================")
             
