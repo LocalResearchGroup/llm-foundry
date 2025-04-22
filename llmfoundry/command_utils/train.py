@@ -581,7 +581,8 @@ def train(cfg: DictConfig) -> Trainer:
         print(tokenizer.decode(batch['input_ids'][0]))
         print('#'*30)
         print("\nDecoded `labels` of first example:")
-        print(tokenizer.decode(batch['labels'][0]))
+        filtered_labels = [token_id for token_id in batch['labels'][0].tolist() if token_id != -100]
+        print(tokenizer.decode(filtered_labels))
 
     class EmbeddingInspectorCallback(Callback):
     """A simple callback that hooks into the embed_tokens layer to inspect inputs and outputs."""
