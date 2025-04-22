@@ -655,7 +655,7 @@ def train(cfg: DictConfig) -> Trainer:
             self.state_batch = state.batch
         
         def after_loss(self, state: State, logger: Logger) -> None:
-            """Call model's loss function directly to verify inputs/outputs."""
+            """Call model's loss function directly and decode labels."""
             if self.inspected:
                 return
                 
@@ -669,6 +669,41 @@ def train(cfg: DictConfig) -> Trainer:
             print(f"Batch type: {type(self.state_batch)}")
             if isinstance(self.state_batch, dict):
                 print(f"Batch keys: {list(self.state_batch.keys())}")
+            
+            # Get tokenizer from model if available
+            tokenizer = None
+            if hasattr(state.model, 'tokenizer'):
+                tokenizer = state.model.tokenizer
+            
+            # Decode labels if we have a tokenizer and labels exist
+            if tokenizer is not None and isinstance(self.state_batch, dict) and 'labels' in self.state_batch:
+                labels = self.state_batch['labels']
+                
+                # Get the first example in the batch
+                example_labels = labels[0].detach().cpu()
+                
+                # Replace -100 values with a pad token for decoding
+                valid_labels = example_labels.clone()
+                valid_labels[valid_labels == -100] = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+                
+                # Decode and print
+                try:
+                    decoded_labels = tokenizer.decode(valid_labels)
+                    print("\nDecoded labels (first example):")
+                    print(decoded_labels[:200] + "..." if len(decoded_labels) > 200 else decoded_labels)
+                    
+                    # Also show where the actual labels (not -100) are
+                    valid_positions = (example_labels != -100).nonzero().flatten().tolist()
+                    print(f"\nValid label positions (not -100): {valid_positions[:10]}...")
+                    
+                    # Decode just the valid labels
+                    valid_only = example_labels[example_labels != -100]
+                    if len(valid_only) > 0:
+                        decoded_valid = tokenizer.decode(valid_only)
+                        print("\nDecoded valid labels only:")
+                        print(decoded_valid[:200] + "..." if len(decoded_valid) > 200 else decoded_valid)
+                except Exception as e:
+                    print(f"Error decoding labels: {str(e)}")
             
             # Call model's loss function directly
             if hasattr(state.model, 'loss'):
@@ -691,9 +726,9 @@ def train(cfg: DictConfig) -> Trainer:
                         print(f"2. Labels-only batch: {labels_loss.item():.6f}")
                     except Exception as e:
                         print(f"2. Labels-only batch failed: {str(e)}")
-                         
-            print("================================")
-            self.inspected = True
+    
+    print("================================")
+    self.inspected = True
             
     callbacks.append(LossInspectorCallback())
     callbacks.append(EmbeddingInspectorCallback())
