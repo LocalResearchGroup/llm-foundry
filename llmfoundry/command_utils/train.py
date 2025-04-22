@@ -65,6 +65,8 @@ from composer.core import State
 from composer.loggers import Logger
 from typing import Optional, List
 import torch.nn.functional as F
+import inspect
+import torch.nn as nn
 
 log = logging.getLogger(__name__)
 
@@ -665,57 +667,51 @@ def train(cfg: DictConfig) -> Trainer:
             self.batches_seen += 1
             print("===========================\n")
             
-    class LossValidator(Callback):
-        def __init__(self):
-            super().__init__()
-            self.validated = False
-        
-        def before_loss(self, state: State, logger: Logger) -> None:
-            if self.validated:
-                return
-            if hasattr(state, 'outputs') and 'logits' in state.outputs:
-                self.logits = state.outputs['logits'].detach()
-                self.labels = state.batch['labels'].detach()
-        
-        def after_loss(self, state: State, logger: Logger) -> None:
-            if self.validated:
-                return
+    
+    
+    class LossFunctionFinder(Callback):
+        def fit_start(self, state: State, logger: Logger) -> None:
+            model = state.model
+            
+            print("\n=== Model Loss Function Investigation ===")
+            
+            # Find the loss function
+            if hasattr(model, 'loss'):
+                print("Found explicit loss attribute:")
+                print(inspect.getsource(model.loss))
                 
-            framework_loss = state.loss.detach()
+            if hasattr(model, 'loss_fn'):
+                print("Found explicit loss_fn attribute:")
+                print(inspect.getsource(model.loss_fn))
             
-            print("\n== Loss Validation (Multiple Methods) ==")
+            # Check model's forward method which often calculates loss
+            print("\nModel's forward method (often contains loss calc):")
+            if hasattr(model, 'forward'):
+                print(inspect.getsource(model.forward))
+                
+            # Look at the model class's loss_fn or forward method
+            base_model = None
+            if hasattr(model, 'model'):
+                base_model = model.model
+                if hasattr(base_model, 'forward'):
+                    print("\nBase model's forward method:")
+                    print(inspect.getsource(base_model.forward))
+                
+            # Try to find ComposerModel wrapper
+            if hasattr(model, 'module'):
+                composer_model = model.module
+                print("\nComposerModel's forward method:")
+                print(inspect.getsource(composer_model.forward))
+                
+            # For HF models, check config for loss settings
+            if hasattr(base_model, 'config'):
+                cfg = base_model.config
+                print("\nModel config parameters that might affect loss:")
+                for param in ['label_smoothing', 'loss_scaling', 'use_weighted_loss']:
+                    if hasattr(cfg, param):
+                        print(f"  {param}: {getattr(cfg, param)}")
             
-            # Try multiple approaches to calculate the loss
-            
-            # Method 1: Direct cross_entropy function (most accurate)
-            logits_float = self.logits.to(torch.float32)  # Ensure float32 precision
-            loss_method1 = F.cross_entropy(
-                logits_float.view(-1, logits_float.size(-1)),
-                self.labels.view(-1),
-                ignore_index=-100
-            )
-            
-            # Method 2: Manual negative log likelihood approach
-            batch_size, seq_len, vocab_size = self.logits.shape
-            reshaped_logits = self.logits.view(-1, vocab_size).to(torch.float32)
-            reshaped_labels = self.labels.view(-1)
-            
-            valid_indices = (reshaped_labels != -100)
-            valid_logits = reshaped_logits[valid_indices]
-            valid_labels = reshaped_labels[valid_indices]
-            
-            log_probs = F.log_softmax(valid_logits, dim=1)
-            token_losses = -log_probs.gather(1, valid_labels.unsqueeze(1)).squeeze(1)
-            loss_method2 = token_losses.mean()
-            
-            # Print all results
-            print(f"Framework loss:      {framework_loss.item():.6f}")
-            print(f"Method 1 (direct):   {loss_method1.item():.6f}")
-            print(f"Method 2 (manual):   {loss_method2.item():.6f}")
-            
-            self.validated = True
-            
-    callbacks.append(LossValidator())
+    callbacks.append(LossFunctionFinder())
     callbacks.append(EmbeddingInspectorCallback())
     callbacks.append(SimpleLossInspector())
     # Build the Trainer
