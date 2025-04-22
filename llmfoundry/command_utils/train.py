@@ -585,7 +585,7 @@ def train(cfg: DictConfig) -> Trainer:
         print(tokenizer.decode(filtered_labels))
 
     class EmbeddingInspectorCallback(Callback):
-    """A simple callback that hooks into the embed_tokens layer to inspect inputs and outputs."""
+        """A simple callback that hooks into the embed_tokens layer to inspect inputs and outputs."""
         def __init__(self):
             super().__init__()
             self.hook_handle = None
