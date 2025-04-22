@@ -665,27 +665,33 @@ def train(cfg: DictConfig) -> Trainer:
             framework_loss = state.loss.detach()
             print(f"Framework loss: {framework_loss.item():.6f}")
             
+            # Examine batch structure
+            print(f"Batch type: {type(self.state_batch)}")
+            if isinstance(self.state_batch, dict):
+                print(f"Batch keys: {list(self.state_batch.keys())}")
+            
             # Call model's loss function directly
             if hasattr(state.model, 'loss'):
-                # Inspect what we're sending to loss function
-                print(f"Outputs type: {type(self.state_outputs)}")
-                if isinstance(self.state_outputs, dict):
-                    print(f"Outputs keys: {list(self.state_outputs.keys())}")
-                    if 'loss' in self.state_outputs:
-                        print(f"Pre-computed loss in outputs: {self.state_outputs['loss'].item():.6f}")
+                print("\nTesting loss function calls:")
                 
-                # Call loss function directly
-                _, target = self.state_batch
-                new_batch = (None, target)
-                direct_loss = state.model.loss(self.state_outputs, new_batch)
+                # 1. Call with original batch
+                original_loss = state.model.loss(self.state_outputs, self.state_batch)
+                if isinstance(original_loss, tuple):
+                    original_loss = original_loss[0]
+                print(f"1. Original batch: {original_loss.item():.6f}")
                 
-                # Check if result is tuple with loss at index 0
-                if isinstance(direct_loss, tuple) and len(direct_loss) > 0:
-                    direct_loss = direct_loss[0]
-                    
-                print(f"Direct loss call result: {direct_loss.item():.6f}")
-                
-                    
+                # 2. Try with modified batch (if it's a dict)
+                if isinstance(self.state_batch, dict) and 'labels' in self.state_batch:
+                    # Create a batch with only labels
+                    labels_only_batch = {'labels': self.state_batch['labels']}
+                    try:
+                        labels_loss = state.model.loss(self.state_outputs, labels_only_batch)
+                        if isinstance(labels_loss, tuple):
+                            labels_loss = labels_loss[0]
+                        print(f"2. Labels-only batch: {labels_loss.item():.6f}")
+                    except Exception as e:
+                        print(f"2. Labels-only batch failed: {str(e)}")
+                         
             print("================================")
             self.inspected = True
             
