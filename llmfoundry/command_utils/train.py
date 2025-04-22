@@ -727,8 +727,8 @@ def train(cfg: DictConfig) -> Trainer:
                     except Exception as e:
                         print(f"2. Labels-only batch failed: {str(e)}")
     
-    print("================================")
-    self.inspected = True
+            print("================================")
+            self.inspected = True
             
     callbacks.append(LossInspectorCallback())
     callbacks.append(EmbeddingInspectorCallback())
