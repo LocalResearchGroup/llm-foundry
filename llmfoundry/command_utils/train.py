@@ -552,6 +552,30 @@ def train(cfg: DictConfig) -> Trainer:
         raise e
 
     compile_config = train_cfg.compile_config
+    # After train_loader is created but before the Trainer is initialized
+    # Get a single batch from the dataloader
+    dataloader_iter = iter(train_loader)
+    batch = next(dataloader_iter)
+    
+    # Print the batch structure
+    print("Batch structure:")
+    for key, value in batch.items():
+        if hasattr(value, "shape"):
+            print(f"  {key}: shape={value.shape}, dtype={value.dtype}")
+        else:
+            print(f"  {key}: type={type(value)}")
+    
+    # Inspect specific elements (e.g., first item in the batch)
+    print("\nFirst item in batch:")
+    for key, value in batch.items():
+        if hasattr(value, "shape") and len(value) > 0:
+            print(f"  {key}[0]: {value[0]}")
+            
+    # If you have a tokenizer available, you can decode the tokens
+    if 'input_ids' in batch and tokenizer is not None:
+        print("\nDecoded text of first example:")
+        print(tokenizer.decode(batch['input_ids'][0]))
+        
     # Build the Trainer
     log.info('Building trainer...')
     trainer = Trainer(
