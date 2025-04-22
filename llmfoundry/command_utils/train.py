@@ -587,151 +587,47 @@ def train(cfg: DictConfig) -> Trainer:
         filtered_labels = [token_id for token_id in batch['labels'][0].tolist() if token_id != -100]
         print(tokenizer.decode(filtered_labels))
 
-    class EmbeddingInspectorCallback(Callback):
-        """A simple callback that hooks into the embed_tokens layer to inspect inputs and outputs."""
-        def __init__(self):
-            super().__init__()
-            self.hook_handle = None
+    class LossInspector(Callback):
+        """A minimal callback that shows the loss calculation and decodes labels."""
         
-        def before_forward(self, state: State, logger: Logger) -> None:
-            """Register a hook on the embedding layer before the forward pass."""
-            # Define the hook function that will print input/output structures
-            def embedding_hook(module, inputs, outputs):
-                print("\n==== Embedding Layer Hook ====")
-                
-                # Input inspection
-                print("Input structure:")
-                if isinstance(inputs, tuple) and len(inputs) > 0:
-                    for i, inp in enumerate(inputs):
-                        if isinstance(inp, torch.Tensor):
-                            print(f"  Input[{i}]: shape={inp.shape}, dtype={inp.dtype}")
-                            print(tokenizer.decode(inp[0]))
-                        else:
-                            print(f"  Input[{i}]: type={type(inp)}")
-                
-                # Output inspection
-                if isinstance(outputs, torch.Tensor):
-                    print("Output structure:")
-                    print(f"  Output: shape={outputs.shape}, dtype={outputs.dtype}")
-                    # Print a small sample of the first embedding vector
-                    print(f"  First token embedding (first 5 values): {outputs[0, 0, :5]}")
-                
-                print("==============================\n")
-            
-            # Get the model and find the embedding layer
-            # The actual path may vary depending on your model architecture
-            model = state.model.model.base_model.model  # Adjust as needed for your model
-            embed_layer = model.model.embed_tokens
-            
-            # Register the hook
-            self.hook_handle = embed_layer.register_forward_hook(embedding_hook)
-            print("Embedding layer hook registered")
-        
-        def after_forward(self, state: State, logger: Logger) -> None:
-            """Remove the hook after the forward pass is complete."""
-            if self.hook_handle is not None:
-                self.hook_handle.remove()
-                self.hook_handle = None
-                print("Embedding layer hook removed")
-
-    class LossInspectorCallback(Callback):
         def __init__(self):
             super().__init__()
             self.inspected = False
         
-        def fit_start(self, state: State, logger: Logger) -> None:
-            """Print the source code of the model's loss function."""
-            if hasattr(state.model, 'loss'):
-                print("\nModel's loss function definition:")
-                print(inspect.getsource(state.model.loss))
-        
         def before_loss(self, state: State, logger: Logger) -> None:
-            """Save outputs for later inspection."""
             if self.inspected:
                 return
-            
-            # Save state for later use in after_loss
             self.state_outputs = state.outputs
             self.state_batch = state.batch
         
         def after_loss(self, state: State, logger: Logger) -> None:
-            """Call model's loss function directly and decode labels."""
             if self.inspected:
                 return
-                
-            print("\n=== DIRECT LOSS FUNCTION CALL ===")
             
-            # Framework loss from the state
-            framework_loss = state.loss.detach()
-            print(f"Framework loss: {framework_loss.item():.6f}")
+            print("\n=== AFTER LOSS EVENT ===")
             
-            # Examine batch structure
-            print(f"Batch type: {type(self.state_batch)}")
-            if isinstance(self.state_batch, dict):
-                print(f"Batch keys: {list(self.state_batch.keys())}")
+            framework_loss = state.loss.item()
+            print(f"Framework loss: {framework_loss:.6f}")
             
-            # Get tokenizer from model if available
-            tokenizer = None
-            if hasattr(state.model, 'tokenizer'):
-                tokenizer = state.model.tokenizer
+            labels = self.state_batch['labels'][0].detach().cpu()
+            valid_labels = labels[labels != -100]
+            decoded_labels = state.model.tokenizer.decode(valid_labels)
             
-            # Decode labels if we have a tokenizer and labels exist
-            if tokenizer is not None and isinstance(self.state_batch, dict) and 'labels' in self.state_batch:
-                labels = self.state_batch['labels']
-                
-                # Get the first example in the batch
-                example_labels = labels[0].detach().cpu()
-                
-                # Replace -100 values with a pad token for decoding
-                valid_labels = example_labels.clone()
-                valid_labels[valid_labels == -100] = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
-                
-                # Decode and print
-                try:
-                    decoded_labels = tokenizer.decode(valid_labels)
-                    print("\nDecoded labels (first example):")
-                    print(decoded_labels[:200] + "..." if len(decoded_labels) > 200 else decoded_labels)
-                    
-                    # Also show where the actual labels (not -100) are
-                    valid_positions = (example_labels != -100).nonzero().flatten().tolist()
-                    print(f"\nValid label positions (not -100): {valid_positions[:10]}...")
-                    
-                    # Decode just the valid labels
-                    valid_only = example_labels[example_labels != -100]
-                    if len(valid_only) > 0:
-                        decoded_valid = tokenizer.decode(valid_only)
-                        print("\nDecoded valid labels only:")
-                        print(decoded_valid[:200] + "..." if len(decoded_valid) > 200 else decoded_valid)
-                except Exception as e:
-                    print(f"Error decoding labels: {str(e)}")
+            print("\nDecoded Labels")
+            print(decoded_labels)
             
-            # Call model's loss function directly
-            if hasattr(state.model, 'loss'):
-                print("\nTesting loss function calls:")
-                
-                # 1. Call with original batch
-                original_loss = state.model.loss(self.state_outputs, self.state_batch)
-                if isinstance(original_loss, tuple):
-                    original_loss = original_loss[0]
-                print(f"1. Original batch: {original_loss.item():.6f}")
-                
-                # 2. Try with modified batch (if it's a dict)
-                if isinstance(self.state_batch, dict) and 'labels' in self.state_batch:
-                    # Create a batch with only labels
-                    labels_only_batch = {'labels': self.state_batch['labels']}
-                    try:
-                        labels_loss = state.model.loss(self.state_outputs, labels_only_batch)
-                        if isinstance(labels_loss, tuple):
-                            labels_loss = labels_loss[0]
-                        print(f"2. Labels-only batch: {labels_loss.item():.6f}")
-                    except Exception as e:
-                        print(f"2. Labels-only batch failed: {str(e)}")
-    
-            print("================================")
+            labels_only_batch = {'labels': self.state_batch['labels']}
+            labels_loss = state.model.loss(self.state_outputs, labels_only_batch)
+            
+            labels_loss = labels_loss[0]
+            
+            print(f"\nLabels-only loss: {labels_loss.item():.6f}")
+            print("==================================")
+            
             self.inspected = True
             
-    callbacks.append(LossInspectorCallback())
-    callbacks.append(EmbeddingInspectorCallback())
+    callbacks.append(LossInspector())
+
     # Build the Trainer
     log.info('Building trainer...')
     trainer = Trainer(
