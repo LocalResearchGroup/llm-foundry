@@ -666,57 +666,52 @@ def train(cfg: DictConfig) -> Trainer:
             print("===========================\n")
             
     class LossValidator(Callback):
-        """Validates the loss calculation by manually computing it and comparing with the framework's result."""
-        
         def __init__(self):
             super().__init__()
             self.validated = False
         
         def before_loss(self, state: State, logger: Logger) -> None:
-            """Capture the inputs to loss calculation."""
             if self.validated:
                 return
-                
-            # Store references to model outputs and labels
             if hasattr(state, 'outputs') and 'logits' in state.outputs:
                 self.logits = state.outputs['logits'].detach()
                 self.labels = state.batch['labels'].detach()
         
         def after_loss(self, state: State, logger: Logger) -> None:
-            """Compare framework's loss with manually calculated loss."""
             if self.validated:
                 return
                 
             framework_loss = state.loss.detach()
             
-            # Manually calculate cross-entropy loss
-            print("\n== Loss Validation ==")
-            print("Computing manual loss calculation...")
+            print("\n== Loss Validation (Multiple Methods) ==")
             
-            # Reshape inputs
+            # Try multiple approaches to calculate the loss
+            
+            # Method 1: Direct cross_entropy function (most accurate)
+            logits_float = self.logits.to(torch.float32)  # Ensure float32 precision
+            loss_method1 = F.cross_entropy(
+                logits_float.view(-1, logits_float.size(-1)),
+                self.labels.view(-1),
+                ignore_index=-100
+            )
+            
+            # Method 2: Manual negative log likelihood approach
             batch_size, seq_len, vocab_size = self.logits.shape
-            reshaped_logits = self.logits.reshape(-1, vocab_size)  # [batch_size*seq_len, vocab_size]
-            reshaped_labels = self.labels.reshape(-1)              # [batch_size*seq_len]
+            reshaped_logits = self.logits.view(-1, vocab_size).to(torch.float32)
+            reshaped_labels = self.labels.view(-1)
             
-            # Filter to only valid positions (where labels != -100)
             valid_indices = (reshaped_labels != -100)
             valid_logits = reshaped_logits[valid_indices]
             valid_labels = reshaped_labels[valid_indices]
             
-            print(f"Valid positions: {valid_indices.sum().item()} out of {batch_size*seq_len}")
-            
-            # Apply softmax to get probabilities
             log_probs = F.log_softmax(valid_logits, dim=1)
-            
-            # Calculate negative log likelihood only for the target tokens
             token_losses = -log_probs.gather(1, valid_labels.unsqueeze(1)).squeeze(1)
+            loss_method2 = token_losses.mean()
             
-            # Mean over all valid tokens
-            manual_loss = token_losses.mean()
-            
-            # Compare results
-            print(f"Framework loss: {framework_loss.item():.6f}")
-            print(f"Manual loss:    {manual_loss.item():.6f}")
+            # Print all results
+            print(f"Framework loss:      {framework_loss.item():.6f}")
+            print(f"Method 1 (direct):   {loss_method1.item():.6f}")
+            print(f"Method 2 (manual):   {loss_method2.item():.6f}")
             
             self.validated = True
             
