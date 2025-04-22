@@ -602,7 +602,7 @@ def train(cfg: DictConfig) -> Trainer:
                     for i, inp in enumerate(inputs):
                         if isinstance(inp, torch.Tensor):
                             print(f"  Input[{i}]: shape={inp.shape}, dtype={inp.dtype}")
-                            print(tokenizer.decode(inp[0])
+                            print(tokenizer.decode(inp[0]))
                         else:
                             print(f"  Input[{i}]: type={type(inp)}")
                 
