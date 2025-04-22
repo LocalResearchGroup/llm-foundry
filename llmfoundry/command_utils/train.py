@@ -612,14 +612,19 @@ def train(cfg: DictConfig) -> Trainer:
             labels = self.state_batch['labels'][0].detach().cpu()
             valid_labels = labels[labels != -100]
             decoded_labels = state.model.tokenizer.decode(valid_labels)
+
+            print("\n-------- Decoded input_ids --------")
+            input_ids = self.state_batch['input_ids'][0].detach().cpu()
+            decoded_input = state.model.tokenizer.decode(input_ids)
+            print(decoded_input)
             
-            print("\nDecoded Labels")
+            print("\n-------- Decoded labels --------")
             print(decoded_labels)
             
             labels_only_batch = {'labels': self.state_batch['labels']}
             labels_loss = state.model.loss(self.state_outputs, labels_only_batch)
             
-            print(f"\nLabels-only loss: {labels_loss.item():.6f}")
+            print(f"\n-------- Labels-only loss: {labels_loss.item():.6f} --------")
             print("==================================")
             
             self.inspected = True
