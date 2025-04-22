@@ -675,7 +675,9 @@ def train(cfg: DictConfig) -> Trainer:
                         print(f"Pre-computed loss in outputs: {self.state_outputs['loss'].item():.6f}")
                 
                 # Call loss function directly
-                direct_loss = state.model.loss(self.state_outputs, self.state_batch)
+                _, target = self.state_batch
+                new_batch = (None, target)
+                direct_loss = state.model.loss(self.state_outputs, new_batch)
                 
                 # Check if result is tuple with loss at index 0
                 if isinstance(direct_loss, tuple) and len(direct_loss) > 0:
