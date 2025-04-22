@@ -163,3 +163,5 @@ notebooks/
 
 # artifacts from evaluation
 scripts/evaluation_results/
+
+llmfoundry/models/llama/bkp/*
