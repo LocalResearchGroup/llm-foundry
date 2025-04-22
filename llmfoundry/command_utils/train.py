@@ -588,42 +588,11 @@ def train(cfg: DictConfig) -> Trainer:
         print(tokenizer.decode(filtered_labels))
 
     class LossInspector(Callback):
+        """A callback that shows the loss calculation process and compares with model.loss_function."""
+        
         def __init__(self):
             super().__init__()
             self.inspected = False
-        
-        def fit_start(self, state: State, logger: Logger) -> None:
-            """Inspect the base model's loss calculation implementation."""
-            # Get the actual model class name and implementation
-            model = state.model.model  # Unwrap composer model
-            base_model = model.base_model  # Get through PEFT wrapper
-            
-            print(f"\n=== BASE MODEL LOSS INSPECTION ===")
-            print(f"Base model class: {type(base_model).__name__}")
-            
-            # Try to find loss calculation
-            import inspect
-            source = inspect.getsource(base_model.__class__)
-            
-            # Look for loss calculation patterns in the model source
-            loss_lines = [line for line in source.split('\n') 
-                         if 'loss' in line and ('compute' in line or 'nll' in line 
-                                              or 'cross_entropy' in line)]
-            
-            print("\nLoss calculation lines found in base model:")
-            if loss_lines:
-                for line in loss_lines:
-                    print(f"  {line.strip()}")
-            else:
-                print("  No direct loss calculation found. Looking for CausalLM patterns...")
-                # Look for shift patterns common in causal language models
-                shift_lines = [line for line in source.split('\n') 
-                              if ('shift_logits' in line or 'shift_labels' in line 
-                                 or 'labels[..., 1:]' in line)]
-                for line in shift_lines:
-                    print(f"  {line.strip()}")
-            
-            print("=====================================")
         
         def before_loss(self, state: State, logger: Logger) -> None:
             if self.inspected:
@@ -634,29 +603,39 @@ def train(cfg: DictConfig) -> Trainer:
         def after_loss(self, state: State, logger: Logger) -> None:
             if self.inspected:
                 return
+                
+            print("\n=== LOSS CALCULATION INSPECTION ===")
             
-            print("\n=== AFTER LOSS EVENT ===")
-            
+            # Get the framework loss from state
             framework_loss = state.loss.item()
             print(f"Framework loss: {framework_loss:.6f}")
             
-            labels = self.state_batch['labels'][0].detach().cpu()
-            valid_labels = labels[labels != -100]
-            decoded_labels = state.model.tokenizer.decode(valid_labels)
-
+            # Access model's loss_function directly
+            if hasattr(state.model.model, 'loss_function'):
+                # Extract required arguments
+                logits = self.state_outputs['logits']
+                labels = self.state_batch['labels']
+                vocab_size = state.model.model.config.vocab_size
+                
+                # Call model's loss_function directly
+                direct_loss = state.model.model.loss_function(
+                    logits=logits, 
+                    labels=labels,
+                    vocab_size=vocab_size
+                )
+                print(f"Direct call to model.loss_function: {direct_loss.item():.6f}")
+            
+            # Show the model input and expected output
             print("\n-------- Decoded input_ids --------")
             input_ids = self.state_batch['input_ids'][0].detach().cpu()
             decoded_input = state.model.tokenizer.decode(input_ids)
-            print(decoded_input)
+            print(decoded_input[:200] + "..." if len(decoded_input) > 200 else decoded_input)
             
             print("\n-------- Decoded labels --------")
-            print(decoded_labels)
-            
-            labels_only_batch = {'labels': self.state_batch['labels']}
-            labels_loss = state.model.loss(self.state_outputs, labels_only_batch)
-            
-            print(f"\n-------- Labels-only loss: {labels_loss.item():.6f} --------")
-            print("==================================")
+            labels = self.state_batch['labels'][0].detach().cpu()
+            valid_labels = labels[labels != -100]
+            decoded_labels = state.model.tokenizer.decode(valid_labels)
+            print(decoded_labels[:200] + "..." if len(decoded_labels) > 200 else decoded_labels)
             
             self.inspected = True
             
