@@ -573,8 +573,11 @@ def train(cfg: DictConfig) -> Trainer:
             
     # If you have a tokenizer available, you can decode the tokens
     if 'input_ids' in batch and tokenizer is not None:
-        print("\nDecoded text of first example:")
+        print("\nDecoded `input_ids` of first example:")
         print(tokenizer.decode(batch['input_ids'][0]))
+        print('#'*30)
+        print("\nDecoded `labels` of first example:")
+        print(tokenizer.decode(batch['labels'][0]))
         
     # Build the Trainer
     log.info('Building trainer...')
