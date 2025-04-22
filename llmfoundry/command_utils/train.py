@@ -588,11 +588,42 @@ def train(cfg: DictConfig) -> Trainer:
         print(tokenizer.decode(filtered_labels))
 
     class LossInspector(Callback):
-        """A minimal callback that shows the loss calculation and decodes labels."""
-        
         def __init__(self):
             super().__init__()
             self.inspected = False
+        
+        def fit_start(self, state: State, logger: Logger) -> None:
+            """Inspect the base model's loss calculation implementation."""
+            # Get the actual model class name and implementation
+            model = state.model.model  # Unwrap composer model
+            base_model = model.base_model  # Get through PEFT wrapper
+            
+            print(f"\n=== BASE MODEL LOSS INSPECTION ===")
+            print(f"Base model class: {type(base_model).__name__}")
+            
+            # Try to find loss calculation
+            import inspect
+            source = inspect.getsource(base_model.__class__)
+            
+            # Look for loss calculation patterns in the model source
+            loss_lines = [line for line in source.split('\n') 
+                         if 'loss' in line and ('compute' in line or 'nll' in line 
+                                              or 'cross_entropy' in line)]
+            
+            print("\nLoss calculation lines found in base model:")
+            if loss_lines:
+                for line in loss_lines:
+                    print(f"  {line.strip()}")
+            else:
+                print("  No direct loss calculation found. Looking for CausalLM patterns...")
+                # Look for shift patterns common in causal language models
+                shift_lines = [line for line in source.split('\n') 
+                              if ('shift_logits' in line or 'shift_labels' in line 
+                                 or 'labels[..., 1:]' in line)]
+                for line in shift_lines:
+                    print(f"  {line.strip()}")
+            
+            print("=====================================")
         
         def before_loss(self, state: State, logger: Logger) -> None:
             if self.inspected:
