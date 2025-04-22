@@ -66,10 +66,10 @@ class LlamaAttention(nn.Module):
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
-        past_key_values: Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = None,
+        past_key_values: Optional[tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = None,
         use_cache: bool = False,
         output_attentions: bool = False,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         # In B S (H D)
         bsz, seq_len, _ = hidden_states.size()
@@ -95,7 +95,7 @@ class LlamaAttention(nn.Module):
             key_states,
             cos.squeeze(0),
             sin.squeeze(0),
-            position_ids
+            position_ids,
         )
 
         # Handle past key values for generation
