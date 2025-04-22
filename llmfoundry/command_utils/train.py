@@ -64,6 +64,7 @@ from llmfoundry.utils.registry_utils import import_file
 from composer.core import State
 from composer.loggers import Logger
 from typing import Optional, List
+import torch.nn.functional as F
 
 log = logging.getLogger(__name__)
 
