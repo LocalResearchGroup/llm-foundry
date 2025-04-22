@@ -718,13 +718,6 @@ def train(cfg: DictConfig) -> Trainer:
             print(f"Framework loss: {framework_loss.item():.6f}")
             print(f"Manual loss:    {manual_loss.item():.6f}")
             
-            # Check for close match (allowing for floating point differences)
-            if torch.isclose(framework_loss, manual_loss, rtol=1e-3):
-                print("✓ Losses match! Your understanding of the loss calculation is correct.")
-            else:
-                print("✗ Losses don't match closely. Difference:", 
-                      (framework_loss - manual_loss).item())
-            
             self.validated = True
             
     callbacks.append(LossValidator())
