@@ -1,0 +1,129 @@
+# llama3-1b-lora.yaml
+variables:
+  data_local: /datasets/c4_small
+  data_remote: 
+  tokenizer_name: meta-llama/Llama-3.2-1B-Instruct
+  global_seed: 17
+  max_seq_len: 256 #1024 #2048 #8192->opt for memory
+  run_name: llama3-lora-test
+  model_name_or_path: meta-llama/Llama-3.2-1B-Instruct
+  model_output_path: /model-checkpoints 
+  
+
+max_seq_len: ${variables.max_seq_len}
+run_name: ${variables.run_name}
+
+# Model
+model:
+  name: hf_causal_lm
+  pretrained_model_name_or_path: ${variables.model_name_or_path}
+  config_overrides:
+    use_fused_loss: true
+    max_position_embeddings: ${variables.max_seq_len}
+    use_cache: false # critical for memory savings
+    rope_scaling:
+      factor: 32.0
+      high_freq_factor: 4.0
+      low_freq_factor: 1.0   
+      original_max_position_embeddings: 256 #1024 #4096 #reduce from 8192->opt for memory  
+      rope_type: "llama3" 
+
+  pretrained: true
+
+# Tokenizer
+tokenizer:
+  name: ${variables.tokenizer_name}
+  kwargs:
+    model_max_length: ${variables.max_seq_len}
+
+# loggers:
+#   aim:
+#     repo: '.aim'
+#     experiment_name: 'llama3_1b_lora_test'
+#     upload_on_close: true
+
+# Data loading
+train_loader:
+  name: text
+  dataset:
+    local: ${variables.data_local}
+    remote: ${variables.data_remote}
+    split: train_small
+    shuffle: true
+    max_seq_len: ${variables.max_seq_len}
+    shuffle_seed: ${variables.global_seed}
+  drop_last: true
+  num_workers: 4
+
+eval_loader:
+  name: text
+  dataset:
+    local: ${variables.data_local}
+    remote: ${variables.data_remote}
+    split: val_small
+    shuffle: false
+    max_seq_len: ${variables.max_seq_len}
+    shuffle_seed: ${variables.global_seed}
+  drop_last: false
+  num_workers: 4
+
+scheduler:
+  name: cosine_with_warmup
+  t_warmup: 100ba
+  alpha_f: 0.1
+
+# optimizer:
+#   name: decoupled_adamw
+#   lr: 6.0e-4
+#   betas:
+#   - 0.9
+#   - 0.95
+#   eps: 1.0e-08
+#   weight_decay: 0.0
+optimizer:
+  name: decoupled_lionw  # Lion uses ~50% less memory than Adam variants
+  lr: 3e-4              # Lion typically uses lower learning rates
+  betas:                # Lion default momentum parameters
+  - 0.9
+  - 0.99
+  weight_decay: 0.01    # Standard weight decay
+
+
+algorithms:
+  gradient_clipping:
+    clipping_type: norm
+    clipping_threshold: 1.0
+
+max_duration: 2ba #4800ba
+eval_interval: 10ba #500ba # only eval at the end with 0
+eval_first: false
+eval_subset_num_batches: 10 #-1
+global_train_batch_size: 1 #2 #256
+
+# System
+seed: ${variables.global_seed}
+device_eval_batch_size: 1 #16
+device_train_microbatch_size: 1 #16
+precision: amp_bf16
+
+# FSDP
+fsdp_config:
+  sharding_strategy: FULL_SHARD
+  mixed_precision: FULL #PURE
+  activation_checkpointing: true #false
+  #activation_checkpointing_reentrant: false
+  activation_cpu_offload: true #false
+  limit_all_gathers: true #train/yamls/llama/llama3-1b-lora.yaml
+
+
+# Logging
+progress_bar: true
+log_to_console: true
+console_log_interval: 1ba
+
+callbacks:
+  speed_monitor:
+    window_size: 10
+  lr_monitor: {}
+  memory_monitor: {}
+  runtime_estimator: {}

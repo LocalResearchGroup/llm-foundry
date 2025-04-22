@@ -1,7 +1,6 @@
 import os
 import datetime
-from pathlib import Path
-from typing import Optional, List, Union
+from typing import Optional
 import logging
 import sys
 from dotenv import load_dotenv
@@ -13,7 +12,7 @@ TRAIN_DURATION = "2ba"  # "500ba"
 EVAL_INTERVAL = "100ba"  # "100ba"
 SAVE_INTERVAL = "1ba"  # "100ba"
 USE_CUSTOM_MODEL = True  # Set to True to use custom LlamaForCausalLM
-IS_PEFT =  True #False
+IS_PEFT =  True #False #True #False
 
 # Some variables for testing whether PEFT works with custom models
 PEFT_TESTING = False #True 
@@ -29,7 +28,10 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATASET_BASE_PATH = os.path.join(ROOT_DIR, "datasets")  # Local dataset path
 MODEL_CHECKPOINT_PATH = os.path.join(ROOT_DIR, "model-checkpoints")  # Local model checkpoint path
 # Update the path to match your actual directory structure
-TRAIN_YAML = os.path.join(ROOT_DIR, "scripts/train/yamls/llama/llama3-1b-lora-instruct.yaml")  # Adjusted path
+TRAIN_YAML = (os.path.join(ROOT_DIR, "scripts/train/yamls/llama/llama3-1b-lora-instruct.yaml") if IS_PEFT
+              else  os.path.join(ROOT_DIR, "scripts/train/yamls/llama/llama3-1b-lora-instruct-full-ft.yaml") 
+              
+)
 OUTPUT_PRECISION = "bf16"
 
 # Create directories if they don't exist
@@ -220,37 +222,39 @@ def get_stats():
     except Exception as e:
         logger.error(f"Error running nvidia-smi: {e}")
 
-
-
-
-def convert_c4_small_dataset():
-    """Convert C4 dataset to the format needed for training"""
-    import subprocess
+def get_base_model_path(model_name_or_path):
+    """Get the path to the base model for tokenizer files."""
     import os
+    import yaml
     
-    # Change to llm-foundry/scripts directory at the start
-    os.chdir("scripts")
-    logger.info(f"Working directory: {os.getcwd()}")
+    # First, check if it's a direct path to a local model
+    if os.path.exists(model_name_or_path) and os.path.isdir(model_name_or_path):
+        return model_name_or_path
     
-    # Step 1: Convert C4 dataset
-    logger.info("Converting C4 dataset...")
-    data_prep_cmd = [
-        PYTHON_PATH,  # Use the correct Python interpreter
-        "data_prep/convert_dataset_hf.py",
-        "--dataset", "allenai/c4",
-        "--data_subset", "en",
-        "--out_root", f"../{DATASET_BASE_PATH}/c4_small",
-        "--splits", "train_small", "val_small",
-        "--concat_tokens", "2048",
-        "--tokenizer", "meta-llama/Llama-3.2-1B"
-    ]
-    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
-    logger.info(result.stdout)
-    if result.stderr:
-        logger.error(f"Data prep errors: {result.stderr}")
+    # Check if it's a HuggingFace model ID (like meta-llama/Llama-3-1b)
+    if '/' in model_name_or_path:
+        # Check if we have it locally
+        local_path = os.path.join(ROOT_DIR, "models", model_name_or_path.split('/')[-1])
+        if os.path.exists(local_path):
+            return local_path
     
-    os.chdir("..")  # Return to original directory
-
+    # Try to extract from the YAML config
+    yaml_file = os.path.join(ROOT_DIR, "scripts", TRAIN_YAML)
+    if os.path.exists(yaml_file):
+        with open(yaml_file, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        # Look in variables section
+        if 'variables' in config and 'model_name_or_path' in config['variables']:
+            base_model = config['variables']['model_name_or_path']
+            # Check if it's downloaded locally
+            local_path = os.path.join(ROOT_DIR, "models", base_model.split('/')[-1])
+            if os.path.exists(local_path):
+                return local_path
+            return base_model
+    
+    # Default to the meta-llama path if nothing else works
+    return "meta-llama/Llama-3.2-1B-Instruct"
 
 
 def download_model_if_needed(token: str, model_name_or_path: str) -> str:
@@ -297,7 +301,39 @@ print("Download complete!")
     return model_name_or_path
 
 
-def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-1b-lora-instruct.yaml") -> str:
+
+def convert_c4_small_dataset():
+    """Convert C4 dataset to the format needed for training"""
+    import subprocess
+    import os
+    
+    # Change to llm-foundry/scripts directory at the start
+    os.chdir("scripts")
+    logger.info(f"Working directory: {os.getcwd()}")
+    
+    # Step 1: Convert C4 dataset
+    logger.info("Converting C4 dataset...")
+    data_prep_cmd = [
+        PYTHON_PATH,  # Use the correct Python interpreter
+        "data_prep/convert_dataset_hf.py",
+        "--dataset", "allenai/c4",
+        "--data_subset", "en",
+        "--out_root", f"../{DATASET_BASE_PATH}/c4_small",
+        "--splits", "train_small", "val_small",
+        "--concat_tokens", "2048",
+        "--tokenizer", "meta-llama/Llama-3.2-1B"
+    ]
+    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
+    logger.info(result.stdout)
+    if result.stderr:
+        logger.error(f"Data prep errors: {result.stderr}")
+    
+    os.chdir("..")  # Return to original directory
+
+
+
+def train_model(run_ts: str, yaml_path: str ) -> str:
+    #= "scripts/train/yamls/llama/llama3-1b-lora-instruct.yaml"
     """Train the model using the specified YAML configuration"""
 
     import os, subprocess, shutil, yaml
@@ -321,26 +357,28 @@ def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-
     save_folder.mkdir(exist_ok=True, parents=True)
     shutil.copy(yaml_path, Path(save_folder) / Path(yaml_path).name)
 
-    PATHS_TO_CHECK = [
-        save_folder,
-        f"{save_folder}/latest-rank0.pt",
-        f"{run_folder}/adapter_config.json",
-        f"{run_folder}/adapter_model.bin"
-    ]
-    path_tracker("BEFORE_TRAINING", check_paths=PATHS_TO_CHECK)
+    if IS_PEFT:
+        PATHS_TO_CHECK = [
+            save_folder,
+            f"{save_folder}/latest-rank0.pt",
+            f"{run_folder}/adapter_config.json",
+            f"{run_folder}/adapter_model.bin"
+        ]
+        path_tracker("BEFORE_TRAINING", check_paths=PATHS_TO_CHECK)
+    logger.info("Looking for HuggingFace token...")
+    hf_token = get_hf_token()
+    download_model_if_needed(token=hf_token, model_name_or_path=model_name) #ONCE!!!
+    
+    # Set the environment variable with the absolute path
+    os.environ["COMPOSER_SAVE_FOLDER"] = str(save_folder)
+    logger.info(f"Set COMPOSER_SAVE_FOLDER={save_folder}")
+    with open(yaml_path, 'r') as f:
+        config = yaml.safe_load(f)
+    
+    # Set up dataset path - use absolute path
+    dataset_path = os.path.join(root_dir, "datasets", "c4_small")
     if USE_CUSTOM_MODEL:
-        logger.info("Looking for HuggingFace token...")
-        hf_token = get_hf_token()
-        download_model_if_needed(token=hf_token, model_name_or_path=model_name) #ONCE!!!
-        
-        # Set the environment variable with the absolute path
-        os.environ["COMPOSER_SAVE_FOLDER"] = str(save_folder)
-        logger.info(f"Set COMPOSER_SAVE_FOLDER={save_folder}")
-        with open(yaml_path, 'r') as f:
-            config = yaml.safe_load(f)
-        
-        # Set up dataset path - use absolute path
-        dataset_path = os.path.join(root_dir, "datasets", "c4_small")
+       
         if PEFT_TESTING:
             dataset_path = inject_peft_verification_samples(dataset_path)
             print(f"Using modified C4 dataset with PEFT verification samples: {dataset_path}")
@@ -395,8 +433,12 @@ def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-
         train_cmd = [
             "composer",
             "train/train.py",
-            yaml_path,  # Updated YAML path
-            f"save_folder={save_folder}",
+            "--yaml_path",  yaml_path,
+            "--output_dir", str(save_folder),
+            "--hf_token", hf_token,
+            "--model_name", model_name,
+            "--dataset_path", dataset_path,  # Add dataset path
+
         ]
         result = subprocess.run(train_cmd, capture_output=True, text=True)
         logger.info(result.stdout)
@@ -411,7 +453,7 @@ def train_model(run_ts: str, yaml_path: str = "scripts/train/yamls/llama/llama3-
     if result.returncode != 0:
         raise Exception(f"Training failed with exit code {result.returncode}\nStderr: {result.stderr}")
     
-    path_tracker("AFTER_TRAINING", check_paths=PATHS_TO_CHECK)
+    if IS_PEFT: path_tracker("AFTER_TRAINING", check_paths=PATHS_TO_CHECK)
     return str(run_folder)
 
 
@@ -442,86 +484,163 @@ def view_model_checkpoints(checkpoint_dir: Optional[str] = None) -> str:
     return "Checkpoint viewing complete"
 
 
-
 def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
-    """Convert a model checkpoint to a HuggingFace format."""
-    import subprocess, os
+    """Convert a model checkpoint to HuggingFace format with robust error handling."""
+    import subprocess, os, json, shutil, yaml, time
     from pathlib import Path
     
     # Get scripts directory
     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+    orig_dir = os.getcwd()
     os.chdir(scripts_dir)
     logger.info(f"Working directory: {os.getcwd()}")
 
-    # Handle checkpoint path - ensure it's a Path object initially
+    # Set up paths more explicitly
     checkpoint_path = Path(checkpoint_path)
-    checkpoint_dir = Path(ROOT_DIR) / "model-checkpoints"  # Local equivalent
+    checkpoint_dir = Path(ROOT_DIR) / "model-checkpoints"
+    run_folder = Path(checkpoint_dir) / checkpoint_path if "/" not in str(checkpoint_path) else Path(checkpoint_dir) / Path(checkpoint_path.split("/")[0])
     
-    # Get the run folder and checkpoint path
-    if "/" in str(checkpoint_path):
-        run_folder = Path(checkpoint_dir) / Path(checkpoint_path.split("/")[0])
-    else:
-        run_folder = Path(checkpoint_dir) / checkpoint_path
+    # Find checkpoint file
+    native_checkpoints = run_folder / "native_checkpoints"
+    composer_checkpoint_path = native_checkpoints / "latest-rank0.pt"
+    if not composer_checkpoint_path.exists():
+        checkpoints = list(native_checkpoints.glob("*.pt"))
+        if checkpoints:
+            composer_checkpoint_path = checkpoints[0]
+            logger.info(f"Using fallback checkpoint: {composer_checkpoint_path}")
+        else:
+            logger.error(f"No checkpoints found in {native_checkpoints}")
+            raise FileNotFoundError(f"No checkpoints found in {native_checkpoints}")
     
-    # Locate the actual checkpoint file
-    composer_checkpoint_path = run_folder
-    if composer_checkpoint_path.is_dir():
-        native_checkpoints = composer_checkpoint_path / "native_checkpoints"
-        if native_checkpoints.exists():
-            latest_checkpoint = native_checkpoints / "latest-rank0.pt"
-            if latest_checkpoint.exists():
-                composer_checkpoint_path = latest_checkpoint
-            else:
-                # Try to find any checkpoint
-                checkpoints = list(native_checkpoints.glob("*.pt"))
-                if checkpoints:
-                    composer_checkpoint_path = checkpoints[0]
-                    logger.info(f"Using fallback checkpoint: {composer_checkpoint_path}")
-    
-    path_tracker("BEFORE_CONVERSION", check_paths=[composer_checkpoint_path])
-    
-    # Use the same directory for HF output
+    # HF output path (same as run folder)
     hf_output_path = run_folder
-    hf_output_path.mkdir(exist_ok=True, parents=True)
-
-    # Set up paths to required resources
-    yaml_file = os.path.join(scripts_dir, TRAIN_YAML)
     
-    # Run the conversion script directly
+    # Get base model name from YAML for tokenizer copying
+    with open(os.path.join(scripts_dir, TRAIN_YAML), 'r') as f:
+        config = yaml.safe_load(f)
+    
+    base_model = config.get('variables', {}).get('model_name_or_path', "meta-llama/Llama-3.2-1B-Instruct")
+    base_model_dir = download_model_if_needed(token=get_hf_token(), model_name_or_path=base_model)
+    
+    # Run conversion with better error handling
     logger.info("\nConverting model to HuggingFace format...")
-    logger.info(f"Checkpoint file: {composer_checkpoint_path}")
+    logger.info(f"Checkpoint path: {composer_checkpoint_path}")
     logger.info(f"HF output path: {hf_output_path}")
     
-    # Use the built-in convert_composer_to_hf.py script
+    # Base conversion command
     convert_cmd = [
         PYTHON_PATH, 
         os.path.join(scripts_dir, "inference/convert_composer_to_hf.py"),
         "--composer_path", str(composer_checkpoint_path),
         "--hf_output_path", str(hf_output_path),
         "--output_precision", OUTPUT_PRECISION,
-        "--is_peft", str(IS_PEFT).lower(),  # Make sure this is lowercase "true" or "false"
-        "--train_yaml", yaml_file,
+        "--is_peft", str(IS_PEFT).lower(),
+        "--train_yaml", os.path.join(scripts_dir, TRAIN_YAML),
         "--trust_remote_code"
     ]
     
-    if upload_to_hf:
-        convert_cmd.extend(["--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"])
+    if not IS_PEFT:
+        convert_cmd.extend([
+            "--include_optimizer_state", "false",
+            # Try with explicit key for full models
+            "--standalone_module_key", "model"
+        ])
     
+    # Run conversion and capture output
     logger.info(f"Running command: {' '.join(convert_cmd)}")
     result = subprocess.run(convert_cmd, capture_output=True, text=True)
     
-    logger.info(result.stdout)
+    if result.stdout:
+        logger.info(f"Conversion output: {result.stdout}")
     if result.stderr:
         logger.warning(f"Conversion errors: {result.stderr}")
     
-    # Check if adapter files were created
-    path_tracker("AFTER_CONVERSION", check_paths=[
-        hf_output_path,
-        hf_output_path / "adapter_config.json",
-        hf_output_path / "adapter_model.safetensors"
-    ])
+    # CRITICAL: Check if conversion succeeded by verifying file existence
+    expected_files = []
+    if IS_PEFT:
+        expected_files = ["adapter_config.json", "adapter_model.safetensors"]
+    else:
+        expected_files = ["pytorch_model.bin", "config.json"]
     
+    missing_files = [f for f in expected_files if not os.path.exists(os.path.join(hf_output_path, f))]
+    
+    if missing_files:
+        logger.error(f"Conversion failed - missing files: {missing_files}")
+        
+        # Try to extract the model manually if conversion failed
+        if not IS_PEFT:
+            logger.warning("Attempting manual extraction of model weights...")
+            
+            # Try using save_pretrained directly
+            try:
+                import torch
+                from transformers import AutoModelForCausalLM
+                
+                # Load composer checkpoint
+                checkpoint = torch.load(composer_checkpoint_path, map_location="cpu")
+                
+                # Extract state dict - try different possible paths
+                model_state = None
+                for path in ["state.model", "state_dict", "model"]:
+                    try:
+                        parts = path.split(".")
+                        data = checkpoint
+                        for part in parts:
+                            data = data[part]
+                        model_state = data
+                        logger.info(f"Found model state at key path: {path}")
+                        break
+                    except (KeyError, TypeError):
+                        continue
+                
+                if model_state:
+                    # Try loading through transformers API
+                    model = AutoModelForCausalLM.from_pretrained(
+                        base_model_dir, 
+                        torch_dtype=torch.float16,
+                        device_map="cpu"
+                    )
+                    
+                    # Load weights and save
+                    model.load_state_dict(model_state, strict=False)
+                    model.save_pretrained(hf_output_path)
+                    logger.info("Successfully extracted and saved model through transformers API")
+                else:
+                    logger.error("Could not find model state in checkpoint")
+            except Exception as e:
+                logger.error(f"Manual extraction failed: {e}")
+    
+    # Always ensure tokenizer files are copied
+    for file in ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"]:
+        src = os.path.join(base_model_dir, file)
+        dst = os.path.join(hf_output_path, file)
+        if os.path.exists(src) and not os.path.exists(dst):
+            shutil.copy(src, dst)
+            logger.info(f"Copied {file} from base model")
+    
+    # Fix RoPE scaling in config.json if needed
+    config_path = os.path.join(hf_output_path, "config.json")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            config = json.load(f)
+        
+        if "rope_scaling" in config:
+            max_pos = config.get("max_position_embeddings", 8192)
+            if config["rope_scaling"].get("original_max_position_embeddings", max_pos) >= max_pos:
+                config["rope_scaling"]["original_max_position_embeddings"] = max_pos // 2
+                logger.info(f"Fixed RoPE scaling parameters to {max_pos // 2}")
+                
+                with open(config_path, "w") as f:
+                    json.dump(config, f, indent=2)
+    
+    # Verify files after conversion
+    logger.info("\nVerifying model directory after conversion:")
+    view_model_checkpoints(hf_output_path)
+    
+    # Change back to original directory
+    os.chdir(orig_dir)
     logger.info("Conversion complete!")
+    
     return str(hf_output_path)
 
 def evaluate_model(checkpoint_path: str):
@@ -545,16 +664,25 @@ def evaluate_model(checkpoint_path: str):
         if not os.path.exists(adapter_config_path):
             raise FileNotFoundError(f"PEFT adapter config not found at {adapter_config_path}. Check IS_PEFT setting or model path.")
         convert_peft_adapter_format(model_dir)
-        
-    eval_cmd = [
-    "composer",
-    "eval/eval.py",
-    "eval/yamls/hf_lora_eval.yaml",  # Use the template for LoRA eval. NOTE: it's named hf_lora_eval.yml in repo, change extension to yaml for consistency
-    "icl_tasks=eval/yamls/copa.yaml",                                 
-    f"variables.model_name_or_path={model_dir}",
-    f"results_path={save_path}",
-    f"variables.lora_id_or_path={model_dir if IS_PEFT else ''}",  # Only use if PEFT
-    ]
+    if IS_PEFT:
+        eval_cmd = [
+        "composer",
+        "eval/eval.py",
+        "eval/yamls/hf_lora_eval.yaml",  # Use the template for LoRA eval. NOTE: it's named hf_lora_eval.yml in repo, change extension to yaml for consistency
+        "icl_tasks=eval/yamls/copa.yaml",                                 
+        f"variables.model_name_or_path={model_dir}",
+        f"results_path={save_path}",
+        f"variables.lora_id_or_path={model_dir if IS_PEFT else ''}",  # Only use if PEFT
+        ]
+    else:
+        eval_cmd = [
+        "composer",
+        "eval/eval.py",
+        "eval/yamls/hf_eval.yaml",
+        "icl_tasks=eval/yamls/copa.yaml",
+        f"variables.model_name_or_path={model_dir}",
+        f"results_path={save_path}",  # Add results_path parameter
+        ]
     logger.info(f"Running evaluation command: {' '.join(eval_cmd)}")
     result = subprocess.run(eval_cmd, capture_output=True, text=True)
     logger.info(result.stdout)
@@ -1244,3 +1372,289 @@ if __name__ == "__main__":
 #     # which won't significantly affect token counts
     
 #     return str(c4_path)
+
+
+
+# def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
+#     """Convert a model checkpoint to HuggingFace format, handling both PEFT and full models properly."""
+#     import subprocess, os, json, shutil, yaml
+#     from pathlib import Path
+    
+#     # Get scripts directory
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+#     os.chdir(scripts_dir)
+#     logger.info(f"Working directory: {os.getcwd()}")
+
+#     # Handle checkpoint path - ensure it's a Path object initially
+#     checkpoint_path = Path(checkpoint_path)
+#     checkpoint_dir = Path(ROOT_DIR) / "model-checkpoints"
+    
+#     # Get the run folder and checkpoint path
+#     if "/" in str(checkpoint_path):
+#         run_folder = Path(checkpoint_dir) / Path(checkpoint_path.split("/")[0])
+#     else:
+#         run_folder = Path(checkpoint_dir) / checkpoint_path
+    
+#     # Locate the actual checkpoint file
+#     composer_checkpoint_path = run_folder
+#     if composer_checkpoint_path.is_dir():
+#         native_checkpoints = composer_checkpoint_path / "native_checkpoints"
+#         if native_checkpoints.exists():
+#             latest_checkpoint = native_checkpoints / "latest-rank0.pt"
+#             if latest_checkpoint.exists():
+#                 composer_checkpoint_path = latest_checkpoint
+#             else:
+#                 # Try to find any checkpoint
+#                 checkpoints = list(native_checkpoints.glob("*.pt"))
+#                 if checkpoints:
+#                     composer_checkpoint_path = checkpoints[0]
+#                     logger.info(f"Using fallback checkpoint: {composer_checkpoint_path}")
+    
+#     logger.info(f"Checkpoint path: {composer_checkpoint_path}")
+    
+#     # Use the same directory for HF output
+#     hf_output_path = run_folder
+#     hf_output_path.mkdir(exist_ok=True, parents=True)
+
+#     # Set up paths to required resources
+#     yaml_file = os.path.join(scripts_dir, TRAIN_YAML)
+    
+#     # Run the conversion script
+#     logger.info("\nConverting model to HuggingFace format...")
+#     logger.info(f"Checkpoint file: {composer_checkpoint_path}")
+#     logger.info(f"HF output path: {hf_output_path}")
+    
+#     # Base conversion command
+#     convert_cmd = [
+#         PYTHON_PATH, 
+#         os.path.join(scripts_dir, "inference/convert_composer_to_hf.py"),
+#         "--composer_path", str(composer_checkpoint_path),
+#         "--hf_output_path", str(hf_output_path),
+#         "--output_precision", OUTPUT_PRECISION,
+#         "--is_peft", str(IS_PEFT).lower(),
+#         "--train_yaml", yaml_file,
+#         "--trust_remote_code"
+#     ]
+    
+#     # Add special handling for full model conversion (non-PEFT)
+#     if not IS_PEFT:
+#         convert_cmd.extend([
+#             "--include_optimizer_state", "false"
+#         ])
+    
+#     if upload_to_hf:
+#         convert_cmd.extend(["--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"])
+    
+#     logger.info(f"Running command: {' '.join(convert_cmd)}")
+#     result = subprocess.run(convert_cmd, capture_output=True, text=True)
+    
+#     logger.info(result.stdout)
+#     if result.stderr:
+#         logger.warning(f"Conversion errors: {result.stderr}")
+    
+#     # Check if expected files were created
+#     check_paths = [hf_output_path]
+#     if IS_PEFT:
+#         check_paths.extend([
+#             hf_output_path / "adapter_config.json",
+#             hf_output_path / "adapter_model.safetensors"
+#         ])
+#     else:
+#         check_paths.extend([
+#             hf_output_path / "pytorch_model.bin",
+#             hf_output_path / "config.json",
+#             hf_output_path / "tokenizer.json",
+#             hf_output_path / "tokenizer_config.json",
+#             hf_output_path / "special_tokens_map.json"
+#         ])
+    
+#     path_tracker("AFTER_CONVERSION", check_paths=check_paths)
+    
+#     # CRITICAL: Determine original model and copy tokenizer files
+#     # Get base model name from YAML
+#     with open(os.path.join(scripts_dir, TRAIN_YAML), 'r') as f:
+#         config = yaml.safe_load(f)
+    
+#     base_model = config.get('variables', {}).get('model_name_or_path', "meta-llama/Llama-3.2-1B-Instruct")
+    
+#     # Find local base model directory or download it
+#     base_model_dir = download_model_if_needed(token=get_hf_token(), model_name_or_path=base_model)
+    
+#     # Copy tokenizer files
+#     for file in ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"]:
+#         src = os.path.join(base_model_dir, file)
+#         dst = os.path.join(hf_output_path, file)
+#         if os.path.exists(src) and not os.path.exists(dst):
+#             shutil.copy(src, dst)
+#             logger.info(f"Copied {file} from base model")
+    
+
+#     if not IS_PEFT:
+#         # Fix RoPE scaling config error
+#         config_path = os.path.join(hf_output_path, "config.json")
+#         if os.path.exists(config_path):
+#             with open(config_path, "r") as f:
+#                 config = json.load(f)
+            
+#             # Fix RoPE scaling parameter
+#             if "rope_scaling" in config and "original_max_position_embeddings" in config["rope_scaling"]:
+#                 if config["rope_scaling"]["original_max_position_embeddings"] >= config.get("max_position_embeddings", 8192):
+#                     config["rope_scaling"]["original_max_position_embeddings"] = config.get("max_position_embeddings", 8192) // 2
+#                     logger.info(f"Fixed RoPE scaling parameters to {config['rope_scaling']['original_max_position_embeddings']}")
+            
+#             # Write back fixed config
+#             with open(config_path, "w") as f:
+#                 json.dump(config, f, indent=2)
+        
+#         # Copy tokenizer files from base model if missing
+#         model_name = TRAIN_YAML.split('/')[-1].split('.')[0]  # Extract from YAML filename
+#         base_model_path = get_base_model_path(model_name)
+#         #base_model_path = get_model_name(model_name)
+#         for file in ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"]:
+#             dst_file = os.path.join(hf_output_path, file)
+#             src_file = os.path.join(base_model_path, file)
+#             if not os.path.exists(dst_file) and os.path.exists(src_file):
+#                 shutil.copy(src_file, dst_file)
+#                 logger.info(f"Copied {file} from base model")
+        
+#         # Verify the model can be loaded
+#         try:
+#             from transformers import AutoConfig
+#             AutoConfig.from_pretrained(hf_output_path)
+#             logger.info("✅ Model config successfully validated")
+#         except Exception as e:
+#             logger.error(f"❌ Model config validation failed: {e}")
+    
+#     # Print stats about the converted model
+#     view_model_checkpoints(hf_output_path)
+#     logger.info("Conversion complete!")
+    
+#     return str(hf_output_path)
+
+# def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
+#     """Convert a model checkpoint to a HuggingFace format."""
+#     import subprocess, os
+#     from pathlib import Path
+    
+#     # Get scripts directory
+#     scripts_dir = os.path.join(ROOT_DIR, "scripts")
+#     os.chdir(scripts_dir)
+#     logger.info(f"Working directory: {os.getcwd()}")
+
+#     # Handle checkpoint path - ensure it's a Path object initially
+#     checkpoint_path = Path(checkpoint_path)
+#     checkpoint_dir = Path(ROOT_DIR) / "model-checkpoints"  # Local equivalent
+    
+#     # Get the run folder and checkpoint path
+#     if "/" in str(checkpoint_path):
+#         run_folder = Path(checkpoint_dir) / Path(checkpoint_path.split("/")[0])
+#     else:
+#         run_folder = Path(checkpoint_dir) / checkpoint_path
+    
+#     # Locate the actual checkpoint file
+#     composer_checkpoint_path = run_folder
+#     if composer_checkpoint_path.is_dir():
+#         native_checkpoints = composer_checkpoint_path / "native_checkpoints"
+#         if native_checkpoints.exists():
+#             latest_checkpoint = native_checkpoints / "latest-rank0.pt"
+#             if latest_checkpoint.exists():
+#                 composer_checkpoint_path = latest_checkpoint
+#             else:
+#                 # Try to find any checkpoint
+#                 checkpoints = list(native_checkpoints.glob("*.pt"))
+#                 if checkpoints:
+#                     composer_checkpoint_path = checkpoints[0]
+#                     logger.info(f"Using fallback checkpoint: {composer_checkpoint_path}")
+    
+#     path_tracker("BEFORE_CONVERSION", check_paths=[composer_checkpoint_path])
+    
+#     # Use the same directory for HF output
+#     hf_output_path = run_folder
+#     hf_output_path.mkdir(exist_ok=True, parents=True)
+
+
+
+#     # Set up paths to required resources
+#     yaml_file = os.path.join(scripts_dir, TRAIN_YAML)
+    
+#     # Run the conversion script directly
+#     logger.info("\nConverting model to HuggingFace format...")
+#     logger.info(f"Checkpoint file: {composer_checkpoint_path}")
+#     logger.info(f"HF output path: {hf_output_path}")
+    
+#     # Use the built-in convert_composer_to_hf.py script
+#     convert_cmd = [
+#         PYTHON_PATH, 
+#         os.path.join(scripts_dir, "inference/convert_composer_to_hf.py"),
+#         "--composer_path", str(composer_checkpoint_path),
+#         "--hf_output_path", str(hf_output_path),
+#         "--output_precision", OUTPUT_PRECISION,
+#         "--is_peft", str(IS_PEFT).lower(),  # Make sure this is lowercase "true" or "false"
+#         "--train_yaml", yaml_file,
+#         "--trust_remote_code"
+#     ]
+    
+#     if upload_to_hf:
+#         convert_cmd.extend(["--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"])
+    
+#     logger.info(f"Running command: {' '.join(convert_cmd)}")
+#     result = subprocess.run(convert_cmd, capture_output=True, text=True)
+    
+#     logger.info(result.stdout)
+#     if result.stderr:
+#         logger.warning(f"Conversion errors: {result.stderr}")
+    
+#     # Check if adapter files were created
+#     ### EXTRA paths tracking
+#     check_paths = [hf_output_path]
+#     if IS_PEFT:
+#         check_paths.extend([
+#             hf_output_path / "adapter_config.json",
+#             hf_output_path / "adapter_model.safetensors"
+#         ])
+#     else:
+#         check_paths.extend([
+#             hf_output_path / "pytorch_model.bin",
+#             hf_output_path / "config.json",
+#             hf_output_path / "tokenizer.json",
+#             hf_output_path / "tokenizer_config.json",
+#             hf_output_path / "special_tokens_map.json"
+#         ])
+#     path_tracker("AFTER_CONVERSION", check_paths=check_paths)
+#     if not IS_PEFT:
+#         import json
+#         # Fix RoPE scaling config error
+#         config_path = os.path.join(hf_output_path, "config.json")
+#         if os.path.exists(config_path):
+#             with open(config_path, "r") as f:
+#                 config = json.load(f)
+            
+#             # Fix RoPE scaling parameter
+#             if "rope_scaling" in config and "original_max_position_embeddings" in config["rope_scaling"]:
+#                 if config["rope_scaling"]["original_max_position_embeddings"] >= config.get("max_position_embeddings", 8192):
+#                     config["rope_scaling"]["original_max_position_embeddings"] = 4096  # Set to smaller value
+#                     logger.info("Fixed RoPE scaling parameters")
+            
+#             # Write back fixed config
+#             with open(config_path, "w") as f:
+#                 json.dump(config, f, indent=2)
+        
+#         # Optional: Verify the model can be loaded
+#         try:
+#             from transformers import AutoConfig
+#             AutoConfig.from_pretrained(hf_output_path)
+#             logger.info("✅ Model config successfully validated")
+#         except Exception as e:
+#             logger.error(f"❌ Model config validation failed: {e}")
+#     ###
+
+#     # if not IS_PEFT:
+#     #     base_model_path = get_base_model_path(model_name)
+#     #     for file in ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"]:
+#     #         src_file = os.path.join(base_model_path, file)
+#     #         dst_file = os.path.join(hf_output_path, file)
+#     #         if os.path.exists(src_file) and not os.path.exists(dst_file):
+#     #             shutil.copy(src_file, dst_file)
+#     #             logger.info(f"Copied {file} from base model")
+#     logger.info("Conversion complete!")
+#     return str(hf_output_path)
