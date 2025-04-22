@@ -406,13 +406,6 @@ def cleanup_dataset():
                     print(f"Error renaming dataset: {e2}")
                     return "Failed to clean up dataset"
                 
-
-
-
-
-
-
-
 @app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, 
               secrets=[Secret.from_name("LRG"), Secret.from_name("huggingface-secret")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
@@ -534,10 +527,10 @@ def main():
     time.sleep(1)
   
     evaluate_model.remote(model_path)
-    time.sleep(1)
+    # time.sleep(1)
 
     push_folder_to_hf.remote(Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/model_path) 
-    time.sleep(1)
+    # time.sleep(1)
 
     generate_responses.remote(model_path)
 

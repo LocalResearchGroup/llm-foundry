@@ -1,0 +1,74 @@
+Peft saving 
+Tokenizer warnings and incoherency?
+rebuild docker due to config change
+
+
+
+
+Setting IS_PEFT=True for model conversion
+
+Converting model to HuggingFace format...
+
+##############################
+Converting Composer checkpoint to HuggingFace checkpoint format...
+Downloading checkpoint from /root/llama3-c4/latest-rank0.pt -> /tmp/tmpcui1dz8m/local-composer-checkpoint.pt
+Loading checkpoint into CPU RAM...
+##############################
+Saving HF Model Config...
+LlamaConfig {
+  "_name_or_path": "meta-llama/Llama-3.2-1B",
+  "architectures": [
+    "LlamaForCausalLM"
+  ],
+  "attention_bias": false,
+  "attention_dropout": 0.0,
+  "bos_token_id": 128000,
+  "eos_token_id": 128001,
+  "head_dim": 64,
+  "hidden_act": "silu",
+  "hidden_size": 2048,
+  "initializer_range": 0.02,
+  "intermediate_size": 8192,
+  "max_position_embeddings": 131072,
+  "mlp_bias": false,
+  "model_type": "llama",
+  "num_attention_heads": 32,
+  "num_hidden_layers": 16,
+  "num_key_value_heads": 8,
+  "pretraining_tp": 1,
+  "rms_norm_eps": 1e-05,
+  "rope_scaling": {
+    "factor": 32.0,
+    "high_freq_factor": 4.0,
+    "low_freq_factor": 1.0,
+    "original_max_position_embeddings": 8192,
+    "rope_type": "llama3"
+  },
+  "rope_theta": 500000.0,
+  "tie_word_embeddings": true,
+  "torch_dtype": "bfloat16",
+  "transformers_version": "4.47.1",
+  "use_cache": true,
+  "vocab_size": 128256
+}
+
+##############################
+Saving HF Tokenizer...
+PreTrainedTokenizerFast(name_or_path='', vocab_size=128000, model_max_length=2048, is_fast=True, padding_side='right', truncation_side='right', special_tokens={'bos_token': '<|begin_of_text|>', 'eos_token': '<|end_of_text|>'}, clean_up_tokenization_spaces=True, added_tokens_decoder={
+        128000: AddedToken("<|begin_of_text|>", rstrip=False, lstrip=False, single_word=False, normalized=False, special=True),
+        128001: AddedToken("<|end_of_text|>", rstrip=False, lstrip=False, single_word=False, normalized=False, special=True),
+        128002: AddedToken("<|reserved_special_token_0|>", rstrip=False, lstrip=False, single_word=False, normalized=False, special=True),
+       ...
+}
+)
+##############################
+Saving HF Model Weights...
+##############################
+HF checkpoint folder successfully created at /root/llama3-c4-hf.
+Loading model from /root/llama3-c4-hf
+Loading tokenizer from /root/llama3-c4-hf
+Composer checkpoint successfully converted to HuggingFace checkpoint format.
+
+Conversion errors: /opt/conda/envs/llm-foundry/lib/python3.12/site-packages/composer/utils/checkpoint.py:116: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  return torch.load(_ensure_valid_checkpoint(checkpoint_filepath), map_location=map_location)
+Some weights of the model checkpoint at /root/llama3-c4-hf were not used when initializing LlamaForCausalLM: ['base_model.model.layers.0.self_attn.k_proj.lora_A.default.weight', 'base_model.model.layers.0.self_attn.k_proj.lora_B.default.weight', 'base_model.model.layers.0.self_attn.o_proj.lora_A.default.weight', 'base_model.model.layers.0.self_attn.o_proj.lora_B.default.weight', 'base_model.model.layers.0.self_attn.q_proj.lora_A.default.weight', ...

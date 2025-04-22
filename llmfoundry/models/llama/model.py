@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from typing import Optional, Dict, Any, Union, Tuple, Mapping
+from typing import Optional, Dict, Any, Union, Mapping
 
 import torch
 import torch.nn as nn
@@ -326,31 +326,22 @@ class CustomLlamaModel(HuggingFaceModel):
             #compute_logits = False,
             **kwargs
         ):
-            # Get hidden states from embeddings
             if inputs_embeds is None:
                 inputs_embeds = self.embed_tokens(input_ids)
             
-            # Get position IDs if not provided
             if position_ids is None:
                 position_ids = torch.arange(input_ids.size(1), device=input_ids.device)
                 position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
             
-            # Initialize past key values if not provided
             if past_key_values is None:
                 past_key_values = tuple([None] * len(self.layers))
             
-            # Initialize hidden states
             hidden_states = inputs_embeds
             
-            # Initialize present key values for caching
             present_key_values = () if use_cache else None
             
-            # Process each layer
             for i, layer in enumerate(self.layers):
-                # Get past key values for this layer
                 past_key_value = past_key_values[i] if past_key_values is not None else None
-                
-                # Forward pass through the layer
                 layer_outputs = layer(
                     hidden_states=hidden_states,
                     attention_mask=attention_mask,
@@ -360,19 +351,14 @@ class CustomLlamaModel(HuggingFaceModel):
                     output_attentions=output_attentions,
                 )
                 
-                # Update hidden states
                 hidden_states = layer_outputs[0] if isinstance(layer_outputs, tuple) else layer_outputs
                 
-                # Store present key values if using cache
                 if use_cache:
                     present_key_values += (layer_outputs[1],)
             
             # Apply final layer norm
             hidden_states = self.norm(hidden_states)
-            
-            # Get logits from the language model head
-            #logits = self.lm_head(hidden_states)
-            #
+
             logits = None
 
             # Calculate loss if labels are provided
@@ -383,7 +369,7 @@ class CustomLlamaModel(HuggingFaceModel):
                 shift_labels = labels[..., 1:].contiguous().view(-1)
                 
                 if hasattr(self, '_fused_loss') and self._fused_loss:
-                    print("USING FUSED LOSS")
+                    if DEBUG: print("USING FUSED LOSS")
                     torch.cuda.synchronize()
                     before_mem = torch.cuda.memory_allocated()
                     loss = self.fused_loss_fn(
@@ -395,7 +381,7 @@ class CustomLlamaModel(HuggingFaceModel):
                     after_mem = torch.cuda.memory_allocated()
                     if DEBUG: print(f"Memory change during fused loss: {(after_mem - before_mem) / 1024**2:.2f} MB")
                 else:
-                    print("USING STANDARD LOSS")
+                    if DEBUG: print("USING STANDARD LOSS")
                     torch.cuda.synchronize()
                     before_mem = torch.cuda.memory_allocated()
                     # Calculate partial logits for loss only
@@ -407,9 +393,6 @@ class CustomLlamaModel(HuggingFaceModel):
                     if DEBUG: print(f"Memory change during standard loss: {(after_mem - before_mem) / 1024**2:.2f} MB")
 
             # Calculate full sequence logits ONLY if needed for generation/output
-            #print("=== LOGITS CALCULATION CHECK ===")
-            #if return_dict or output_attentions or output_hidden_states:
-            # Calculate logits if they're needed for output or generation
             if (return_dict or                    # Structured output needs logits
                 not self.training or                   # Inference/generation usually needs logits
                 labels is None or                 # No loss calculation means we need logits
@@ -454,7 +437,6 @@ class CustomLlamaModel(HuggingFaceModel):
             # only last token for input_ids if past is not None
             if past_key_values is not None:
                 input_ids = input_ids[:, -1].unsqueeze(-1)
-                
                 # the cache may be updated in the forward pass
                 # we need to update the attention mask accordingly
                 if attention_mask is not None:
@@ -655,9 +637,7 @@ class CustomLlamaModel(HuggingFaceModel):
             )
 
             # don't remove prefix space to sentencepiece models
-            if len(
-                self.tokenizer(' a', add_special_tokens=False)['input_ids'],
-            ) == 1:
+            if len(self.tokenizer(' a', add_special_tokens=False)['input_ids'],) == 1:
                 return self.tokenizer.batch_decode(
                     generation[:, batch['input_ids'].shape[1]:],
                     skip_special_tokens=True,
@@ -680,8 +660,7 @@ class CustomLlamaModel(HuggingFaceModel):
                 else:
                     raise RuntimeError(
                         'Encoder decoder models require that either decoder_input_ids is present in the batch'
-                        ' or that the model has a prepare_decoder_input_ids_from_labels method.',
-                    )
+                        ' or that the model has a prepare_decoder_input_ids_from_labels method.',)
 
             # Shift labels for causal language models
             if self.shift_labels or batch.get('mode', None) == 'icl_task':
@@ -751,30 +730,22 @@ class CustomLlamaModel(HuggingFaceModel):
         **kwargs
     ) -> torch.LongTensor:
         """Generate text using the model."""
-        # Set evaluation mode
         self.model.eval()
         
-        # Create the initial sequence and attention mask
         batch_size = input_ids.shape[0]
 
-        # Initialize generated sequences with input ids
         generated_ids = input_ids.clone()
         
-        # Generate tokens one by one
         for _ in range(max_new_tokens):  # Use _ to indicate unused variable
-            # Prepare inputs for current generation step
             input_ids_for_step = generated_ids
             
-            # Forward pass to get logits
             with torch.no_grad():
                 outputs = self.model(input_ids_for_step, attention_mask=attention_mask)
                 next_token_logits = outputs["logits"][:, -1, :]
             
-            # Apply temperature scaling
             if temperature > 0.0:
                 next_token_logits = next_token_logits / temperature
             
-            # Apply top-p sampling (nucleus sampling)
             if top_p < 1.0 and do_sample:
                 sorted_logits, sorted_indices = torch.sort(next_token_logits, descending=True, dim=-1)
                 cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
@@ -788,15 +759,13 @@ class CustomLlamaModel(HuggingFaceModel):
                 for b in range(batch_size):
                     indices_to_remove = sorted_indices[b][sorted_indices_to_remove[b]]
                     next_token_logits[b, indices_to_remove] = -float("inf")
-            
-            # Sample or take argmax
+
             if do_sample:
                 probs = torch.softmax(next_token_logits, dim=-1)
                 next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
             else:
                 next_tokens = torch.argmax(next_token_logits, dim=-1)
             
-            # Add to generated sequence
             next_tokens = next_tokens.unsqueeze(-1)
             generated_ids = torch.cat([generated_ids, next_tokens], dim=-1)
             

@@ -47,7 +47,7 @@ from composer.utils import MissingConditionalImportError, dist, get_file, import
 sys.path.insert(0, '/llm-foundry')
 sys.path.insert(0, '/llm-foundry/scripts')
 
-TYPE_CHECKING = True
+
 
 try:
     from peft import PeftModel, get_peft_model
@@ -93,7 +93,7 @@ class LlamaForCausalLM(HuggingFaceModel):
         rms_norm_eps: float = 1e-5,
         rope_theta: float = 500000.0,
         use_custom_architecture: bool = False,
-        custom_loss_fn: Optional[Callable] = None, # allows custom loss fn
+        custom_loss_fn: Optional[Callable] = None # allows custom loss fn
         **kwargs
     ):
         # Initialize parent with the passed model

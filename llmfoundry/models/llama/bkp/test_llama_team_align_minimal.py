@@ -141,6 +141,364 @@ def convert_c4_small_dataset():
     DATASETS_VOLUME.commit()
 
 
+# @app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, 
+#               secrets=[Secret.from_name("LRG"), Secret.from_name("huggingface-secret")],
+#               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
+#                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+#               max_containers=1)
+# def debug_adapter_creation(run_ts: str, yaml_path: str = "train/yamls/llama/llama3-1b-lora2.yaml"):
+#     """Debug why adapter files aren't being created."""
+#     import os, subprocess, shutil, time, yaml, json
+#     from pathlib import Path
+    
+#     # Change to llm-foundry/scripts directory
+#     os.chdir("/llm-foundry/scripts")
+#     print(f"Working directory: {os.getcwd()}")
+    
+#     # Get HF token
+#     hf_token = os.environ.get("huggingface_secret_HF_TOKEN", "")
+    
+#     # 1. First, check dataset existence
+#     data_path = f"{DATASETS_VOLUME_MOUNT_PATH}/c4_small"
+#     index_path = Path(data_path) / "train_small" / "index.json"
+    
+#     if not index_path.exists():
+#         print(f"Dataset not found at {index_path}, converting dataset...")
+#         data_cmd = [
+#             PYTHON_PATH,
+#             "data_prep/convert_dataset_hf.py",
+#             "--dataset", "allenai/c4",
+#             "--data_subset", "en",
+#             "--out_root", data_path,
+#             "--splits", "train_small", "val_small",
+#             "--concat_tokens", "2048",
+#             "--tokenizer", "meta-llama/Llama-3.2-1B",
+#         ]
+#         subprocess.run(data_cmd, check=True)
+#         print("Dataset converted successfully")
+    
+#     # 2. Set up model and download model files
+#     print("\nPre-downloading model files...")
+#     download_script = f"""
+# import os
+# from huggingface_hub import snapshot_download, login
+
+# token = "{hf_token}"
+# os.environ["HF_TOKEN"] = token
+# login(token=token)
+
+# local_dir = "/tmp/llama-3-2-1b"
+# print(f"Downloading model to {{local_dir}}")
+# snapshot_download(
+#     repo_id="meta-llama/Llama-3.2-1B",
+#     local_dir=local_dir,
+#     token=token,
+#     local_dir_use_symlinks=False
+# )
+# print("Download complete!")
+# """
+    
+#     with open("/tmp/download_model.py", "w") as f:
+#         f.write(download_script)
+    
+#     subprocess.run([PYTHON_PATH, "/tmp/download_model.py"])
+    
+#     # 3. Set up model paths and folders
+#     model_name = get_model_name(yaml_path)
+#     run_folder = get_run_folder(run_ts, model_name)
+#     save_folder = Path(f"{run_folder}/native_checkpoints")
+#     save_folder.mkdir(exist_ok=True, parents=True)
+    
+#     # 4. Modify YAML to use local model files
+#     with open(yaml_path) as f:
+#         yaml_config = yaml.safe_load(f)
+    
+#     # Save original model name for reference
+#     original_model = yaml_config['variables']['model_name_or_path']
+    
+#     # Replace with local path
+#     yaml_config['variables']['model_name_or_path'] = "/tmp/llama-3-2-1b"
+    
+#     # Create a temporary YAML file
+#     temp_yaml_path = "train/yamls/local_llama.yaml"
+#     with open(temp_yaml_path, "w") as f:
+#         yaml.dump(yaml_config, f)
+    
+#     print(f"Modified YAML: {original_model} → /tmp/llama-3-2-1b")
+    
+#     # 5. Debug our composer_llama_adapter.py
+#     print("\n🔍 Examining composer_llama_adapter.py for debugging...")
+#     adapter_file = "/llm-foundry/llmfoundry/models/llama/composer_llama_adapter.py"
+    
+#     # Read the file to check implementation
+#     try:
+#         with open(adapter_file, "r") as f:
+#             adapter_code = f.read()
+        
+#         # Check for key methods that should be creating adapter files
+#         has_on_save = "on_save_checkpoint" in adapter_code
+#         has_get_state = "get_state_dict" in adapter_code
+#         has_peft = "get_peft_model_state_dict" in adapter_code
+        
+#         print(f"Adapter code has:")
+#         print(f"- on_save_checkpoint method: {has_on_save}")
+#         print(f"- get_state_dict method: {has_get_state}")
+#         print(f"- PEFT extraction: {has_peft}")
+        
+#         # Add extra debug prints to the adapter file
+#         print("\nAdding debug prints to adapter file...")
+#         debug_adapter_code = adapter_code.replace(
+#             "def get_state_dict(self, state_dict=None):",
+#             """def get_state_dict(self, state_dict=None):
+#         print("\\n[DEBUG] get_state_dict called!")
+#         import traceback
+#         traceback.print_stack()"""
+#         )
+        
+#         if has_on_save:
+#             debug_adapter_code = debug_adapter_code.replace(
+#                 "def on_save_checkpoint(self, checkpoint_path):",
+#                 """def on_save_checkpoint(self, checkpoint_path):
+#             print("\\n[DEBUG] on_save_checkpoint called with path:", checkpoint_path)"""
+#             )
+        
+#         # Write the modified file back
+#         with open(adapter_file, "w") as f:
+#             f.write(debug_adapter_code)
+#         print("Added debug prints to adapter file")
+#     except Exception as e:
+#         print(f"Error examining adapter file: {e}")
+    
+#     # 6. Instrumented training with VERBOSE logging
+#     print("\n🔧 Running training with VERBOSE logging...")
+    
+#     # Set environment variable for adapter saving
+#     os.environ["COMPOSER_SAVE_FOLDER"] = str(save_folder)
+#     print(f"Set COMPOSER_SAVE_FOLDER={save_folder}")
+    
+#     # Run training
+#     train_cmd = [
+#         PYTHON_PATH,
+#         "train/train_with_llama_adapter.py",
+#         temp_yaml_path,
+#         data_path,
+#         f"save_folder={save_folder}",
+#         f"max_duration={TRAIN_DURATION}",
+#         f"save_interval={SAVE_INTERVAL}",
+#         "save_latest_filename=latest-rank0.pt",
+#         "model.should_save_peft_only=true",
+#         "loggers.file.enabled=true",
+#         "loggers.file.log_level=DEBUG",
+#         "loggers.file.append=true",
+#         "loggers.file.filename=adapter_debug.log"
+#     ]
+    
+#     result = subprocess.run(train_cmd)
+    
+#     # 7. Check log file for clues
+#     log_file = os.path.join(os.getcwd(), "adapter_debug.log")
+#     if os.path.exists(log_file):
+#         print("\n📜 Last 30 lines of debug log:")
+#         with open(log_file, "r") as f:
+#             lines = f.readlines()
+#             for line in lines[-30:]:
+#                 if "DEBUG" in line or "get_state_dict" in line or "on_save_checkpoint" in line:
+#                     print(line.strip())
+    
+#     # 8. Check for checkpoint and adapter files
+#     checkpoint_path = save_folder / "latest-rank0.pt"
+#     print(f"\nChecking for checkpoint at {checkpoint_path}...")
+    
+#     if checkpoint_path.exists():
+#         print("✅ Checkpoint exists")
+#         import torch
+#         try:
+#             checkpoint = torch.load(checkpoint_path, map_location="cpu")
+#             print(f"Checkpoint keys: {list(checkpoint.keys())}")
+#             if "state" in checkpoint:
+#                 print(f"State keys: {list(checkpoint['state'].keys())}")
+#                 if "model" in checkpoint["state"]:
+#                     model_dict = checkpoint["state"]["model"]
+#                     keys = list(model_dict.keys())
+#                     lora_keys = [k for k in keys if "lora_" in k]
+#                     print(f"Found {len(lora_keys)}/{len(keys)} LoRA keys in checkpoint")
+#                     if lora_keys:
+#                         print("Example LoRA keys:", lora_keys[:3])
+#         except Exception as e:
+#             print(f"Error loading checkpoint: {e}")
+#     else:
+#         print("❌ Checkpoint does not exist")
+    
+#     adapter_config_path = Path(run_folder) / "adapter_config.json"
+#     adapter_weights_path = Path(run_folder) / "adapter_model.bin"
+    
+#     print(f"\nChecking for adapter files...")
+#     print(f"- adapter_config.json: {adapter_config_path.exists()}")
+#     print(f"- adapter_model.bin: {adapter_weights_path.exists()}")
+    
+#     # 9. Full directory listing for debugging
+#     print("\nDirectory contents for debugging:")
+#     for path in [run_folder, save_folder]:
+#         if path.exists():
+#             print(f"\nContents of {path}:")
+#             for item in os.listdir(path):
+#                 print(f"  {item}")
+    
+#     # 10. Report conclusion
+#     if adapter_config_path.exists() and adapter_weights_path.exists():
+#         print("\n✅ SUCCESS: Adapter files were created!")
+#     else:
+#         print("\n❌ FAILURE: Adapter files were not created")
+#         raise ValueError("No adapter files found - debugging needed for composer_llama_adapter.py!")
+    
+#     MODEL_CHECKPOINT_VOLUME.commit()
+#     return str(run_folder)
+
+# @app.function(image=image)
+# def check_adapter_file():
+#     """Print the contents of composer_llama_adapter.py for inspection"""
+#     adapter_file = "/llm-foundry/llmfoundry/models/llama/composer_llama_adapter.py"
+    
+#     with open(adapter_file, "r") as f:
+#         content = f.read()
+        
+#     print(f"Adapter file contents ({len(content)} bytes):")
+#     print(content[:1000] + "..." if len(content) > 1000 else content)
+    
+#     return "Adapter file checked"
+# @app.function(gpu=TRAINING_GPU, image=image, timeout=3600,
+#               secrets=[Secret.from_name("LRG")],
+#               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+#               max_containers=1)
+# def check_dataset():
+#     """Just check if dataset exists without trying to recreate."""
+#     import os
+#     from pathlib import Path
+    
+#     # Change to llm-foundry/scripts directory
+#     os.chdir("/llm-foundry/scripts")
+#     print(f"Working directory: {os.getcwd()}")
+    
+#     # Check dataset state
+#     data_path = Path(f"{DATASETS_VOLUME_MOUNT_PATH}/c4_small")
+#     train_index = data_path / "train_small" / "index.json"
+#     val_index = data_path / "val_small" / "index.json"
+    
+#     print(f"Checking dataset at {data_path}")
+#     print(f"- Train index exists: {train_index.exists()}")
+#     print(f"- Val index exists: {val_index.exists()}")
+    
+#     # Check what's in the directory
+#     print("\nDirectory contents:")
+#     for item in os.listdir(data_path):
+#         item_path = os.path.join(data_path, item)
+#         if os.path.isdir(item_path):
+#             files = os.listdir(item_path)
+#             file_count = len(files)
+#             print(f"- {item}: {file_count} files {'(including index.json)' if 'index.json' in files else ''}")
+    
+#     if train_index.exists() and val_index.exists():
+#         print("\n✅ Complete dataset found!")
+#     else:
+#         print("\n⚠️ Dataset incomplete, but we'll use what's available")
+    
+#     return str(data_path)
+# @app.function(gpu=TRAINING_GPU, image=image, timeout=3600,
+#               secrets=[Secret.from_name("LRG")],
+#               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+#               max_containers=1)
+# def cleanup_dataset():
+#     """Clean up corrupted dataset and create a fresh one."""
+#     import os, subprocess, shutil
+#     from pathlib import Path
+    
+#     # Change to llm-foundry/scripts directory
+#     os.chdir("/llm-foundry/scripts")
+#     print(f"Working directory: {os.getcwd()}")
+    
+#     # Check current dataset state
+#     data_path = Path(f"{DATASETS_VOLUME_MOUNT_PATH}/c4_small")
+#     print(f"Examining dataset at {data_path}")
+    
+#     if data_path.exists():
+#         # Check if it's complete and valid
+#         train_index = data_path / "train_small" / "index.json"
+#         val_index = data_path / "val_small" / "index.json"
+        
+#         if train_index.exists() and val_index.exists():
+#             print("✅ Dataset appears to be complete and valid, no cleanup needed")
+#             return str(data_path)
+#         else:
+#             print("❌ Dataset is incomplete or corrupted, will remove and recreate")
+            
+#             # Backup the old data just in case
+#             print("Making backup of existing data...")
+#             backup_dir = Path(f"{DATASETS_VOLUME_MOUNT_PATH}/c4_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}")
+#             backup_dir.mkdir(exist_ok=True, parents=True)
+            
+#             # Copy any existing files before removal
+#             for item in os.listdir(data_path):
+#                 src = data_path / item
+#                 dst = backup_dir / item
+#                 try:
+#                     if os.path.isdir(src):
+#                         shutil.copytree(src, dst)
+#                     else:
+#                         shutil.copy2(src, dst)
+#                 except Exception as e:
+#                     print(f"Warning during backup: {e}")
+            
+#             # Remove the corrupted dataset
+#             try:
+#                 shutil.rmtree(data_path)
+#                 print(f"Removed corrupted dataset at {data_path}")
+#             except Exception as e:
+#                 print(f"Error removing dataset: {e}")
+#                 # If we can't remove, rename it
+#                 try:
+#                     old_path = Path(f"{DATASETS_VOLUME_MOUNT_PATH}/c4_small_corrupted")
+#                     shutil.move(data_path, old_path)
+#                     print(f"Renamed corrupted dataset to {old_path}")
+#                 except Exception as e2:
+#                     print(f"Error renaming dataset: {e2}")
+#                     return "Failed to clean up dataset"
+    
+#     # Create fresh directory
+#     data_path.mkdir(exist_ok=True, parents=True)
+    
+#     # Create a fresh dataset
+#     print("Creating fresh dataset...")
+#     data_cmd = [
+#         PYTHON_PATH,
+#         "data_prep/convert_dataset_hf.py",
+#         "--dataset", "allenai/c4", 
+#         "--data_subset", "en",
+#         "--out_root", str(data_path),
+#         "--splits", "train_small", "val_small",
+#         "--concat_tokens", "2048", 
+#         "--tokenizer", "meta-llama/Llama-3.2-1B"    ]
+    
+#     try:
+#         subprocess.run(data_cmd, check=True)
+#         print("✅ Dataset created successfully!")
+        
+#         # Double check it was created correctly
+#         train_index = data_path / "train_small" / "index.json"
+#         val_index = data_path / "val_small" / "index.json"
+        
+#         if train_index.exists() and val_index.exists():
+#             print("✓ Verified: index.json files exist")
+#         else:
+#             print("⚠️ Warning: index.json files missing after creation")
+        
+#         # Commit volume changes
+#         DATASETS_VOLUME.commit()
+#         return str(data_path)
+#     except subprocess.CalledProcessError as e:
+#         print(f"Failed to create dataset: {e}")
+#         return "Dataset creation failed"
+
+
 ########################33
 @app.function(image=image)
 def debug_adapter_code():
@@ -537,142 +895,6 @@ except Exception as e:
     
     MODEL_CHECKPOINT_VOLUME.commit()
     return str(run_folder)
-
-###########################
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600,
-              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              max_containers=1)
-def extract_adapter_from_best_checkpoint(checkpoint_dir: str):
-    """Extract adapter from the most recent/best checkpoint available"""
-    import os, torch, json
-    from pathlib import Path
-    
-    # Convert to Path without reassigning the parameter
-    dir_path = Path(checkpoint_dir)
-    print(f"Looking for checkpoints in: {dir_path}")
-    
-    # First try latest-rank0.pt
-    latest_path = dir_path / "latest-rank0.pt"
-    if latest_path.exists():
-        print(f"Found latest-rank0.pt - trying this first")
-        try:
-            checkpoint = torch.load(latest_path, map_location="cpu")
-            print("Successfully loaded latest-rank0.pt")
-            checkpoint_path = latest_path
-        except Exception as e:
-            print(f"Error loading latest-rank0.pt: {e}")
-            checkpoint = None
-            checkpoint_path = None
-    else:
-        print("latest-rank0.pt not found")
-        checkpoint = None
-        checkpoint_path = None
-    
-    # If latest didn't work, find epoch checkpoints
-    if checkpoint is None:
-        print("Looking for epoch-batch checkpoints...")
-        checkpoint_files = sorted(dir_path.glob("ep*-ba*-rank*.pt"))
-        
-        if not checkpoint_files:
-            return "No checkpoint files found"
-        
-        # Sort by batch number to get the latest
-        checkpoint_files.sort(key=lambda x: int(str(x).split('-ba')[1].split('-')[0]), reverse=True)
-        checkpoint_path = checkpoint_files[0]
-        
-        print(f"Using latest epoch checkpoint: {checkpoint_path}")
-        try:
-            checkpoint = torch.load(checkpoint_path, map_location="cpu")
-            print(f"Successfully loaded {checkpoint_path.name}")
-        except Exception as e:
-            return f"Error loading checkpoint {checkpoint_path.name}: {e}"
-    
-    # Extract adapter weights
-    if "state" in checkpoint and "model" in checkpoint["state"]:
-        model_state = checkpoint["state"]["model"]
-        lora_state = {k: v for k, v in model_state.items() if "lora_" in k}
-        if lora_state:
-            print(f"Found {len(lora_state)} LoRA weights")
-            sample_keys = list(lora_state.keys())[:3]
-            print(f"Sample keys: {sample_keys}")
-            
-            # Save adapter files
-            output_dir = Path(checkpoint_dir).parent  # Go up one level from native_checkpoints
-            config_path = output_dir / "adapter_config.json"
-            weights_path = output_dir / "adapter_model.bin"
-            
-            # Create adapter config
-            config_dict = {
-                "base_model_name_or_path": "meta-llama/Llama-3.2-1B",
-                "peft_type": "LORA",
-                "task_type": "CAUSAL_LM",
-                "r": 8,
-                "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
-                "lora_alpha": 16,
-                "lora_dropout": 0.05,
-                "inference_mode": False
-            }
-            
-            # Save files
-            with open(config_path, "w") as f:
-                json.dump(config_dict, f, indent=2)
-                
-            torch.save(lora_state, weights_path)
-            
-            print(f"✅ Successfully saved adapter files:")
-            print(f"  - Config: {config_path}")
-            print(f"  - Weights: {weights_path} ({os.path.getsize(weights_path)/1024/1024:.2f} MB)")
-            
-            # Verify the files exist
-            if os.path.exists(config_path) and os.path.exists(weights_path):
-                return {
-                    "success": True,
-                    "adapter_dir": str(output_dir),
-                    "config_path": str(config_path),
-                    "weights_path": str(weights_path),
-                    "checkpoint_used": str(checkpoint_path),
-                    "num_weights": len(lora_state)
-                }
-            else:
-                return "Failed to verify adapter files were created"
-        else:
-            return "No LoRA weights found in checkpoint"
-    else:
-        return "Checkpoint doesn't have the expected structure"
-
-
-@app.local_entrypoint()
-def main():
-    import time
-    # print("Fixing adapter parameters...")
-    # result = fix_adapter_params.remote()
-    # print(f"Result: {result}")
-    # time.sleep(2)
-    
-    # Generate a timestamp for this run
-    run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    # Step 1: Train a model first to create checkpoints
-    print("Starting training...")
-    model_path = train_with_hf_token.remote(run_ts)
-    print(f"Training completed, folder: {model_path}")
-    
-    # Step 2: Extract adapters from the checkpoint we just created
-    # Use the exact path returned from training
-    checkpoint_path = f"{model_path}/native_checkpoints/latest-rank0.pt"
-    
-    print(f"Extracting adapters from checkpoint: {checkpoint_path}")
-    adapter_dir = extract_adapter_from_best_checkpoint.remote(checkpoint_path)
-    
-    if adapter_dir:
-        print(f"Success! Adapters extracted to: {adapter_dir}")
-    else:
-        print("Failed to extract adapters")
-    
-    return "Training and adapter extraction completed"
-
-
-
     # # Check for adapter files
     # adapter_config = Path(run_folder) / "adapter_config.json"
     # adapter_weights = Path(run_folder) / "adapter_model.bin"
@@ -703,432 +925,105 @@ def main():
     # MODEL_CHECKPOINT_VOLUME.commit()
     # return str(run_folder)
 
-
-# def extract_adapters_from_checkpoint(checkpoint_path):
-#     """Extract adapter weights from an existing checkpoint file"""
-#     import os, torch, json
-#     from pathlib import Path
+###########################
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600,
+              volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
+              max_containers=1)
+def extract_adapters_from_checkpoint(checkpoint_path):
+    """Extract adapter weights from an existing checkpoint file"""
+    import os, torch, json
+    from pathlib import Path
     
-#     print(f"Extracting adapters from checkpoint: {checkpoint_path}")
+    print(f"Extracting adapters from checkpoint: {checkpoint_path}")
     
-#     # Load checkpoint
-#     checkpoint = torch.load(checkpoint_path, map_location="cpu")
-#     print(f"Checkpoint loaded, type: {type(checkpoint)}")
+    # Load checkpoint
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    print(f"Checkpoint loaded, type: {type(checkpoint)}")
     
-#     # Navigate to model weights
-#     if "state" in checkpoint and "model" in checkpoint["state"]:
-#         model_state = checkpoint["state"]["model"]
+    # Navigate to model weights
+    if "state" in checkpoint and "model" in checkpoint["state"]:
+        model_state = checkpoint["state"]["model"]
         
-#         # Extract LoRA weights
-#         lora_weights = {k: v for k, v in model_state.items() if "lora_" in k}
-#         print(f"Found {len(lora_weights)} LoRA weights in checkpoint")
+        # Extract LoRA weights
+        lora_weights = {k: v for k, v in model_state.items() if "lora_" in k}
+        print(f"Found {len(lora_weights)} LoRA weights in checkpoint")
         
-#         if lora_weights:
-#             # Determine save location - use parent directory of checkpoint
-#             checkpoint_file = Path(checkpoint_path)
-#             save_dir = checkpoint_file.parent.parent  # Go up two levels
+        if lora_weights:
+            # Determine save location - use parent directory of checkpoint
+            checkpoint_file = Path(checkpoint_path)
+            save_dir = checkpoint_file.parent.parent  # Go up two levels
             
-#             # Create adapter config
-#             adapter_config = {
-#                 "base_model_name_or_path": "meta-llama/Llama-3.2-1B",
-#                 "peft_type": "LORA",
-#                 "task_type": "CAUSAL_LM",
-#                 "r": 8,
-#                 "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
-#                 "lora_alpha": 16,
-#                 "lora_dropout": 0.05,
-#                 "inference_mode": False
-#             }
+            # Create adapter config
+            adapter_config = {
+                "base_model_name_or_path": "meta-llama/Llama-3.2-1B",
+                "peft_type": "LORA",
+                "task_type": "CAUSAL_LM",
+                "r": 8,
+                "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
+                "lora_alpha": 16,
+                "lora_dropout": 0.05,
+                "inference_mode": False
+            }
             
-#             # Save adapter files
-#             config_path = save_dir / "adapter_config.json"
-#             weights_path = save_dir / "adapter_model.bin"
+            # Save adapter files
+            config_path = save_dir / "adapter_config.json"
+            weights_path = save_dir / "adapter_model.bin"
             
-#             with open(config_path, "w") as f:
-#                 json.dump(adapter_config, f, indent=2)
+            with open(config_path, "w") as f:
+                json.dump(adapter_config, f, indent=2)
                 
-#             torch.save(lora_weights, weights_path)
+            torch.save(lora_weights, weights_path)
             
-#             print(f"✅ Successfully extracted adapter files:")
-#             print(f"  - Config: {config_path}")
-#             print(f"  - Weights: {weights_path}")
+            print(f"✅ Successfully extracted adapter files:")
+            print(f"  - Config: {config_path}")
+            print(f"  - Weights: {weights_path}")
             
-#             # Verify the files exist
-#             if os.path.exists(config_path) and os.path.exists(weights_path):
-#                 print("Verified: Files were created successfully")
-#             else:
-#                 print("⚠️ Warning: Files were not created as expected")
+            # Verify the files exist
+            if os.path.exists(config_path) and os.path.exists(weights_path):
+                print("Verified: Files were created successfully")
+            else:
+                print("⚠️ Warning: Files were not created as expected")
             
-#             return str(save_dir)
-#         else:
-#             print("❌ No LoRA weights found in checkpoint")
-#     else:
-#         print("❌ Checkpoint structure not as expected")
+            return str(save_dir)
+        else:
+            print("❌ No LoRA weights found in checkpoint")
+    else:
+        print("❌ Checkpoint structure not as expected")
     
-#     return None
+    return None
 
 
 
-
-# @app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, 
-#               secrets=[Secret.from_name("LRG"), Secret.from_name("huggingface-secret")],
-#               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
-#                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-#               max_containers=1)
-# def debug_adapter_creation(run_ts: str, yaml_path: str = "train/yamls/llama/llama3-1b-lora2.yaml"):
-#     """Debug why adapter files aren't being created."""
-#     import os, subprocess, shutil, time, yaml, json
-#     from pathlib import Path
+# 
+@app.local_entrypoint()
+def main():
+    import time
+    # print("Fixing adapter parameters...")
+    # result = fix_adapter_params.remote()
+    # print(f"Result: {result}")
+    # time.sleep(2)
     
-#     # Change to llm-foundry/scripts directory
-#     os.chdir("/llm-foundry/scripts")
-#     print(f"Working directory: {os.getcwd()}")
+    # Generate a timestamp for this run
+    run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     
-#     # Get HF token
-#     hf_token = os.environ.get("huggingface_secret_HF_TOKEN", "")
+    # Step 1: Train a model first to create checkpoints
+    print("Starting training...")
+    model_path = train_with_hf_token.remote(run_ts)
+    print(f"Training completed, folder: {model_path}")
     
-#     # 1. First, check dataset existence
-#     data_path = f"{DATASETS_VOLUME_MOUNT_PATH}/c4_small"
-#     index_path = Path(data_path) / "train_small" / "index.json"
+    # Step 2: Extract adapters from the checkpoint we just created
+    # Use the exact path returned from training
+    checkpoint_path = f"{model_path}/native_checkpoints/latest-rank0.pt"
     
-#     if not index_path.exists():
-#         print(f"Dataset not found at {index_path}, converting dataset...")
-#         data_cmd = [
-#             PYTHON_PATH,
-#             "data_prep/convert_dataset_hf.py",
-#             "--dataset", "allenai/c4",
-#             "--data_subset", "en",
-#             "--out_root", data_path,
-#             "--splits", "train_small", "val_small",
-#             "--concat_tokens", "2048",
-#             "--tokenizer", "meta-llama/Llama-3.2-1B",
-#         ]
-#         subprocess.run(data_cmd, check=True)
-#         print("Dataset converted successfully")
+    print(f"Extracting adapters from checkpoint: {checkpoint_path}")
+    adapter_dir = extract_adapters_from_checkpoint.remote(checkpoint_path)
     
-#     # 2. Set up model and download model files
-#     print("\nPre-downloading model files...")
-#     download_script = f"""
-# import os
-# from huggingface_hub import snapshot_download, login
-
-# token = "{hf_token}"
-# os.environ["HF_TOKEN"] = token
-# login(token=token)
-
-# local_dir = "/tmp/llama-3-2-1b"
-# print(f"Downloading model to {{local_dir}}")
-# snapshot_download(
-#     repo_id="meta-llama/Llama-3.2-1B",
-#     local_dir=local_dir,
-#     token=token,
-#     local_dir_use_symlinks=False
-# )
-# print("Download complete!")
-# """
+    if adapter_dir:
+        print(f"Success! Adapters extracted to: {adapter_dir}")
+    else:
+        print("Failed to extract adapters")
     
-#     with open("/tmp/download_model.py", "w") as f:
-#         f.write(download_script)
-    
-#     subprocess.run([PYTHON_PATH, "/tmp/download_model.py"])
-    
-#     # 3. Set up model paths and folders
-#     model_name = get_model_name(yaml_path)
-#     run_folder = get_run_folder(run_ts, model_name)
-#     save_folder = Path(f"{run_folder}/native_checkpoints")
-#     save_folder.mkdir(exist_ok=True, parents=True)
-    
-#     # 4. Modify YAML to use local model files
-#     with open(yaml_path) as f:
-#         yaml_config = yaml.safe_load(f)
-    
-#     # Save original model name for reference
-#     original_model = yaml_config['variables']['model_name_or_path']
-    
-#     # Replace with local path
-#     yaml_config['variables']['model_name_or_path'] = "/tmp/llama-3-2-1b"
-    
-#     # Create a temporary YAML file
-#     temp_yaml_path = "train/yamls/local_llama.yaml"
-#     with open(temp_yaml_path, "w") as f:
-#         yaml.dump(yaml_config, f)
-    
-#     print(f"Modified YAML: {original_model} → /tmp/llama-3-2-1b")
-    
-#     # 5. Debug our composer_llama_adapter.py
-#     print("\n🔍 Examining composer_llama_adapter.py for debugging...")
-#     adapter_file = "/llm-foundry/llmfoundry/models/llama/composer_llama_adapter.py"
-    
-#     # Read the file to check implementation
-#     try:
-#         with open(adapter_file, "r") as f:
-#             adapter_code = f.read()
-        
-#         # Check for key methods that should be creating adapter files
-#         has_on_save = "on_save_checkpoint" in adapter_code
-#         has_get_state = "get_state_dict" in adapter_code
-#         has_peft = "get_peft_model_state_dict" in adapter_code
-        
-#         print(f"Adapter code has:")
-#         print(f"- on_save_checkpoint method: {has_on_save}")
-#         print(f"- get_state_dict method: {has_get_state}")
-#         print(f"- PEFT extraction: {has_peft}")
-        
-#         # Add extra debug prints to the adapter file
-#         print("\nAdding debug prints to adapter file...")
-#         debug_adapter_code = adapter_code.replace(
-#             "def get_state_dict(self, state_dict=None):",
-#             """def get_state_dict(self, state_dict=None):
-#         print("\\n[DEBUG] get_state_dict called!")
-#         import traceback
-#         traceback.print_stack()"""
-#         )
-        
-#         if has_on_save:
-#             debug_adapter_code = debug_adapter_code.replace(
-#                 "def on_save_checkpoint(self, checkpoint_path):",
-#                 """def on_save_checkpoint(self, checkpoint_path):
-#             print("\\n[DEBUG] on_save_checkpoint called with path:", checkpoint_path)"""
-#             )
-        
-#         # Write the modified file back
-#         with open(adapter_file, "w") as f:
-#             f.write(debug_adapter_code)
-#         print("Added debug prints to adapter file")
-#     except Exception as e:
-#         print(f"Error examining adapter file: {e}")
-    
-#     # 6. Instrumented training with VERBOSE logging
-#     print("\n🔧 Running training with VERBOSE logging...")
-    
-#     # Set environment variable for adapter saving
-#     os.environ["COMPOSER_SAVE_FOLDER"] = str(save_folder)
-#     print(f"Set COMPOSER_SAVE_FOLDER={save_folder}")
-    
-#     # Run training
-#     train_cmd = [
-#         PYTHON_PATH,
-#         "train/train_with_llama_adapter.py",
-#         temp_yaml_path,
-#         data_path,
-#         f"save_folder={save_folder}",
-#         f"max_duration={TRAIN_DURATION}",
-#         f"save_interval={SAVE_INTERVAL}",
-#         "save_latest_filename=latest-rank0.pt",
-#         "model.should_save_peft_only=true",
-#         "loggers.file.enabled=true",
-#         "loggers.file.log_level=DEBUG",
-#         "loggers.file.append=true",
-#         "loggers.file.filename=adapter_debug.log"
-#     ]
-    
-#     result = subprocess.run(train_cmd)
-    
-#     # 7. Check log file for clues
-#     log_file = os.path.join(os.getcwd(), "adapter_debug.log")
-#     if os.path.exists(log_file):
-#         print("\n📜 Last 30 lines of debug log:")
-#         with open(log_file, "r") as f:
-#             lines = f.readlines()
-#             for line in lines[-30:]:
-#                 if "DEBUG" in line or "get_state_dict" in line or "on_save_checkpoint" in line:
-#                     print(line.strip())
-    
-#     # 8. Check for checkpoint and adapter files
-#     checkpoint_path = save_folder / "latest-rank0.pt"
-#     print(f"\nChecking for checkpoint at {checkpoint_path}...")
-    
-#     if checkpoint_path.exists():
-#         print("✅ Checkpoint exists")
-#         import torch
-#         try:
-#             checkpoint = torch.load(checkpoint_path, map_location="cpu")
-#             print(f"Checkpoint keys: {list(checkpoint.keys())}")
-#             if "state" in checkpoint:
-#                 print(f"State keys: {list(checkpoint['state'].keys())}")
-#                 if "model" in checkpoint["state"]:
-#                     model_dict = checkpoint["state"]["model"]
-#                     keys = list(model_dict.keys())
-#                     lora_keys = [k for k in keys if "lora_" in k]
-#                     print(f"Found {len(lora_keys)}/{len(keys)} LoRA keys in checkpoint")
-#                     if lora_keys:
-#                         print("Example LoRA keys:", lora_keys[:3])
-#         except Exception as e:
-#             print(f"Error loading checkpoint: {e}")
-#     else:
-#         print("❌ Checkpoint does not exist")
-    
-#     adapter_config_path = Path(run_folder) / "adapter_config.json"
-#     adapter_weights_path = Path(run_folder) / "adapter_model.bin"
-    
-#     print(f"\nChecking for adapter files...")
-#     print(f"- adapter_config.json: {adapter_config_path.exists()}")
-#     print(f"- adapter_model.bin: {adapter_weights_path.exists()}")
-    
-#     # 9. Full directory listing for debugging
-#     print("\nDirectory contents for debugging:")
-#     for path in [run_folder, save_folder]:
-#         if path.exists():
-#             print(f"\nContents of {path}:")
-#             for item in os.listdir(path):
-#                 print(f"  {item}")
-    
-#     # 10. Report conclusion
-#     if adapter_config_path.exists() and adapter_weights_path.exists():
-#         print("\n✅ SUCCESS: Adapter files were created!")
-#     else:
-#         print("\n❌ FAILURE: Adapter files were not created")
-#         raise ValueError("No adapter files found - debugging needed for composer_llama_adapter.py!")
-    
-#     MODEL_CHECKPOINT_VOLUME.commit()
-#     return str(run_folder)
-
-# @app.function(image=image)
-# def check_adapter_file():
-#     """Print the contents of composer_llama_adapter.py for inspection"""
-#     adapter_file = "/llm-foundry/llmfoundry/models/llama/composer_llama_adapter.py"
-    
-#     with open(adapter_file, "r") as f:
-#         content = f.read()
-        
-#     print(f"Adapter file contents ({len(content)} bytes):")
-#     print(content[:1000] + "..." if len(content) > 1000 else content)
-    
-#     return "Adapter file checked"
-# @app.function(gpu=TRAINING_GPU, image=image, timeout=3600,
-#               secrets=[Secret.from_name("LRG")],
-#               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-#               max_containers=1)
-# def check_dataset():
-#     """Just check if dataset exists without trying to recreate."""
-#     import os
-#     from pathlib import Path
-    
-#     # Change to llm-foundry/scripts directory
-#     os.chdir("/llm-foundry/scripts")
-#     print(f"Working directory: {os.getcwd()}")
-    
-#     # Check dataset state
-#     data_path = Path(f"{DATASETS_VOLUME_MOUNT_PATH}/c4_small")
-#     train_index = data_path / "train_small" / "index.json"
-#     val_index = data_path / "val_small" / "index.json"
-    
-#     print(f"Checking dataset at {data_path}")
-#     print(f"- Train index exists: {train_index.exists()}")
-#     print(f"- Val index exists: {val_index.exists()}")
-    
-#     # Check what's in the directory
-#     print("\nDirectory contents:")
-#     for item in os.listdir(data_path):
-#         item_path = os.path.join(data_path, item)
-#         if os.path.isdir(item_path):
-#             files = os.listdir(item_path)
-#             file_count = len(files)
-#             print(f"- {item}: {file_count} files {'(including index.json)' if 'index.json' in files else ''}")
-    
-#     if train_index.exists() and val_index.exists():
-#         print("\n✅ Complete dataset found!")
-#     else:
-#         print("\n⚠️ Dataset incomplete, but we'll use what's available")
-    
-#     return str(data_path)
-# @app.function(gpu=TRAINING_GPU, image=image, timeout=3600,
-#               secrets=[Secret.from_name("LRG")],
-#               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-#               max_containers=1)
-# def cleanup_dataset():
-#     """Clean up corrupted dataset and create a fresh one."""
-#     import os, subprocess, shutil
-#     from pathlib import Path
-    
-#     # Change to llm-foundry/scripts directory
-#     os.chdir("/llm-foundry/scripts")
-#     print(f"Working directory: {os.getcwd()}")
-    
-#     # Check current dataset state
-#     data_path = Path(f"{DATASETS_VOLUME_MOUNT_PATH}/c4_small")
-#     print(f"Examining dataset at {data_path}")
-    
-#     if data_path.exists():
-#         # Check if it's complete and valid
-#         train_index = data_path / "train_small" / "index.json"
-#         val_index = data_path / "val_small" / "index.json"
-        
-#         if train_index.exists() and val_index.exists():
-#             print("✅ Dataset appears to be complete and valid, no cleanup needed")
-#             return str(data_path)
-#         else:
-#             print("❌ Dataset is incomplete or corrupted, will remove and recreate")
-            
-#             # Backup the old data just in case
-#             print("Making backup of existing data...")
-#             backup_dir = Path(f"{DATASETS_VOLUME_MOUNT_PATH}/c4_backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}")
-#             backup_dir.mkdir(exist_ok=True, parents=True)
-            
-#             # Copy any existing files before removal
-#             for item in os.listdir(data_path):
-#                 src = data_path / item
-#                 dst = backup_dir / item
-#                 try:
-#                     if os.path.isdir(src):
-#                         shutil.copytree(src, dst)
-#                     else:
-#                         shutil.copy2(src, dst)
-#                 except Exception as e:
-#                     print(f"Warning during backup: {e}")
-            
-#             # Remove the corrupted dataset
-#             try:
-#                 shutil.rmtree(data_path)
-#                 print(f"Removed corrupted dataset at {data_path}")
-#             except Exception as e:
-#                 print(f"Error removing dataset: {e}")
-#                 # If we can't remove, rename it
-#                 try:
-#                     old_path = Path(f"{DATASETS_VOLUME_MOUNT_PATH}/c4_small_corrupted")
-#                     shutil.move(data_path, old_path)
-#                     print(f"Renamed corrupted dataset to {old_path}")
-#                 except Exception as e2:
-#                     print(f"Error renaming dataset: {e2}")
-#                     return "Failed to clean up dataset"
-    
-#     # Create fresh directory
-#     data_path.mkdir(exist_ok=True, parents=True)
-    
-#     # Create a fresh dataset
-#     print("Creating fresh dataset...")
-#     data_cmd = [
-#         PYTHON_PATH,
-#         "data_prep/convert_dataset_hf.py",
-#         "--dataset", "allenai/c4", 
-#         "--data_subset", "en",
-#         "--out_root", str(data_path),
-#         "--splits", "train_small", "val_small",
-#         "--concat_tokens", "2048", 
-#         "--tokenizer", "meta-llama/Llama-3.2-1B"    ]
-    
-#     try:
-#         subprocess.run(data_cmd, check=True)
-#         print("✅ Dataset created successfully!")
-        
-#         # Double check it was created correctly
-#         train_index = data_path / "train_small" / "index.json"
-#         val_index = data_path / "val_small" / "index.json"
-        
-#         if train_index.exists() and val_index.exists():
-#             print("✓ Verified: index.json files exist")
-#         else:
-#             print("⚠️ Warning: index.json files missing after creation")
-        
-#         # Commit volume changes
-#         DATASETS_VOLUME.commit()
-#         return str(data_path)
-#     except subprocess.CalledProcessError as e:
-#         print(f"Failed to create dataset: {e}")
-#         return "Dataset creation failed"
-
-
-
+    return "Training and adapter extraction completed"
 
 #@app.function(image=image)
 # def fix_adapter_params():
