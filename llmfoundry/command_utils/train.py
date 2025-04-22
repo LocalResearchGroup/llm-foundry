@@ -61,6 +61,10 @@ from llmfoundry.utils.exceptions import (
 )
 from llmfoundry.utils.registry_utils import import_file
 
+from composer.core import State
+from composer.loggers import Logger
+from typing import Optional, List
+
 log = logging.getLogger(__name__)
 
 
@@ -578,7 +582,54 @@ def train(cfg: DictConfig) -> Trainer:
         print('#'*30)
         print("\nDecoded `labels` of first example:")
         print(tokenizer.decode(batch['labels'][0]))
+
+    class EmbeddingInspectorCallback(Callback):
+    """A simple callback that hooks into the embed_tokens layer to inspect inputs and outputs."""
+        def __init__(self):
+            super().__init__()
+            self.hook_handle = None
         
+        def before_forward(self, state: State, logger: Logger) -> None:
+            """Register a hook on the embedding layer before the forward pass."""
+            # Define the hook function that will print input/output structures
+            def embedding_hook(module, inputs, outputs):
+                print("\n==== Embedding Layer Hook ====")
+                
+                # Input inspection
+                print("Input structure:")
+                if isinstance(inputs, tuple) and len(inputs) > 0:
+                    for i, inp in enumerate(inputs):
+                        if isinstance(inp, torch.Tensor):
+                            print(f"  Input[{i}]: shape={inp.shape}, dtype={inp.dtype}")
+                        else:
+                            print(f"  Input[{i}]: type={type(inp)}")
+                
+                # Output inspection
+                if isinstance(outputs, torch.Tensor):
+                    print("Output structure:")
+                    print(f"  Output: shape={outputs.shape}, dtype={outputs.dtype}")
+                    # Print a small sample of the first embedding vector
+                    print(f"  First token embedding (first 5 values): {outputs[0, 0, :5]}")
+                
+                print("==============================\n")
+            
+            # Get the model and find the embedding layer
+            # The actual path may vary depending on your model architecture
+            model = state.model.model.base_model.model  # Adjust as needed for your model
+            embed_layer = model.model.embed_tokens
+            
+            # Register the hook
+            self.hook_handle = embed_layer.register_forward_hook(embedding_hook)
+            print("Embedding layer hook registered")
+        
+        def after_forward(self, state: State, logger: Logger) -> None:
+            """Remove the hook after the forward pass is complete."""
+            if self.hook_handle is not None:
+                self.hook_handle.remove()
+                self.hook_handle = None
+                print("Embedding layer hook removed")
+
+    callbacks.append(EmbeddingInspectorCallback())
     # Build the Trainer
     log.info('Building trainer...')
     trainer = Trainer(
