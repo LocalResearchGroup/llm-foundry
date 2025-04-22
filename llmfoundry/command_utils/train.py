@@ -554,7 +554,7 @@ def train(cfg: DictConfig) -> Trainer:
     compile_config = train_cfg.compile_config
     # After train_loader is created but before the Trainer is initialized
     # Get a single batch from the dataloader
-    dataloader_iter = iter(train_loader)
+    dataloader_iter = iter(train_loader.dataloader)
     batch = next(dataloader_iter)
     
     # Print the batch structure
