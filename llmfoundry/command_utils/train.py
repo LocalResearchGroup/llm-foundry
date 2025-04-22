@@ -634,86 +634,61 @@ def train(cfg: DictConfig) -> Trainer:
                 self.hook_handle = None
                 print("Embedding layer hook removed")
 
-    class SimpleLossInspector(Callback):
-        """A minimal callback that prints what's going into the loss function."""
-        
-        def __init__(self, num_batches=1):
+    class LossInspectorCallback(Callback):
+        def __init__(self):
             super().__init__()
-            self.batches_seen = 0
-            self.num_batches = num_batches
+            self.inspected = False
+        
+        def fit_start(self, state: State, logger: Logger) -> None:
+            """Print the source code of the model's loss function."""
+            if hasattr(state.model, 'loss'):
+                print("\nModel's loss function definition:")
+                print(inspect.getsource(state.model.loss))
         
         def before_loss(self, state: State, logger: Logger) -> None:
-            """Print basic info about model outputs and labels just before loss calculation."""
-            if self.batches_seen >= self.num_batches:
+            """Save outputs for later inspection."""
+            if self.inspected:
+                return
+            
+            # Save state for later use in after_loss
+            self.state_outputs = state.outputs
+            self.state_batch = state.batch
+        
+        def after_loss(self, state: State, logger: Logger) -> None:
+            """Call model's loss function directly to verify inputs/outputs."""
+            if self.inspected:
                 return
                 
-            print("\n=== Loss Function Inputs ===")
+            print("\n=== DIRECT LOSS FUNCTION CALL ===")
             
-            # Check model outputs
-            if hasattr(state, 'outputs') and 'logits' in state.outputs:
-                logits = state.outputs['logits']
-                print(f"Logits shape: {logits.shape}, dtype: {logits.dtype}")
+            # Framework loss from the state
+            framework_loss = state.loss.detach()
+            print(f"Framework loss: {framework_loss.item():.6f}")
             
-            # Check labels
-            if 'labels' in state.batch:
-                labels = state.batch['labels']
-                print(f"Labels shape: {labels.shape}, dtype: {labels.dtype}")
+            # Call model's loss function directly
+            if hasattr(state.model, 'loss'):
+                # Inspect what we're sending to loss function
+                print(f"Outputs type: {type(self.state_outputs)}")
+                if isinstance(self.state_outputs, dict):
+                    print(f"Outputs keys: {list(self.state_outputs.keys())}")
+                    if 'loss' in self.state_outputs:
+                        print(f"Pre-computed loss in outputs: {self.state_outputs['loss'].item():.6f}")
                 
-                # Brief summary of labels content
-                valid_labels = (labels != -100).sum().item()
-                total_labels = labels.numel()
-                print(f"Labels: {valid_labels}/{total_labels} valid positions (rest are -100)")
-            
-            self.batches_seen += 1
-            print("===========================\n")
-            
-    
-    
-    class LossFunctionFinder(Callback):
-        def fit_start(self, state: State, logger: Logger) -> None:
-            model = state.model
-            
-            print("\n=== Model Loss Function Investigation ===")
-            
-            # Find the loss function
-            if hasattr(model, 'loss'):
-                print("Found explicit loss attribute:")
-                print(inspect.getsource(model.loss))
+                # Call loss function directly
+                direct_loss = state.model.loss(self.state_outputs, self.state_batch)
                 
-            if hasattr(model, 'loss_fn'):
-                print("Found explicit loss_fn attribute:")
-                print(inspect.getsource(model.loss_fn))
+                # Check if result is tuple with loss at index 0
+                if isinstance(direct_loss, tuple) and len(direct_loss) > 0:
+                    direct_loss = direct_loss[0]
+                    
+                print(f"Direct loss call result: {direct_loss.item():.6f}")
+                
+                    
+            print("================================")
+            self.inspected = True
             
-            # Check model's forward method which often calculates loss
-            print("\nModel's forward method (often contains loss calc):")
-            if hasattr(model, 'forward'):
-                print(inspect.getsource(model.forward))
-                
-            # Look at the model class's loss_fn or forward method
-            base_model = None
-            if hasattr(model, 'model'):
-                base_model = model.model
-                if hasattr(base_model, 'forward'):
-                    print("\nBase model's forward method:")
-                    print(inspect.getsource(base_model.forward))
-                
-            # Try to find ComposerModel wrapper
-            if hasattr(model, 'module'):
-                composer_model = model.module
-                print("\nComposerModel's forward method:")
-                print(inspect.getsource(composer_model.forward))
-                
-            # For HF models, check config for loss settings
-            if hasattr(base_model, 'config'):
-                cfg = base_model.config
-                print("\nModel config parameters that might affect loss:")
-                for param in ['label_smoothing', 'loss_scaling', 'use_weighted_loss']:
-                    if hasattr(cfg, param):
-                        print(f"  {param}: {getattr(cfg, param)}")
-            
-    callbacks.append(LossFunctionFinder())
+    callbacks.append(LossInspectorCallback())
     callbacks.append(EmbeddingInspectorCallback())
-    callbacks.append(SimpleLossInspector())
     # Build the Trainer
     log.info('Building trainer...')
     trainer = Trainer(
