@@ -664,6 +664,69 @@ def train(cfg: DictConfig) -> Trainer:
             self.batches_seen += 1
             print("===========================\n")
             
+    class LossValidator(Callback):
+        """Validates the loss calculation by manually computing it and comparing with the framework's result."""
+        
+        def __init__(self):
+            super().__init__()
+            self.validated = False
+        
+        def before_loss(self, state: State, logger: Logger) -> None:
+            """Capture the inputs to loss calculation."""
+            if self.validated:
+                return
+                
+            # Store references to model outputs and labels
+            if hasattr(state, 'outputs') and 'logits' in state.outputs:
+                self.logits = state.outputs['logits'].detach()
+                self.labels = state.batch['labels'].detach()
+        
+        def after_loss(self, state: State, logger: Logger) -> None:
+            """Compare framework's loss with manually calculated loss."""
+            if self.validated:
+                return
+                
+            framework_loss = state.loss.detach()
+            
+            # Manually calculate cross-entropy loss
+            print("\n== Loss Validation ==")
+            print("Computing manual loss calculation...")
+            
+            # Reshape inputs
+            batch_size, seq_len, vocab_size = self.logits.shape
+            reshaped_logits = self.logits.reshape(-1, vocab_size)  # [batch_size*seq_len, vocab_size]
+            reshaped_labels = self.labels.reshape(-1)              # [batch_size*seq_len]
+            
+            # Filter to only valid positions (where labels != -100)
+            valid_indices = (reshaped_labels != -100)
+            valid_logits = reshaped_logits[valid_indices]
+            valid_labels = reshaped_labels[valid_indices]
+            
+            print(f"Valid positions: {valid_indices.sum().item()} out of {batch_size*seq_len}")
+            
+            # Apply softmax to get probabilities
+            log_probs = F.log_softmax(valid_logits, dim=1)
+            
+            # Calculate negative log likelihood only for the target tokens
+            token_losses = -log_probs.gather(1, valid_labels.unsqueeze(1)).squeeze(1)
+            
+            # Mean over all valid tokens
+            manual_loss = token_losses.mean()
+            
+            # Compare results
+            print(f"Framework loss: {framework_loss.item():.6f}")
+            print(f"Manual loss:    {manual_loss.item():.6f}")
+            
+            # Check for close match (allowing for floating point differences)
+            if torch.isclose(framework_loss, manual_loss, rtol=1e-3):
+                print("✓ Losses match! Your understanding of the loss calculation is correct.")
+            else:
+                print("✗ Losses don't match closely. Difference:", 
+                      (framework_loss - manual_loss).item())
+            
+            self.validated = True
+            
+    callbacks.append(LossValidator())
     callbacks.append(EmbeddingInspectorCallback())
     callbacks.append(SimpleLossInspector())
     # Build the Trainer
