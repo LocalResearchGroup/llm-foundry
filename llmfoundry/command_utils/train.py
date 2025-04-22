@@ -602,6 +602,7 @@ def train(cfg: DictConfig) -> Trainer:
                     for i, inp in enumerate(inputs):
                         if isinstance(inp, torch.Tensor):
                             print(f"  Input[{i}]: shape={inp.shape}, dtype={inp.dtype}")
+                            print(tokenizer.decode(inp[0])
                         else:
                             print(f"  Input[{i}]: type={type(inp)}")
                 
@@ -630,7 +631,41 @@ def train(cfg: DictConfig) -> Trainer:
                 self.hook_handle = None
                 print("Embedding layer hook removed")
 
+    class SimpleLossInspector(Callback):
+        """A minimal callback that prints what's going into the loss function."""
+        
+        def __init__(self, num_batches=1):
+            super().__init__()
+            self.batches_seen = 0
+            self.num_batches = num_batches
+        
+        def before_loss(self, state: State, logger: Logger) -> None:
+            """Print basic info about model outputs and labels just before loss calculation."""
+            if self.batches_seen >= self.num_batches:
+                return
+                
+            print("\n=== Loss Function Inputs ===")
+            
+            # Check model outputs
+            if hasattr(state, 'outputs') and 'logits' in state.outputs:
+                logits = state.outputs['logits']
+                print(f"Logits shape: {logits.shape}, dtype: {logits.dtype}")
+            
+            # Check labels
+            if 'labels' in state.batch:
+                labels = state.batch['labels']
+                print(f"Labels shape: {labels.shape}, dtype: {labels.dtype}")
+                
+                # Brief summary of labels content
+                valid_labels = (labels != -100).sum().item()
+                total_labels = labels.numel()
+                print(f"Labels: {valid_labels}/{total_labels} valid positions (rest are -100)")
+            
+            self.batches_seen += 1
+            print("===========================\n")
+            
     callbacks.append(EmbeddingInspectorCallback())
+    callbacks.append(SimpleLossInspector())
     # Build the Trainer
     log.info('Building trainer...')
     trainer = Trainer(
