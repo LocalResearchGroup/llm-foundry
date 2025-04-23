@@ -618,8 +618,8 @@ def train(cfg: DictConfig) -> Trainer:
             print(decoded_labels)
 
             print("\n-------- matches before_forward values? --------")
-            print(input_ids == self.input_ids)
-            print(labels == self.labels)
+            print(torch.allclose(input_ids, self.input_ids))
+            print(torch.allclose(labels, self.labels))
             
             self.inspected = True
             
