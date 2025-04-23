@@ -10,10 +10,6 @@ from llmfoundry.command_utils.train import train
 from dotenv import load_dotenv
 load_dotenv()
 
-# Register our custom model class
-# models.register("hf_causal_lm.custom_llama", func=CustomLlamaModel)
-# print("Registered CustomLlamaModel as hf_causal_lm.custom_llama")
-
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -132,7 +128,6 @@ if __name__ == "__main__":
                       help="Path to the dataset directory")
     
     args = parser.parse_args()
-    print(f'ARGS!!!!!!!!!!!!!!!!!: \n{args}')
     train_custom_llama(
         model_name=args.model_name,
         yaml_path=args.yaml_path,
