@@ -98,7 +98,7 @@ max_duration: 2ba #4800ba
 eval_interval: 10ba #500ba # only eval at the end with 0
 eval_first: false
 eval_subset_num_batches: 10 #-1
-global_train_batch_size: 1 #2 #256
+global_train_batch_size: 2 #1 if not composer
 
 # System
 seed: ${variables.global_seed}

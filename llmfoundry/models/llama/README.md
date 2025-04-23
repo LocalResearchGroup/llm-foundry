@@ -62,6 +62,11 @@ This is a local version of the LLM training script that runs directly on your GP
    python local_llama_training.py
    ```
 
+or for multi-GPU training (with number of GPUs controlled by nproc_per_node parameter), run
+
+   ```bash
+   NODE_RANK=0 python -m torch.distributed.run --nproc_per_node=2 local_llama_training.py
+   ```
 ## Directory Structure
 
 The script creates the following directory structure:
