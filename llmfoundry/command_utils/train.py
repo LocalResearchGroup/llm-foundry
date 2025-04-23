@@ -628,13 +628,13 @@ def train(cfg: DictConfig) -> Trainer:
             # Show the model input and expected output
             print("\n-------- Decoded input_ids --------")
             input_ids = self.state_batch['input_ids'][0].detach().cpu()
-            print(input_ids)
+            print(input_ids.tolist())
             decoded_input = state.model.tokenizer.decode(input_ids)
             print(decoded_input[:1000])
             
             print("\n-------- Decoded labels --------")
             labels = self.state_batch['labels'][0].detach().cpu()
-            print(labels)
+            print(labels.tolist())
             valid_labels = labels[labels != -100]
             decoded_labels = state.model.tokenizer.decode(valid_labels)
             print(decoded_labels)
