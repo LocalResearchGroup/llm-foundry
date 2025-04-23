@@ -559,33 +559,6 @@ def train(cfg: DictConfig) -> Trainer:
         raise e
 
     compile_config = train_cfg.compile_config
-    # After train_loader is created but before the Trainer is initialized
-    # Get a single batch from the dataloader
-    dataloader_iter = iter(train_loader.dataloader)
-    batch = next(dataloader_iter)
-    
-    # Print the batch structure
-    print("Batch structure:")
-    for key, value in batch.items():
-        if hasattr(value, "shape"):
-            print(f"  {key}: shape={value.shape}, dtype={value.dtype}")
-        else:
-            print(f"  {key}: type={type(value)}")
-    
-    # Inspect specific elements (e.g., first item in the batch)
-    print("\nFirst item in batch:")
-    for key, value in batch.items():
-        if hasattr(value, "shape") and len(value) > 0:
-            print(f"  {key}[0]: {value[0]}")
-            
-    # If you have a tokenizer available, you can decode the tokens
-    if 'input_ids' in batch and tokenizer is not None:
-        print("\nDecoded `input_ids` of first example:")
-        print(tokenizer.decode(batch['input_ids'][0]))
-        print('#'*30)
-        print("\nDecoded `labels` of first example:")
-        filtered_labels = [token_id for token_id in batch['labels'][0].tolist() if token_id != -100]
-        print(tokenizer.decode(filtered_labels))
 
     class LossInspector(Callback):
         """A callback that shows the loss calculation process and compares with model.loss_function."""
@@ -593,12 +566,20 @@ def train(cfg: DictConfig) -> Trainer:
         def __init__(self):
             super().__init__()
             self.inspected = False
+            self.input_ids = None
+            self.labels = None
         
         def before_loss(self, state: State, logger: Logger) -> None:
             if self.inspected:
                 return
             self.state_outputs = state.outputs
             self.state_batch = state.batch
+            
+
+        def before_forward(self, state: State, logger: Logger) -> None:
+            # check that input_ids and labels are the same as after loss
+            self.input_ids = state.batch['input_ids'][0].detach().cpu()
+            self.labels = state.batch['labels'][0].detach().cpu()
         
         def after_loss(self, state: State, logger: Logger) -> None:
             if self.inspected:
@@ -611,33 +592,34 @@ def train(cfg: DictConfig) -> Trainer:
             print(f"Framework loss: {framework_loss:.6f}")
             
             # Access model's loss_function directly
-            if hasattr(state.model.model, 'loss_function'):
-                # Extract required arguments
-                logits = self.state_outputs['logits']
-                labels = self.state_batch['labels']
-                vocab_size = state.model.model.config.vocab_size
-                
-                # Call model's loss_function directly
-                direct_loss = state.model.model.loss_function(
-                    logits=logits, 
-                    labels=labels,
-                    vocab_size=vocab_size
-                )
-                print(f"Direct call to model.loss_function: {direct_loss.item():.6f}")
+            logits = self.state_outputs['logits']
+            labels = self.state_batch['labels']
+            vocab_size = state.model.model.config.vocab_size
             
-            # Show the model input and expected output
-            print("\n-------- Decoded input_ids --------")
+            direct_loss = state.model.model.loss_function(
+                logits=logits, 
+                labels=labels,
+                vocab_size=vocab_size
+            )
+            
+            print(f"Direct call to model.loss_function: {direct_loss.item():.6f}")
+            
+            print("\n-------- input_ids --------")
             input_ids = self.state_batch['input_ids'][0].detach().cpu()
             print(input_ids.tolist())
             decoded_input = state.model.tokenizer.decode(input_ids)
             print(decoded_input[:1000])
             
-            print("\n-------- Decoded labels --------")
+            print("\n-------- labels --------")
             labels = self.state_batch['labels'][0].detach().cpu()
             print(labels.tolist())
             valid_labels = labels[labels != -100]
             decoded_labels = state.model.tokenizer.decode(valid_labels)
             print(decoded_labels)
+
+            print("\n-------- matches before_forward values? --------")
+            print(input_ids == self.input_ids)
+            print(labels == self.labels)
             
             self.inspected = True
             
