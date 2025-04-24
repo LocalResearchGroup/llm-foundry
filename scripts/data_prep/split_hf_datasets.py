@@ -147,7 +147,7 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
                     splits=["train", "test"],
                     out_root=f"tokenized/{s}/{ablation}",
                     compression="zstd",
-                    concat_tokens=2048,
+                    concat_tokens=8192,
                     tokenizer=tokenizer,
                     tokenizer_kwargs=None,
                     bos_text=None,
@@ -213,7 +213,7 @@ def main(args):
             "target": f"{args.target_repo}/split-tulu-3-sft-olmo-2-mixture",
             "after_pull": filter_tulu,
             "ablations": ("full", "100k", "10k", "1k"),
-            "preproc":"preproc:pre_tulu",
+            "preproc":"preproc:pre_ml_tulu",
             "kind": "instruct",
         },
         "numina": {
@@ -221,7 +221,7 @@ def main(args):
             "target": f"{args.target_repo}/split-NuminaMath-CoT",
             "after_pull": process_numina,
             "ablations": ("full", "100k", "10k", "1k"),
-            "preproc":"preproc:pre_numina",
+            "preproc":"preproc:pre_ml_numina",
             "kind": "instruct",
         },
         "finemath" :{
@@ -235,7 +235,7 @@ def main(args):
             "src": "glaiveai/glaive-code-assistant-v3",
             "target": f"{args.target_repo}/split-glaive-code-assistant-v3",
             "ablations": ("full", "100k", "10k", "1k"),
-            "preproc":"preproc:pre_glaive",
+            "preproc":"preproc:pre_ml_glaive",
             "kind": "instruct",
         },
         "avelinapythonedu": {
