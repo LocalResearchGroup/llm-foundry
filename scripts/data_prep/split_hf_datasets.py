@@ -137,7 +137,8 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
         
         d = datasets[s]
         folder = d["target"].split("/")[1]
-        for ablation in d["ablations"]:
+        ablations = d["ablations"] if not args.one_k else ("1k",)  # override ablation config from cmd line arg
+        for ablation in ablations:
             if d["kind"] == "pretrain":
                 print("\ngenerating tokens for", s, ablation)
                 convert_dataset_hf_from_args(
@@ -178,12 +179,13 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
                 raise RuntimeError(f"Unknow dataset kind: {d['kind']}")
 
 
-def create_upload(args, datasets):
+def create_tokenized_upload(args, datasets):
     # upload all tokenized folders to corresponding repo/folder
     for s in args.source:
         d = datasets[s]
-        print(f"Uploading {d['ablations']} from {d} to {d['target']} from {Path('.').absolute()}")
-        for ablation in d["ablations"]:
+        ablations = d["ablations"] if not args.one_k else ("1k",)  # override ablation config from cmd line arg
+        print(f"Uploading {ablations} from {d} to {d['target']} from {Path('.').absolute()}")
+        for ablation in ablations:
             target_repo = d["target"]
             local_path = Path(".") / f"tokenized/{s}/{ablation}"
             print(f"\nUploading {ablation} to {target_repo} from {str(local_path)}\n")
@@ -194,11 +196,12 @@ def upload_splits(args, datas):
     for arg in args.source:
         d = datas[arg]
         ds_name = d.get("ds_name", None)
+        ablations = d["ablations"] if not args.one_k else ("1k",)  # override ablation config from cmd line arg
         pull_n_push(
             d["target"],
             d["src"],
             ds_name=ds_name,
-            ablations=d["ablations"],
+            ablations=ablations,
             after_pull=d.get("after_pull", None),
         )
 
@@ -253,7 +256,7 @@ def main(args):
         print(f"tokenizing: {args.source} finished.")
     if args.upload:
         print(f"uploading tokens: {args.source}")
-        create_upload(args, datasets)
+        create_tokenized_upload(args, datasets)
         print(f"uploading tokens: {args.source} finished.")
 
 
@@ -279,6 +282,7 @@ def parse_args() -> Namespace:
     parser.add_argument("--split", action=BooleanOptionalAction, default=True, help="split generation")
     parser.add_argument("--tokenize", action=BooleanOptionalAction, default=True, help="generate tokenization for splits")
     parser.add_argument("--upload", action=BooleanOptionalAction, default=True, help="upload tokenization folders")
+    parser.add_argument("--one-k", action=BooleanOptionalAction, default=False, help="only process 1k")
 
     parsed = parser.parse_args()
     return parsed
