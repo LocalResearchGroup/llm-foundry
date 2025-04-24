@@ -138,7 +138,7 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
         d = datasets[s]
         folder = d["target"].split("/")[1]
         for ablation in d["ablations"]:
-            if s in ["finemath", "avelinapythonedu"]:
+            if d["kind"] == "pretrain":
                 print("\ngenerating tokens for", s, ablation)
                 convert_dataset_hf_from_args(
                     dataset=d["target"],
@@ -154,7 +154,7 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
                     no_wrap=False,
                     num_workers=None,
                 )
-            else:
+            elif d["kind"] == "instruct":
                 print(f"\nconvert_finetuning_dataset_from_args")
                 convert_finetuning_dataset_from_args(
                     d["target"],
@@ -174,6 +174,8 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
                     "last",  # target_responses
                     False,  # encoder_decoder
                 )
+            else:
+                raise RuntimeError(f"Unknow dataset kind: {d['kind']}")
 
 
 def create_upload(args, datasets):
@@ -209,6 +211,7 @@ def main(args):
             "after_pull": filter_tulu,
             "ablations": ("full", "100k", "10k", "1k"),
             "preproc":"preproc:pre_tulu",
+            "kind": "instruct",
         },
         "numina": {
             "src": "AI-MO/NuminaMath-CoT",
@@ -216,23 +219,27 @@ def main(args):
             "after_pull": process_numina,
             "ablations": ("full", "100k", "10k", "1k"),
             "preproc":"preproc:pre_numina",
+            "kind": "instruct",
         },
         "finemath" :{
             "src": "HuggingFaceTB/finemath",
             "ds_name": "finemath-4plus",
             "target": f"{args.target_repo}/split-finemath",
             "ablations": ("full", "1M", "100k", "10k", "1k"),
+            "kind": "pretrain",
         },
         "glaive": {
             "src": "glaiveai/glaive-code-assistant-v3",
             "target": f"{args.target_repo}/split-glaive-code-assistant-v3",
             "ablations": ("full", "100k", "10k", "1k"),
             "preproc":"preproc:pre_glaive",
+            "kind": "instruct",
         },
         "avelinapythonedu": {
             "src": "Avelina/python-edu",
             "target": f"{args.target_repo}/split-avelina-python-edu",
             "ablations": ("full", "1M", "100k", "10k", "1k"),
+            "kind": "pretrain",
         },
     }
     dataset_constants_split_config.register_new_datasets(args.target_repo)
