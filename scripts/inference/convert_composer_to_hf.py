@@ -153,20 +153,20 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         prefix='model.',
     )
 
+    om.clear_resolver('oc.env')
+    with open(train_yaml) as f:
+        yaml_cfg = om.load(f)
+    assert isinstance(yaml_cfg, DictConfig)
+
+    logged_cfg, train_cfg = make_dataclass_and_log_config(
+        yaml_cfg,
+        TrainConfig,
+        TRAIN_CONFIG_KEYS,
+        transforms='all',
+    )
     # Handle the case if the model is a peft finetuned model, in this case, just save the adapters
     if is_peft:
         print("THIS IS THE PEFT CASE")
-        om.clear_resolver('oc.env')
-        with open(train_yaml) as f:
-            yaml_cfg = om.load(f)
-        assert isinstance(yaml_cfg, DictConfig)
-
-        logged_cfg, train_cfg = make_dataclass_and_log_config(
-            yaml_cfg,
-            TrainConfig,
-            TRAIN_CONFIG_KEYS,
-            transforms='all',
-        )
         
         pretrained_model_name_or_path = train_cfg.model["pretrained_model_name_or_path"]
         peft_config_dict = train_cfg.model["peft_config"]
@@ -193,9 +193,15 @@ def write_huggingface_pretrained_from_composer_checkpoint(
         for k, v in weights_state_dict.items():
             if isinstance(v, torch.Tensor):
                 weights_state_dict[k] = v.to(dtype=dtype)
-                
+        
+        pretrained_model_name_or_path = train_cfg.model["pretrained_model_name_or_path"]
+        base_model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path, torch_dtype=dtype)
+
+        base_model.load_state_dict(weights_state_dict, weights_only=True)
+        
         # Save weights
         torch.save(weights_state_dict, Path(output_path) / 'pytorch_model.bin')
+        base_model.save_pretrained(output_path)
 
     print('#' * 30)
     print(f'HF checkpoint folder successfully created at {output_path}.')
