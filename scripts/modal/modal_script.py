@@ -2,32 +2,39 @@
 # - Probably want to put local aim repo in the folder with the model checkpoints
 # - Fix duplicate container issue
 
+import os
 import modal
 from modal import Image, App, Secret, Volume
 
 import pathlib, datetime
 
 PYTHON_PATH = "/opt/conda/envs/llm-foundry/bin/python"
-TRAINING_GPU = "h100" # "a10g" "h100" # "l4"
-BATCH_SIZE = 20 # 20 for h100 4 for l4
-TRAIN_DURATION="100ba"
-EVAL_INTERVAL="100ba"
-SAVE_INTERVAL="100ba"    
 
+# command line arguments
+TRAINING_GPU = os.environ.get("MODAL_GPU", "L4") 
+TRAIN_YAML = os.environ.get("TRAIN_YAML", "")
+
+
+IS_PEFT = os.environ.get("IS_PEFT", "True")
+IS_PEFT = IS_PEFT in ("True", "true")
+
+OUTPUT_PRECISION = os.environ.get("OUTPUT_PRECISION", "bf16")
+
+# defaults --- make sure your Modal Volumes are titled accordingly
 DATASET_BASE_PATH = "/datasets"
 DATASETS_VOLUME = Volume.from_name("lrg-datasets", create_if_missing=True)
 DATASETS_VOLUME_MOUNT_PATH = pathlib.Path("/datasets")
 MODEL_CHECKPOINT_VOLUME = Volume.from_name("lrg-model-checkpoints", create_if_missing=True)
 MODEL_CHECKPOINT_VOLUME_MOUNT_PATH = pathlib.Path("/model-checkpoints")
 
-
 app = App("quick-start")
 
 # Build image from local Dockerfile
-image = Image.from_dockerfile("Dockerfile", gpu='l4')
+image = Image.from_dockerfile("Dockerfile", gpu='L4')
+image = image.add_local_file(TRAIN_YAML, f"/llm-foundry/scripts/train/yamls/finetune/{TRAIN_YAML}")
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
-             concurrency_limit=1)
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")],
+             max_containers=1)
 def get_stats():
     import subprocess
     
@@ -48,9 +55,9 @@ def get_stats():
     if nvidia_smi.stderr: print("NVIDIA-SMI Errors:", nvidia_smi.stderr)
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")], 
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")], 
               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def convert_c4_small_dataset():
     import subprocess
     import os
@@ -78,10 +85,48 @@ def convert_c4_small_dataset():
         print("Data prep errors:", result.stderr)
     
     DATASETS_VOLUME.commit()
+    
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")], 
+              volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+              max_containers=1)
+def convert_finetuning_dataset():
+    import subprocess
+    import os
+    
+    DS_PATH = "meta-math/MetaMathQA"
+    MODEL_HF_PATH = f"HuggingFaceTB/SmolLM2-135M"
+    
+    # Change to llm-foundry/scripts directory at the start
+    os.chdir("/llm-foundry/scripts")
+    print(f"Working directory: {os.getcwd()}")
+    
+    # Step 1: Convert dataset
+    print(f"Converting {DS_PATH} dataset...")
+    data_prep_cmd = [
+        PYTHON_PATH,
+        "data_prep/convert_finetuning_dataset.py",
+        "--dataset", DS_PATH,
+        "--splits", "train",
+        # Either make a preprocessor or use the predefined ones. 
+        # The custom preprocessing function for meta-math/MetaMathQA is already defined in llmfoundry/data/finetuning/tasks.py
+        # If you want to use a custom preprocessor in another folder, you can add the following line:
+        # "--preprocessor", "path/to/preprocessor_file:preprocessor_function",
+        "--out_root", f"{DATASET_BASE_PATH}/{DS_PATH}",
+        "--tokenizer", MODEL_HF_PATH,
+    ]
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")], 
+    subprocess.run(data_prep_cmd)
+    
+    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Data prep errors:", result.stderr)
+    
+    DATASETS_VOLUME.commit()
+
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")], 
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def view_model_checkpoints(save_folder: str=None):
     import os
     print("\nModel checkpoint files and sizes:")
@@ -103,7 +148,7 @@ def get_model_name(yaml_path: str):
 def get_run_folder(run_ts: str, model_name: str):
     return f"{MODEL_CHECKPOINT_VOLUME_MOUNT_PATH}/{model_name}-{run_ts}"
 
-# @app.function(gpu=TRAINING_GPU, image=image, timeout=6*3600, secrets=[Secret.from_name("LRG")], 
+# @app.function(gpu=TRAINING_GPU, image=image, timeout=6*3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")], 
 #               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
 #                        DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME})
 def train_model(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m.yaml"):
@@ -126,19 +171,8 @@ def train_model(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m
     train_cmd = [
         "composer",
         "train/train.py",
-        yaml_path,  # Updated YAML path
-        f"loggers.aim.experiment_name=quickstart_{model_name}_modal",
-        f"loggers.aim.repo={run_folder}/.aim",
-        f"variables.data_local={DATASETS_VOLUME_MOUNT_PATH}/c4_small",
-        "train_loader.dataset.split=train_small",
-        "eval_loader.dataset.split=val_small",
-        f"max_duration={TRAIN_DURATION}",
-        f"eval_interval={EVAL_INTERVAL}", 
-        f"save_folder={save_folder}",  # Updated model name
-        f"save_interval={SAVE_INTERVAL}",
-        f"device_eval_batch_size={BATCH_SIZE}",  # Added batch size settings # 20 for h100 4 for l4
-        f"device_train_microbatch_size={BATCH_SIZE}",
-        f"global_train_batch_size={BATCH_SIZE}",
+        yaml_path, 
+        f"save_folder={save_folder}",
     ]
     result = subprocess.run(train_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -176,10 +210,10 @@ def run_aim_server(run_folder: str):
     return process
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, secrets=[Secret.from_name("LRG")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m.yaml"):
     import subprocess, time
 
@@ -201,10 +235,10 @@ def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-1
     
     return model_path
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              concurrency_limit=1)
-def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
+              max_containers=1)
+def convert_model_to_hf(checkpoint_path: str, yaml_path: str = "", upload_to_hf: bool = False, is_peft: bool = IS_PEFT):
     """Convert a model checkpoint to a HuggingFace format."""
     import subprocess, os
     from pathlib import Path
@@ -218,12 +252,16 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
         composer_checkpoint_path = composer_checkpoint_path / "native_checkpoints" / "latest-rank0.pt"
     hf_output_path = run_folder
 
+    print("Is peft:", is_peft)
     print("\nConverting model to HuggingFace format...")
+    print(f"Train yaml: {TRAIN_YAML}")
     convert_cmd = [
         PYTHON_PATH, "inference/convert_composer_to_hf.py",
         "--composer_path", composer_checkpoint_path,
         "--hf_output_path", hf_output_path,
-        "--output_precision", "bf16",
+        "--output_precision", f"{OUTPUT_PRECISION}",
+        "--is_peft", f"{is_peft}",
+        "--train_yaml", f"{yaml_path}",
     ]
     if upload_to_hf: convert_cmd.extend(["--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"])
 
@@ -234,29 +272,9 @@ def convert_model_to_hf(checkpoint_path: str, upload_to_hf: bool = False):
     MODEL_CHECKPOINT_VOLUME.commit()
     print("Conversion complete!")
 
-
-# @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
-#               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-#               concurrency_limit=1)
-# def push_to_hf(checkpoint_path: str):
-#     from huggingface_hub import create_repo, upload_folder
-#     from pathlib import Path
-    
-#     model_path = Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/checkpoint_path
-#     model_name = model_path.name
-#     repo_id = f"LocalResearchGroup/{model_name}"
-    
-#     print(f"Creating repository: {repo_id}")
-#     create_repo(repo_id, repo_type="model", private=True, exist_ok=True)
-
-#     upload_folder(folder_path=model_path, repo_id=repo_id)
-    
-#     print(f"Folder uploaded to: https://huggingface.co/{repo_id}")
-  
-
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def evaluate_model(checkpoint_path: str):
     import subprocess, os
     from pathlib import Path
@@ -285,9 +303,9 @@ def evaluate_model(checkpoint_path: str):
     print("Evaluation complete!")
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
     import subprocess, os
     from pathlib import Path
@@ -321,9 +339,9 @@ def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
     print("Generation complete!")
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: str = "model", private: bool = True):
     """Upload model checkpoint to HuggingFace Hub."""
     from huggingface_hub import HfApi
@@ -355,15 +373,16 @@ def main():
     get_stats.remote()
     time.sleep(1)
     # convert_c4_small_dataset.remote() # Only run once
+    # convert_finetuning_dataset.remote()
 
-    model_path = train_with_aim.remote(run_ts, yaml_path="train/yamls/pretrain/smollm2-135m.yaml")
+    model_path = train_with_aim.remote(run_ts, yaml_path=f"train/yamls/finetune/{TRAIN_YAML}")
     print(f"Model path: {model_path}")
     model_path = Path(model_path).name
-    time.sleep(1)
+    # time.sleep(1)
     
-    view_model_checkpoints.remote()
+    #view_model_checkpoints.remote()
     time.sleep(1)
-    convert_model_to_hf.remote(model_path, upload_to_hf=False)
+    convert_model_to_hf.remote(model_path, yaml_path=f"train/yamls/finetune/{TRAIN_YAML}", upload_to_hf=False, is_peft=IS_PEFT)
     time.sleep(1)
   
     evaluate_model.remote(model_path)
