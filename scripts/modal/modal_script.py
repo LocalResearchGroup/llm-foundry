@@ -261,7 +261,7 @@ def convert_model_to_hf(checkpoint_path: str, yaml_path: str = "", upload_to_hf:
         "--hf_output_path", hf_output_path,
         "--output_precision", f"{OUTPUT_PRECISION}",
         "--is_peft", f"{is_peft}",
-        "--train_yaml", f"{yaml_path}"
+        "--train_yaml", f"{yaml_path}",
     ]
     if upload_to_hf: convert_cmd.extend(["--hf_repo_for_upload", f"LocalResearchGroup/{run_folder.name}"])
 
