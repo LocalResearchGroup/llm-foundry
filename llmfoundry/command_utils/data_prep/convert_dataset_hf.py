@@ -160,6 +160,9 @@ c4constants.splits['val_xxsmall'] = DataSplitConstants(
 
 CONSTS = {'allenai/c4': c4constants, 'the_pile': pileconstants}
 
+def add_dataset_config(name, splits):
+    global CONSTS
+    CONSTS[name] = splits
 
 def build_hf_dataset(
     dataset_name: str,
@@ -333,6 +336,10 @@ def convert_dataset_hf(
         KeyError: If constants are not defined for the split
     """
     try:
+        if "tulu" not in CONSTS:
+            import dataset_constants_split_config
+            your_user = "tyoc213"
+            dataset_constants_split_config.register_new_datasets(your_user)
         dataset_constants = CONSTS[dataset]
     except KeyError:
         raise ValueError(
