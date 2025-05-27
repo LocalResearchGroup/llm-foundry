@@ -94,6 +94,30 @@ def pull_n_push(
     if purge_cache:
        dataset.cleanup_cache_files()
 
+
+def preproc_chatml(inp: dict, k_prompt:str, k_response: str):
+    """Format dataset into ChatML template."""
+    prompt = (
+        "<|im_start|>system\n<|im_end|>\n"
+        f"<|im_start|>user\n{inp[k_prompt]}\n<|im_end|>\n"
+    )
+    response = (
+        f"<|im_start|>assistant\n{inp[k_response]}<|im_end|>\n"
+        "<|endoftext|>"
+    )
+    return {"prompt": prompt, "response": response}
+
+def pre_ml_tulu(inp: dict):
+    return preproc_chatml(inp, "prompt", "response")
+
+
+def pre_ml_numina(inp: dict):
+    return preproc_chatml(inp, "problem", "solution")
+
+
+def pre_ml_glaive(inp: dict):
+    return preproc_chatml(inp, "question", "answer")
+
 def filter_tulu(dataset):
     print(f"Original dataset rows {len(dataset)}")
     dataset = dataset.filter(lambda r: r["source"] is not None and "aya" not in r["source"] and len(r["messages"]) == 2)
@@ -117,6 +141,18 @@ def process_numina(dataset):
     dataset = dataset.remove_columns("messages")
     print("new numina features", dataset.features)
     return dataset
+
+def process_glaive(dataset):
+    print("glaive", dataset.features)
+
+    def extract_qa(messages):
+        return pre_ml_glaive(messages)
+    
+    dataset = dataset.map(lambda example: extract_qa(example))
+    print("glaive new features:", dataset.features)
+    
+    return dataset
+
 
 def upload_token_folder(local_path, target_repo):
     print(f"upload_token_folder({str(local_path.relative_to('.'))}, {target_repo})")
@@ -233,6 +269,7 @@ def main(args):
         },
         "glaive": {
             "src": "glaiveai/glaive-code-assistant-v3",
+            "after_pull": process_glaive,
             "target": f"{args.target_repo}/split-glaive-code-assistant-v3",
             "ablations": ("full", "100k", "10k", "1k"),
             "preproc":"preproc:pre_ml_glaive",
