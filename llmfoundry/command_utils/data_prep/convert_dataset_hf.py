@@ -355,6 +355,8 @@ def convert_dataset_hf(
     else:
         mode = ConcatMode.NO_CONCAT
         built_tokenizer = None
+        if tokenizer:
+            build_tokenizer = build_tokenizer(tokenizer, {})
         columns = {'text': 'str'}
 
     for split_name in splits:
