@@ -98,7 +98,7 @@ def pull_n_push(
 def preproc_chatml(inp: dict, k_prompt:str, k_response: str):
     """Format dataset into ChatML template."""
     prompt = (
-        "<|im_start|>system\n<|im_end|>\n"
+        "<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Local Research Group<|im_end|>\n"
         f"<|im_start|>user\n{inp[k_prompt]}\n<|im_end|>\n"
     )
     response = (
