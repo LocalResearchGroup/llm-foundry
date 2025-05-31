@@ -132,6 +132,7 @@ def filter_tulu(dataset):
     dataset = dataset.map(lambda example: extract_qa(example["messages"]))
     dataset = dataset.remove_columns(["messages"])
     print("new tulu features: ", dataset.features)
+    dataset = dataset.map(lambda example: pre_ml_tulu(example))
     print(f"         current rows {len(dataset)}")
     return dataset
 
@@ -139,6 +140,7 @@ def process_numina(dataset):
     print("numina", dataset.features)
     # remove column that on batch of 512 only has 2 rows which breaks pytorch collate!
     dataset = dataset.remove_columns("messages")
+    dataset = dataset.map(lambda example: pre_ml_numina(example))
     print("new numina features", dataset.features)
     return dataset
 
