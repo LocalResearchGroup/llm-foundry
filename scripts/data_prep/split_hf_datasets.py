@@ -170,9 +170,8 @@ def upload_token_folder(local_path, target_repo):
 
 def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-135M"):
     # import configurations to tokenize new dataset splits
-    
+    max_seq_len = 8192    
     for s in args.source:
-        
         d = datasets[s]
         folder = d["target"].split("/")[1]
         ablations = d["ablations"] if not args.one_k else ("1k",)  # override ablation config from cmd line arg
@@ -187,7 +186,7 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
                     compression="zstd",
                     concat_tokens=None,
                     tokenizer=tokenizer,
-                    tokenizer_kwargs=None,
+                    tokenizer_kwargs=f'{{"model_max_length": {max_seq_len} }}',
                     bos_text=None,
                     eos_text="<|endoftext|>",
                     no_wrap=False,
@@ -208,7 +207,7 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
                     None,  # num_workers
                     "HuggingFaceTB/SmolLM2-135M",  # tokenizer
                     None,
-                    20480,  # max_seq_len
+                    max_seq_len,  # max_seq_len
                     "none",  # target_prompts
                     "last",  # target_responses
                     False,  # encoder_decoder
