@@ -205,7 +205,7 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
                     None,
                     "zstd",
                     None,  # num_workers
-                    "HuggingFaceTB/SmolLM2-135M",  # tokenizer
+                    tokenizer,  # tokenizer
                     None,
                     max_seq_len,  # max_seq_len
                     "none",  # target_prompts
@@ -261,13 +261,6 @@ def main(args):
             "preproc":"preproc:pre_ml_numina",
             "kind": "instruct",
         },
-        "finemath" :{
-            "src": "HuggingFaceTB/finemath",
-            "ds_name": "finemath-4plus",
-            "target": f"{args.target_repo}/split-finemath",
-            "ablations": ("full", "1M", "100k", "10k", "1k"),
-            "kind": "pretrain",
-        },
         "glaive": {
             "src": "glaiveai/glaive-code-assistant-v3",
             "after_pull": process_glaive,
@@ -275,6 +268,13 @@ def main(args):
             "ablations": ("full", "100k", "10k", "1k"),
             "preproc":"preproc:pre_ml_glaive",
             "kind": "instruct",
+        },
+        "finemath" :{
+            "src": "HuggingFaceTB/finemath",
+            "ds_name": "finemath-4plus",
+            "target": f"{args.target_repo}/split-finemath",
+            "ablations": ("full", "1M", "100k", "10k", "1k"),
+            "kind": "pretrain",
         },
         "avelinapythonedu": {
             "src": "Avelina/python-edu",
@@ -307,8 +307,8 @@ def parse_args() -> Namespace:
     parser.add_argument(
         "--source",
         nargs="+",
-        choices=["tulu", "numina", "finemath", "glaive", "avelinapythonedu",],
-        default=["tulu", "numina", "finemath", "glaive", "avelinapythonedu"],
+        choices=["tulu", "numina", "glaive", "finemath", "avelinapythonedu",],
+        default=["tulu", "numina", "glaive", "finemath", "avelinapythonedu"],
     )
 
     parser.add_argument(
