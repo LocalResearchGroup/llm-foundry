@@ -371,7 +371,7 @@ def pull_hf_to_folder():
     
     DATASETS_VOLUME.commit()
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=4*3600, secrets=[Secret.from_name("LRG")],
               concurrency_limit=1)
 def process_datasets():
     import subprocess

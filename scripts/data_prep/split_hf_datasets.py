@@ -177,7 +177,7 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
         ablations = d["ablations"] if not args.one_k else ("1k",)  # override ablation config from cmd line arg
         for ablation in ablations:
             if d["kind"] == "pretrain":
-                print("\ngenerating tokens for", s, ablation)
+                print("\nconvert_dataset_hf_from_args for", s, ablation)
                 convert_dataset_hf_from_args(
                     dataset=d["target"],
                     data_subset=ablation,
@@ -193,7 +193,8 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
                     num_workers=None,
                 )
             elif d["kind"] == "instruct":
-                print(f"\nconvert_finetuning_dataset_from_args")
+                print(f"\nconvert_finetuning_dataset_from_args for", s, ablation)
+                tokenizer="HuggingFaceTB/SmolLM2-135M-instruct"
                 convert_finetuning_dataset_from_args(
                     d["target"],
                     f"{ablation}",  # data_subset
