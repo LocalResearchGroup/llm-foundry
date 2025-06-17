@@ -189,7 +189,7 @@ def create_pretraining_tokens(args, datasets, tokenizer="HuggingFaceTB/SmolLM2-1
                     tokenizer_kwargs=f'{{"model_max_length": {max_seq_len} }}',
                     bos_text=None,
                     eos_text="<|endoftext|>",
-                    no_wrap=False,
+                    no_wrap=True,
                     num_workers=None,
                 )
             elif d["kind"] == "instruct":
