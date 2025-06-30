@@ -33,7 +33,7 @@ app = App("quick-start")
 image = Image.from_dockerfile("Dockerfile", gpu='L4')
 image = image.add_local_file(TRAIN_YAML, f"/llm-foundry/scripts/train/yamls/finetune/{TRAIN_YAML}")
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
              max_containers=1)
 def get_stats():
     import subprocess
@@ -55,7 +55,7 @@ def get_stats():
     if nvidia_smi.stderr: print("NVIDIA-SMI Errors:", nvidia_smi.stderr)
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")], 
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")], 
               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
               max_containers=1)
 def convert_c4_small_dataset():
@@ -86,7 +86,7 @@ def convert_c4_small_dataset():
     
     DATASETS_VOLUME.commit()
     
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")], 
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")], 
               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
               max_containers=1)
 def convert_finetuning_dataset():
@@ -124,7 +124,7 @@ def convert_finetuning_dataset():
     
     DATASETS_VOLUME.commit()
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")], 
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")], 
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
               max_containers=1)
 def view_model_checkpoints(save_folder: str=None):
@@ -148,7 +148,7 @@ def get_model_name(yaml_path: str):
 def get_run_folder(run_ts: str, model_name: str):
     return f"{MODEL_CHECKPOINT_VOLUME_MOUNT_PATH}/{model_name}-{run_ts}"
 
-# @app.function(gpu=TRAINING_GPU, image=image, timeout=6*3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")], 
+# @app.function(gpu=TRAINING_GPU, image=image, timeout=6*3600, secrets=[Secret.from_name("LRG")], 
 #               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
 #                        DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME})
 def train_model(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m.yaml"):
@@ -210,7 +210,7 @@ def run_aim_server(run_folder: str):
     return process
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
               max_containers=1)
@@ -235,7 +235,7 @@ def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-1
     
     return model_path
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
               max_containers=1)
 def convert_model_to_hf(checkpoint_path: str, yaml_path: str = "", upload_to_hf: bool = False, is_peft: bool = IS_PEFT):
@@ -272,7 +272,7 @@ def convert_model_to_hf(checkpoint_path: str, yaml_path: str = "", upload_to_hf:
     MODEL_CHECKPOINT_VOLUME.commit()
     print("Conversion complete!")
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
               max_containers=1)
 def evaluate_model(checkpoint_path: str):
@@ -303,7 +303,7 @@ def evaluate_model(checkpoint_path: str):
     print("Evaluation complete!")
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
               max_containers=1)
 def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
@@ -339,7 +339,7 @@ def generate_responses(checkpoint_path: str, prompts: list[str]|str|None=None):
     print("Generation complete!")
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG"), Secret.from_name("HF")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME},
               max_containers=1)
 def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: str = "model", private: bool = True):
