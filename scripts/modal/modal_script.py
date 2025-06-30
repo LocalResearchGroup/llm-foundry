@@ -4,6 +4,7 @@
 
 import os
 import modal
+import sys
 from modal import Image, App, Secret, Volume
 
 import pathlib, datetime
@@ -154,7 +155,7 @@ def get_run_folder(run_ts: str, model_name: str):
 def train_model(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m.yaml"):
     import os, subprocess, shutil
     from pathlib import Path
-    
+
     # Change to llm-foundry/scripts directory at the start
     os.chdir("/llm-foundry/scripts")
     print(f"Working directory: {os.getcwd()}")
@@ -215,6 +216,7 @@ def run_aim_server(run_folder: str):
                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
               max_containers=1)
 def train_with_aim(run_ts: str, yaml_path: str = "train/yamls/pretrain/smollm2-135m.yaml"):
+
     import subprocess, time
 
     with modal.forward(43800) as tunnel:
@@ -363,6 +365,51 @@ def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: s
     api.upload_folder(folder_path=folder_path, repo_id=repo_id, use_auth_token=True, repo_type=repo_type)
     print(f'Folder "{folder_path}" uploaded to: "{repo_id}" successfully.')
 
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+              volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+              concurrency_limit=1)
+def pull_hf_to_folder():
+    import subprocess
+    import os
+    
+    # Change to llm-foundry/scripts directory at the start
+    os.chdir("/llm-foundry/scripts")
+    print(f"Working directory: {os.getcwd()}")
+    
+    # Step 1: pull all tokens
+    print(f"Downloading repos to {DATASETS_VOLUME_MOUNT_PATH}/")
+    data_prep_cmd = [
+        PYTHON_PATH,  # Use the correct Python interpreter
+        "data_prep/download_repo.py",
+        "--out", f"{DATASETS_VOLUME_MOUNT_PATH}/",
+    ]
+    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Download data errors:", result.stderr)
+    
+    DATASETS_VOLUME.commit()
+
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+              concurrency_limit=1)
+def process_datasets():
+    import subprocess
+    import os
+    
+    # Change to llm-foundry/scripts directory at the start
+    os.chdir("/llm-foundry/scripts")
+    print(f"Working directory: {os.getcwd()}")
+    
+    # Step 1: pull all tokens
+    print(f"Processing datasets...")
+    data_prep_cmd = [
+        PYTHON_PATH,  # Use the correct Python interpreter
+        "data_prep/convert_dataset_hf.py",
+    ]
+    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Process dataset  errors:", result.stderr)
 
 @app.local_entrypoint()
 def main():
@@ -372,23 +419,24 @@ def main():
 
     get_stats.remote()
     time.sleep(1)
-    # convert_c4_small_dataset.remote() # Only run once
-    # convert_finetuning_dataset.remote()
+    pull_hf_to_folder.remote() # run once to download the datasets
+    time.sleep(1)
 
-    model_path = train_with_aim.remote(run_ts, yaml_path=f"train/yamls/finetune/{TRAIN_YAML}")
-    print(f"Model path: {model_path}")
-    model_path = Path(model_path).name
+    # uncomment the next three lines to train the model
+    # model_path = train_with_aim.remote(run_ts, yaml_path=f"train/yamls/finetune/{TRAIN_YAML}")
+    # print(f"Model path: {model_path}")
+    # model_path = Path(model_path).name
     # time.sleep(1)
     
     #view_model_checkpoints.remote()
-    time.sleep(1)
-    convert_model_to_hf.remote(model_path, yaml_path=f"train/yamls/finetune/{TRAIN_YAML}", upload_to_hf=False, is_peft=IS_PEFT)
-    time.sleep(1)
+    # time.sleep(1)
+    # convert_model_to_hf.remote(model_path, yaml_path=f"train/yamls/finetune/{TRAIN_YAML}", upload_to_hf=False, is_peft=IS_PEFT)
+    # time.sleep(1)
   
-    evaluate_model.remote(model_path)
-    time.sleep(1)
+    # evaluate_model.remote(model_path)
+    # time.sleep(1)
 
-    push_folder_to_hf.remote(Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/model_path) 
-    time.sleep(1)
+    # push_folder_to_hf.remote(Path(MODEL_CHECKPOINT_VOLUME_MOUNT_PATH)/model_path) 
+    # time.sleep(1)
 
-    generate_responses.remote(model_path)
+    # generate_responses.remote(model_path)
