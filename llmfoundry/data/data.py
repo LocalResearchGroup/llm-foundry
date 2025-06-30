@@ -160,7 +160,9 @@ class ConcatTokensDataset(AbstractConcatTokensDataset):
                 padding=False,
             )
             iids = encoded['input_ids']
-            buffer = buffer + self.bos_tokens + iids + self.eos_tokens
+            buffer = buffer + self.bos_tokens + iids
+            while len(buffer) < self.max_length:
+                buffer += self.eos_tokens
             while len(buffer) >= self.max_length:
                 concat_sample = buffer[:self.max_length]
                 buffer = buffer[self.max_length:] if self.should_wrap else []

@@ -364,6 +364,57 @@ def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: s
     print(f'Folder "{folder_path}" uploaded to: "{repo_id}" successfully.')
 
 
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+              volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+              concurrency_limit=1)
+def pull_hf_to_folder():
+    import subprocess
+    import os
+    
+    # Change to llm-foundry/scripts directory at the start
+    os.chdir("/llm-foundry/scripts")
+    print(f"Working directory: {os.getcwd()}")
+    
+    # Step 1: pull all tokens
+    print(f"Downloading repos to {DATASETS_VOLUME_MOUNT_PATH}/")
+    data_prep_cmd = [
+        PYTHON_PATH,  # Use the correct Python interpreter
+        "data_prep/download_repo.py",
+        "--out", f"{DATASETS_VOLUME_MOUNT_PATH}/",
+    ]
+    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Download data errors:", result.stderr)
+    
+    DATASETS_VOLUME.commit()
+
+@app.function(gpu=TRAINING_GPU, image=image, timeout=4*3600, secrets=[Secret.from_name("LRG")],
+              concurrency_limit=1)
+def process_datasets():
+    import subprocess
+    import os
+    
+    # Change to llm-foundry/scripts directory at the start
+    os.chdir("/llm-foundry/scripts")
+    print(f"Working directory: {os.getcwd()}")
+    
+    # process all datasets: tulu, numina, finemath, glaive, avelinapythonedu
+    # 1. pull original, split and upload splits (`--no-split` to skip)
+    # 2. tokenize dataset(s) (`--no-tokenize` to skip)
+    # 3. upload (tokenized) folders (`--no-upload` to skip)
+    # `--source` can be 1 or the allowed list (dont pass to process all registered datasets)
+    print(f"Processing datasets...")
+    data_prep_cmd = [
+        PYTHON_PATH,  # Use the correct Python interpreter
+        "data_prep/split_hf_datasets.py",
+    ]
+    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Process dataset  errors:", result.stderr)
+
+
 @app.local_entrypoint()
 def main():
     from pathlib import Path
@@ -392,3 +443,7 @@ def main():
     time.sleep(1)
 
     generate_responses.remote(model_path)
+
+    # dataset processing
+    process_datasets.remote() if False else None
+    pull_hf_to_folder.remote() if False else None

@@ -160,6 +160,9 @@ c4constants.splits['val_xxsmall'] = DataSplitConstants(
 
 CONSTS = {'allenai/c4': c4constants, 'the_pile': pileconstants}
 
+def add_dataset_config(name, splits):
+    global CONSTS
+    CONSTS[name] = splits
 
 def build_hf_dataset(
     dataset_name: str,
@@ -348,6 +351,8 @@ def convert_dataset_hf(
     else:
         mode = ConcatMode.NO_CONCAT
         built_tokenizer = None
+        if tokenizer:
+            built_tokenizer = build_tokenizer(tokenizer, tokenizer_kwargs)
         columns = {'text': 'str'}
 
     for split_name in splits:
