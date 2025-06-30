@@ -10,159 +10,53 @@ Documentation on how to run the LLM-Foundry quick start (using SmolLM2-135M) on 
 ### Modal
 [top](#quick-starts)
 
-This assumes you have modal installed and have logged in via command line. Create the following file locally (we'll call it `quick-start.py`) and run it via CLI with `modal run quick-start.py`:
-
-Note that the batch size arguments can be adjusted based on which GPU you use (L4, A10 or A100).
-
-```python
-from modal import Image, App
-
-app = App("quick-start")
-
-# Build image from local Dockerfile
-image = Image.from_dockerfile("Dockerfile")
-
-@app.function(gpu="l4", image=image, timeout=3600)
-def run_quickstart():
-    import subprocess
-    import os
-    
-    # Ensure we're using the right Python
-    python_path = "/opt/conda/envs/llm-foundry/bin/python"
-    
-    # Use the correct Python interpreter for imports
-    import_check = subprocess.run(
-        [python_path, "-c", "import flash_attn; print(flash_attn.__version__)"],
-        capture_output=True,
-        text=True
-    )
-    print(f"Flash Attention version: {import_check.stdout}")
-
-    # Change to llm-foundry/scripts directory at the start
-    os.chdir("/llm-foundry/scripts")
-    print(f"Working directory: {os.getcwd()}")
-    
-    # Step 1: Convert C4 dataset
-    print("Converting C4 dataset...")
-    data_prep_cmd = [
-        python_path,  # Use the correct Python interpreter
-        "data_prep/convert_dataset_hf.py",
-        "--dataset", "allenai/c4",
-        "--data_subset", "en",
-        "--out_root", "/root/my-copy-c4",
-        "--splits", "train_small", "val_small",
-        "--concat_tokens", "2048",
-        "--tokenizer", "HuggingFaceTB/SmolLM2-135M",
-        "--eos_text", "<|endoftext|>"
-    ]
-    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
-    print(result.stdout)
-    if result.stderr:
-        print("Data prep errors:", result.stderr)
-    
-    # Step 2: Train the model
-    print("\nTraining model...")
-    train_cmd = [
-        "composer",
-        "train/train.py",
-        "train/yamls/pretrain/smollm2-135m.yaml",  # Updated YAML path
-        "variables.data_local=/root/my-copy-c4",
-        "train_loader.dataset.split=train_small",
-        "eval_loader.dataset.split=val_small",
-        "max_duration=10ba",
-        "eval_interval=0",
-        "save_folder=/root/smollm2-135m",  # Updated model name
-        "device_eval_batch_size=4",  # Added batch size settings
-        "device_train_microbatch_size=4",
-        "global_train_batch_size=4"
-    ]
-    result = subprocess.run(train_cmd, capture_output=True, text=True)
-    print(result.stdout)
-    if result.stderr:
-        print("Training errors:", result.stderr)
-    if result.returncode != 0:
-        raise Exception(f"Training failed with exit code {result.returncode}\nStderr: {result.stderr}")
-    
-    # Step 3: Convert model to HuggingFace format
-    print("\nConverting model to HuggingFace format...")
-    convert_cmd = [
-        python_path, "inference/convert_composer_to_hf.py",
-        "--composer_path", "/root/smollm2-135m/ep0-ba10-rank0.pt",  # Updated path
-        "--hf_output_path", "/root/smollm2-135m-hf",  # Updated path
-        "--output_precision", "bf16"
-    ]
-    result = subprocess.run(convert_cmd, capture_output=True, text=True)
-    print(result.stdout)
-    if result.stderr:
-        print("Conversion errors:", result.stderr)
-    
-    # Step 4: Evaluate the model
-    print("\nEvaluating model...")
-    eval_cmd = [
-        "composer",
-        "eval/eval.py",
-        "eval/yamls/hf_eval.yaml",
-        "icl_tasks=eval/yamls/copa.yaml",
-        "variables.model_name_or_path=/root/smollm2-135m-hf"  # Updated path
-    ]
-    result = subprocess.run(eval_cmd, capture_output=True, text=True)
-    print(result.stdout)
-    if result.stderr:
-        print("Evaluation errors:", result.stderr)
-    
-    # Step 5: Generate test responses
-    print("\nGenerating test responses...")
-    generate_cmd = [
-        python_path, "inference/hf_generate.py",
-        "--name_or_path", "/root/smollm2-135m-hf",  # Updated path
-        "--max_new_tokens", "256",
-        "--prompts",
-        "The answer to life, the universe, and happiness is",
-        "Here's a quick recipe for baking chocolate chip cookies: Start by"
-    ]
-    result = subprocess.run(generate_cmd, capture_output=True, text=True)
-    print(result.stdout)
-    if result.stderr:
-        print("Generation errors:", result.stderr)
-    
-    return "Quickstart completed!"
-
-@app.local_entrypoint()
-def main():
-    print(run_quickstart.remote())
+This assumes [you have modal installed and have logged in via command line](https://modal.com/docs/guide#:~:text=Create%20an%20account,modal%20setup). Make sure that [modal_script.py](https://github.com/LocalResearchGroup/llm-foundry/blob/main/scripts/modal/modal_script.py) is in the same folder as the Dockerfile below:
 
 ```
+FROM mambaorg/micromamba:latest
 
-If all goes well you should see something like the following during training:
+USER root
+
+# Install git and other dependencies
+RUN apt-get update && apt-get install -y git nano curl wget && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Clone llm-foundry repo and set up environment
+RUN git clone https://github.com/LocalResearchGroup/llm-foundry.git -b dataset-finemath /llm-foundry && \
+    cd /llm-foundry && \
+    micromamba create -n llm-foundry python=3.12 uv cuda -c nvidia/label/12.4.1 -c conda-forge && \
+    export UV_PROJECT_ENVIRONMENT=/opt/conda/envs/llm-foundry && \
+    micromamba run -n llm-foundry uv python pin 3.12 && \
+    micromamba run -n llm-foundry uv sync --dev --extra gpu && \
+    micromamba run -n llm-foundry uv sync --dev --extra gpu --extra flash --no-cache
+
+ENV UV_PROJECT_ENVIRONMENT=/opt/conda/envs/llm-foundry
+ENV CONDA_DEFAULT_ENV=llm-foundry
+ENV PATH=/opt/conda/envs/llm-foundry/bin:$PATH
+
+WORKDIR /llm-foundry
+
+# Initialize conda in bash and activate environment by default
+RUN echo "eval \"\$(micromamba shell hook --shell bash)\"" >> ~/.bashrc && \
+    echo "micromamba activate llm-foundry" >> ~/.bashrc
+
+# Open port to view Aim dashboard live from the container (optional) - Not related to aim remote upload server.
+EXPOSE 43800
+
+# Default shell with environment activated
+CMD ["/bin/bash"]
+```
+
+This is the current Dockerfile we're using as we're working on testing things in the `dataset-finemath` branch.
+
+Make sure that you also have a local copy of the training YAML you want to use such as [smollm2-135m_lora_pretraining.yaml](https://github.com/LocalResearchGroup/llm-foundry/blob/main/scripts/train/yamls/pretrain/smollm2-135m_lora_pretraining.yaml).
+
+In your modal_script.py make sure `pull_to_folder.remote()` is uncommented. That function downloads all of our datasets to Modal. If you want to train, make sure the three lines related to training are uncommented as well. Here's the command to run the script on Modal:
 
 ```
-[batch=1/10]:
-         Train time/epoch: 0
-         Train time/batch: 0
-         Train time/sample: 0
-         Train time/batch_in_epoch: 0
-         Train time/sample_in_epoch: 0
-         Train time/token: 0
-
-...
+MODAL_GPU=A100-40GB TRAIN_YAML=smollm2-135m_lora_pretraining.yaml IS_PEFT=true OUTPUT_PRECISION=bf16 modal run main.py
 ```
 
-something like the following during evaluation:
-
-```
-Printing complete results for all models
-| Category              | Benchmark   | Subtask   |   Accuracy | Number few shot   | Model           |
-|:----------------------|:------------|:----------|-----------:|:------------------|:----------------|
-| commonsense_reasoning | copa        |           |       0.49 | 0-shot            | smollm2-135m-hf |
-```
-
-and something like the following during generation:
-
-```
-The answer to life, the universe, and happiness is**starting Fest Discover shelf reproduce...
-####################################################################################################
-Here's a quick recipe for baking chocolate chip cookies: Start by quinoa Quantum availabilityromb...
-```
+Change `MODAL_GPU` and `TRAIN_YAML` as needed. `IS_PEFT=true` as the example YAML file is configured for LoRA. If all goes well you should see training logs wherever you're logging (W&B, AIM) and see printed logs in the terminal.
 
 ### Docker
 [top](#quick-starts)
