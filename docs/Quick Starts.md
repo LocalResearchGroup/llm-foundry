@@ -10,7 +10,7 @@ Documentation on how to run the LLM-Foundry quick start (using SmolLM2-135M) on 
 ### Modal
 [top](#quick-starts)
 
-This assumes [you have modal installed and have logged in via command line](https://modal.com/docs/guide#:~:text=Create%20an%20account,modal%20setup). Make sure that [modal_script.py](https://github.com/LocalResearchGroup/llm-foundry/blob/main/scripts/modal/modal_script.py) is in the same folder as the Dockerfile below:
+This assumes [you have modal installed and have logged in via command line](https://modal.com/docs/guide#:~:text=Create%20an%20account,modal%20setup). Go through the private wiki to create secrets on Modal. Make sure that [modal_script.py](https://github.com/LocalResearchGroup/llm-foundry/blob/main/scripts/modal/modal_script.py) is in the same folder as the Dockerfile below:
 
 ```
 FROM mambaorg/micromamba:latest
@@ -46,14 +46,19 @@ EXPOSE 43800
 CMD ["/bin/bash"]
 ```
 
-This is the current Dockerfile we're using as we're working on testing things in the `dataset-finemath` branch.
+This is the current Dockerfile we're using as we're working on testing things in the `dataset-finemath` branch. After you create the Dockerfile, your `modal` directory looks like this:
+```
+modal/
+├── Dockerfile
+├── modal_script.py
+```
 
 Make sure that you also have a local copy of the training YAML you want to use such as [smollm2-135m_lora_pretraining.yaml](https://github.com/LocalResearchGroup/llm-foundry/blob/main/scripts/train/yamls/pretrain/smollm2-135m_lora_pretraining.yaml).
 
-In your modal_script.py make sure `pull_to_folder.remote()` is uncommented. That function downloads all of our datasets to Modal. If you want to train, make sure the three lines related to training are uncommented as well. Here's the command to run the script on Modal:
+In your modal_script.py make sure `pull_hf_to_folder.remote()` is uncommented. That function downloads all of our datasets to Modal. If you want to train, make sure the three lines related to training are uncommented as well. Here's the command to run the script on Modal (assume you are running the script in `modal` directory):
 
 ```
-MODAL_GPU=A100-40GB TRAIN_YAML=smollm2-135m_lora_pretraining.yaml IS_PEFT=true OUTPUT_PRECISION=bf16 modal run main.py
+MODAL_GPU=A100-40GB TRAIN_YAML=../train/yamls/pretrain/smollm2-135m_lora_pretraining.yaml IS_PEFT=true OUTPUT_PRECISION=bf16 modal run modal_script.py 
 ```
 
 Change `MODAL_GPU` and `TRAIN_YAML` as needed. `IS_PEFT=true` as the example YAML file is configured for LoRA. If all goes well you should see training logs wherever you're logging (W&B, AIM) and see printed logs in the terminal.
@@ -231,4 +236,4 @@ composer train/train.py \
   eval_loader.persistent_workers=false
 ```
 
-We haven't yet been able to get `composer eval/eval.py` working. It hits `torch.cuda.current_device()` in `composer/distributed/dist_strategy.py` and then errors because torch was compiled without CUDA. 
+We haven't yet been able to get `composer eval/eval.py` working. It hits `torch.cuda.current_device()` in `composer/distributed/dist_strategy.py` and then errors because torch was compiled without CUDA.
