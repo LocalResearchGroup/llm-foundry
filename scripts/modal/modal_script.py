@@ -365,7 +365,7 @@ def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: s
     api.upload_folder(folder_path=folder_path, repo_id=repo_id, use_auth_token=True, repo_type=repo_type)
     print(f'Folder "{folder_path}" uploaded to: "{repo_id}" successfully.')
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=10800, secrets=[Secret.from_name("LRG")],
               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
               concurrency_limit=1)
 def pull_hf_to_folder():
