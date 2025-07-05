@@ -50,7 +50,7 @@ This is the current Dockerfile we're using as we're working on testing things in
 
 Make sure that you also have a local copy of the training YAML you want to use such as [smollm2-135m_lora_pretraining.yaml](https://github.com/LocalResearchGroup/llm-foundry/blob/main/scripts/train/yamls/pretrain/smollm2-135m_lora_pretraining.yaml).
 
-Because you will constantly change the Dockerfile and modal_script, it might be helpful to create a directory outside of the current directory/git environment as the changes you made shouldn't be part of the commit history. You can place your Dockerfile, `modal_script` and the training yaml under a separate `modal_train` directory:
+Because you will constantly change the Dockerfile and modal_script, it might be helpful to create a directory outside of the current directory/git environment as the changes you made shouldn't be part of the commit history. You can place your Dockerfile, `modal_script` and the training yaml under a separate `modal_train` directory (this way, you can install `modal` package in the `modal_train` directory to keep the `llm_foundry` clean):
 ```
 llm_foundry/
 modal_train/
