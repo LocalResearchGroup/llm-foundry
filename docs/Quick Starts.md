@@ -10,7 +10,7 @@ Documentation on how to run the LLM-Foundry quick start (using SmolLM2-135M) on 
 ### Modal
 [top](#quick-starts)
 
-This assumes [you have modal installed and have logged in via command line](https://modal.com/docs/guide#:~:text=Create%20an%20account,modal%20setup). Go through the private wiki to create secrets on Modal. Make sure that [modal_script.py](https://github.com/LocalResearchGroup/llm-foundry/blob/main/scripts/modal/modal_script.py) is in the same folder as the Dockerfile below:
+This assumes [you have modal installed and have logged in via command line](https://modal.com/docs/guide#:~:text=Create%20an%20account,modal%20setup). **Go through the private wiki to create secrets on Modal**. Make sure that [modal_script.py](https://github.com/LocalResearchGroup/llm-foundry/blob/main/scripts/modal/modal_script.py) is in the same folder as the Dockerfile below:
 
 ```
 FROM mambaorg/micromamba:latest
@@ -46,19 +46,23 @@ EXPOSE 43800
 CMD ["/bin/bash"]
 ```
 
-This is the current Dockerfile we're using as we're working on testing things in the `dataset-finemath` branch. After you create the Dockerfile, your `modal` directory looks like this:
-```
-modal/
-├── Dockerfile
-├── modal_script.py
-```
+This is the current Dockerfile we're using as we're working on testing things in the `dataset-finemath` branch. This is a variant of the Dockerfile in the root directory. 
 
 Make sure that you also have a local copy of the training YAML you want to use such as [smollm2-135m_lora_pretraining.yaml](https://github.com/LocalResearchGroup/llm-foundry/blob/main/scripts/train/yamls/pretrain/smollm2-135m_lora_pretraining.yaml).
 
-In your modal_script.py make sure `pull_hf_to_folder.remote()` is uncommented. That function downloads all of our datasets to Modal. If you want to train, make sure the three lines related to training are uncommented as well. Here's the command to run the script on Modal (assume you are running the script in `modal` directory):
+Because you will constantly change the Dockerfile and modal_script, it might be helpful to create a directory outside of the current directory/git environment as the changes you made shouldn't be part of the commit history. You can place your Dockerfile, `modal_script` and the training yaml under a separate `modal_train` directory:
+```
+llm_foundry/
+modal_train/
+├── Dockerfile
+├── modal_script.py
+├── smollm2-135m_lora_pretraining.yaml
+```
+
+In your modal_script.py make sure `pull_hf_to_folder.remote()` is uncommented. That function downloads all of our datasets to Modal. If you want to train, make sure the three lines related to training are uncommented as well. Here's the command to run the script on Modal (assume you are running the script in `modal_train` directory):
 
 ```
-MODAL_GPU=A100-40GB TRAIN_YAML=../train/yamls/pretrain/smollm2-135m_lora_pretraining.yaml IS_PEFT=true OUTPUT_PRECISION=bf16 modal run modal_script.py 
+MODAL_GPU=A100-40GB TRAIN_YAML=smollm2-135m_lora_pretraining.yaml IS_PEFT=true OUTPUT_PRECISION=bf16 modal run modal_script.py 
 ```
 
 Change `MODAL_GPU` and `TRAIN_YAML` as needed. `IS_PEFT=true` as the example YAML file is configured for LoRA. If all goes well you should see training logs wherever you're logging (W&B, AIM) and see printed logs in the terminal.
