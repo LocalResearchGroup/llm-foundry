@@ -8,7 +8,15 @@ import torch
 import torch.nn as nn
 from composer.models import HuggingFaceModel
 from transformers import LlamaForCausalLM as HFLlamaForCausalLM
-from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
+
+# Try to import liger_kernel for fused loss, fallback to standard loss if not available
+try:
+    from liger_kernel.transformers import LigerFusedLinearCrossEntropyLoss
+    LIGER_AVAILABLE = True
+except ImportError:
+    LigerFusedLinearCrossEntropyLoss = None
+    LIGER_AVAILABLE = False
+    print("Warning: liger_kernel not available, using standard loss function")
 
 # Add paths to Python path - use relative paths instead of hardcoded ones
 current_dir = Path(__file__).resolve().parent.parent.parent
@@ -306,9 +314,12 @@ class CustomLlamaModel(HuggingFaceModel):
         model.lm_head = nn.Linear(model.hidden_size, model.vocab_size, bias=False)
         # Add flag to control whether to use fused loss
         #model._fused_loss = True
-        use_fused_loss = getattr(config, 'use_fused_loss', True)  # Default to True
+        use_fused_loss = getattr(config, 'use_fused_loss', True) and LIGER_AVAILABLE  # Only use if available
         model._fused_loss = use_fused_loss
-        model.fused_loss_fn = LigerFusedLinearCrossEntropyLoss(ignore_index=-100)  # Add the actual loss function
+        if LIGER_AVAILABLE:
+            model.fused_loss_fn = LigerFusedLinearCrossEntropyLoss(ignore_index=-100)  # Add the actual loss function
+        else:
+            model.fused_loss_fn = None  # Will use standard loss
 
         # Add forward method to the model
         def forward(
@@ -382,7 +393,7 @@ class CustomLlamaModel(HuggingFaceModel):
                 final_hidden = hidden_states[..., :-1, :].contiguous().view(-1, self.hidden_size)
                 shift_labels = labels[..., 1:].contiguous().view(-1)
                 
-                if hasattr(self, '_fused_loss') and self._fused_loss:
+                if hasattr(self, '_fused_loss') and self._fused_loss and self.fused_loss_fn is not None:
                     print("USING FUSED LOSS")
                     torch.cuda.synchronize()
                     before_mem = torch.cuda.memory_allocated()
@@ -767,7 +778,7 @@ class CustomLlamaModel(HuggingFaceModel):
             
             # Forward pass to get logits
             with torch.no_grad():
-                outputs = self.model(input_ids_for_step, attention_mask=attention_mask)
+                outputs = self.model(input_ids_for_step, attention_mask=attention_mask, return_dict=True)
                 next_token_logits = outputs["logits"][:, -1, :]
             
             # Apply temperature scaling
