@@ -22,6 +22,45 @@ from typing import Any, Optional
 import torch
 from torch import nn
 from transformers.models.llama.configuration_llama import LlamaConfig
+from transformers import PreTrainedTokenizerBase
+from composer.models import ComposerModel
+from llmfoundry.metrics import DEFAULT_CAUSAL_LM_EVAL_METRICS, DEFAULT_CAUSAL_LM_TRAIN_METRICS
+from llmfoundry.utils.builders import build_metric
+
+from transformers import AutoModelForCausalLM
+checkpoint = "HuggingFaceTB/SmolLM2-135M"
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+model_hf = AutoModelForCausalLM.from_pretrained(checkpoint, device_map="auto", torch_dtype=torch.bfloat16).to(device)
+sd_hf = model_hf.state_dict()
+
+SMOLLM2_CONFIG_135M = LlamaConfig(
+    attention_bias = False,
+    attention_dropout = 0.0,
+    bos_token_id = 0,
+    eos_token_id = 0,
+    head_dim = 64,
+    hidden_act = "silu",
+    hidden_size = 576,
+    initializer_range = 0.041666666666666664,
+    intermediate_size = 1536,
+    is_llama_config = True,
+    max_position_embeddings = 8192,
+    mlp_bias = False,
+    model_type = "llama",
+    num_attention_heads = 9,
+    num_hidden_layers = 30,
+    num_key_value_heads = 3,
+    pretraining_tp = 1,
+    rms_norm_eps = 1e-05,
+    rope_interleaved = False,
+    rope_scaling = None,
+    rope_theta = 100000,
+    tie_word_embeddings = True,
+    torch_dtype = "bfloat16",
+    transformers_version = "4.55.0.dev0",
+    use_cache = True,
+    vocab_size = 49152
+)
 
 class LlamaRMSNorm(nn.Module):
     def __init__(self, hidden_size: int, eps: float = 1e-6):
@@ -54,7 +93,7 @@ class LlamaRotaryEmbedding(nn.Module):
     @torch.no_grad()
     def forward(self, x: torch.Tensor, position_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1).to(x.device)
-        position_ids_expanded = position_ids[:, None, :].float()
+        position_ids_expanded = position_ids[:, None, :].float().to(x.device)
 
         device_type = x.device.type if isinstance(x.device.type, str) and x.device.type != "mps" else "cpu"
         with torch.autocast(device_type=device_type, enabled=False):  # Force float32
@@ -165,6 +204,70 @@ class LlamaDecoderLayer(nn.Module):
         hidden_states = residual + hidden_states
         return hidden_states
 
+def assign(left: torch.Tensor, right: torch.Tensor, tensor_name: str = "unknown") -> torch.nn.Parameter:
+    if left.shape != right.shape:
+        raise ValueError(f"Shape mismatch in tensor '{tensor_name}'. Left: {left.shape}, Right: {right.shape}")
+
+    if isinstance(right, torch.Tensor):
+        return torch.nn.Parameter(right.clone().detach())
+    else:
+        return torch.nn.Parameter(torch.tensor(right))
+
+def load_weights_into_smollm2(model: 'LlamaModel', param_config: LlamaConfig, params: dict[str, torch.Tensor]) -> None:
+    model.embed_tokens.weight = assign(model.embed_tokens.weight, params["model.embed_tokens.weight"], "model.embed_tokens.weight")
+    
+    for l in range(param_config.num_hidden_layers):
+        model.layers[l].self_attn.q_proj.weight = assign(
+            model.layers[l].self_attn.q_proj.weight,
+            params[f"model.layers.{l}.self_attn.q_proj.weight"],
+            f"model.layers[{l}].self_attn.q_proj.weight"
+        )
+        model.layers[l].self_attn.k_proj.weight = assign(
+            model.layers[l].self_attn.k_proj.weight,
+            params[f"model.layers.{l}.self_attn.k_proj.weight"],
+            f"model.layers.{l}.self_attn.k_proj.weight"
+        )
+        model.layers[l].self_attn.v_proj.weight = assign(
+            model.layers[l].self_attn.v_proj.weight,
+            params[f"model.layers.{l}.self_attn.v_proj.weight"],
+            f"model.layers.{l}.self_attn.v_proj.weight"
+        )
+        model.layers[l].self_attn.o_proj.weight = assign(
+            model.layers[l].self_attn.o_proj.weight,
+            params[f"model.layers.{l}.self_attn.o_proj.weight"],
+            f"model.layers.{l}.self_attn.o_proj.weight"
+        )
+        model.layers[l].input_layernorm.weight = assign(
+            model.layers[l].input_layernorm.weight,
+            params[f"model.layers.{l}.input_layernorm.weight"],
+            f"model.layers.{l}.input_layernorm.weight"
+        )
+
+        # Load FeedForward weights
+        model.layers[l].mlp.gate_proj.weight = assign(
+            model.layers[l].mlp.gate_proj.weight,
+            params[f"model.layers.{l}.mlp.gate_proj.weight"],
+            f"model.layers.{l}.mlp.gate_proj.weight"
+        )
+        model.layers[l].mlp.up_proj.weight = assign(
+            model.layers[l].mlp.up_proj.weight,
+            params[f"model.layers.{l}.mlp.up_proj.weight"],
+            f"model.layers.{l}.mlp.up_proj.weight"
+        )
+        model.layers[l].mlp.down_proj.weight = assign(
+            model.layers[l].mlp.down_proj.weight,
+            params[f"model.layers.{l}.mlp.down_proj.weight"],
+            f"model.layers.{l}.mlp.down_proj.weight"
+        )
+        model.layers[l].post_attention_layernorm.weight = assign(
+            model.layers[l].post_attention_layernorm.weight,
+            params[f"model.layers.{l}.post_attention_layernorm.weight"],
+            f"model.layers.{l}.post_attention_layernorm.weight"
+        )
+
+    model.norm.weight = assign(model.norm.weight, params["model.norm.weight"], "model.norm.weight")
+    model.lm_head.weight = assign(model.lm_head.weight, params["lm_head.weight"], "lm_head.weight")
+
 class LlamaModel(nn.Module):
     def __init__(self, config: LlamaConfig):
         super().__init__()
@@ -172,9 +275,7 @@ class LlamaModel(nn.Module):
         self.vocab_size = config.vocab_size
         self.config = config
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
-        self.layers = nn.ModuleList(
-            [LlamaDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
-        )
+        self.layers = nn.ModuleList([LlamaDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)])
         self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
@@ -191,7 +292,9 @@ class LlamaModel(nn.Module):
             inputs_embeds = self.embed_tokens(input_ids)
 
         hidden_states = inputs_embeds
-        position_embeddings = self.rotary_emb(hidden_states, torch.arange(inputs_embeds.shape[1]).unsqueeze(0))
+        if hidden_states is None:
+            raise ValueError("inputs_embeds cannot be None")
+        position_embeddings = self.rotary_emb(hidden_states, torch.arange(hidden_states.shape[1], device=hidden_states.device).unsqueeze(0))
 
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
             hidden_states = decoder_layer(
@@ -201,3 +304,95 @@ class LlamaModel(nn.Module):
             )
         return self.lm_head(self.norm(hidden_states))
 
+    @classmethod
+    def from_pretrained(cls, model_type: str, device_map: str = "auto", torch_dtype: torch.dtype = torch.bfloat16):
+        if model_type == "smollm2-135m":
+            checkpoint = "HuggingFaceTB/SmolLM2-135M"
+            config = SMOLLM2_CONFIG_135M
+        elif model_type == "smollm2-7b":
+            checkpoint = "HuggingFaceTB/SmolLM2-7B"
+            raise NotImplementedError("SmolLM2-7B config not yet implemented")
+        else:
+            raise ValueError(f"Model type {model_type} not supported")
+        model_hf = AutoModelForCausalLM.from_pretrained(checkpoint, device_map=device_map, torch_dtype=torch_dtype).to(device)
+        sd_hf = model_hf.state_dict()
+        model = cls(config)
+        load_weights_into_smollm2(model, config, sd_hf)
+        return model
+
+class CustomLlamaModel(ComposerModel):
+    """Custom Llama model wrapper for LLM Foundry compatibility."""
+    
+    def __init__(
+        self,
+        tokenizer: PreTrainedTokenizerBase,
+        model_type: str,
+        use_train_metrics: bool = True,
+        additional_train_metrics: Optional[list] = None,
+        additional_eval_metrics: Optional[list] = None,
+    ):
+        super().__init__()
+        
+        self.tokenizer = tokenizer
+        self.model = LlamaModel.from_pretrained(model_type)
+        
+        # Build metrics
+        additional_train_metrics = additional_train_metrics or []
+        additional_eval_metrics = additional_eval_metrics or []
+        
+        train_metric_names = DEFAULT_CAUSAL_LM_TRAIN_METRICS + additional_train_metrics
+        self.train_metrics = [
+            build_metric(metric, {}) for metric in train_metric_names
+        ] if use_train_metrics else []
+        
+        eval_metric_names = DEFAULT_CAUSAL_LM_EVAL_METRICS + additional_eval_metrics
+        self.eval_metrics = [
+            build_metric(metric, {}) for metric in eval_metric_names
+        ]
+    
+    def forward(self, batch: dict[str, Any]) -> torch.Tensor:
+        input_ids = batch['input_ids']
+        outputs = self.model(input_ids=input_ids)
+        return outputs
+    
+    def loss(self, outputs: torch.Tensor, batch: dict[str, Any]) -> torch.Tensor:
+        labels = batch['labels']
+        shift_logits = outputs[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+        loss_fct = nn.CrossEntropyLoss()
+        loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+        return loss
+    
+    def get_metrics(self, is_train: bool = False) -> dict[str, Any]:
+        metrics = self.train_metrics if is_train else self.eval_metrics
+        return {metric.__class__.__name__: metric for metric in metrics}
+    
+    def update_metrics(self, batch: dict[str, Any], outputs: torch.Tensor, is_train: bool = False) -> None:
+        metrics = self.train_metrics if is_train else self.eval_metrics
+        for metric in metrics:
+            metric.update(outputs, batch['labels'])
+
+    def generate(
+        self,
+        idx: torch.Tensor,
+        max_new_tokens: int = 100,
+        context_size: int = 8192,
+        temperature: float = 0.0,
+        top_k: int = 0,
+        eos_id: Optional[int] = None
+    ) -> torch.Tensor:
+        self.model.eval()
+        for _ in range(max_new_tokens):
+            idx_cond = idx[:, -context_size:]
+            logits = self.model(idx_cond)[:, -1, :]
+            if top_k > 0:
+                top_logits, _ = torch.topk(logits, top_k)
+                logits = torch.where(logits < top_logits[:, -1], torch.tensor(float('-inf')).to(logits.device), logits)
+            if temperature > 0.0:
+                idx_next = torch.multinomial(torch.softmax(logits / temperature, dim=-1), num_samples=1)
+            else:
+                idx_next = torch.argmax(logits, dim=-1, keepdim=True)
+            if eos_id is not None and idx_next == eos_id:
+                break
+            idx = torch.cat((idx, idx_next), dim=1) 
+        return idx
