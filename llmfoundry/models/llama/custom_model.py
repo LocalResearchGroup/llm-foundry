@@ -28,10 +28,6 @@ from llmfoundry.metrics import DEFAULT_CAUSAL_LM_EVAL_METRICS, DEFAULT_CAUSAL_LM
 from llmfoundry.utils.builders import build_metric
 
 from transformers import AutoModelForCausalLM
-checkpoint = "HuggingFaceTB/SmolLM2-135M"
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-model_hf = AutoModelForCausalLM.from_pretrained(checkpoint, device_map="auto", torch_dtype=torch.bfloat16).to(device)
-sd_hf = model_hf.state_dict()
 
 SMOLLM2_CONFIG_135M = LlamaConfig(
     attention_bias = False,
@@ -314,6 +310,7 @@ class LlamaModel(nn.Module):
             raise NotImplementedError("SmolLM2-7B config not yet implemented")
         else:
             raise ValueError(f"Model type {model_type} not supported")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model_hf = AutoModelForCausalLM.from_pretrained(checkpoint, device_map=device_map, torch_dtype=torch_dtype).to(device)
         sd_hf = model_hf.state_dict()
         model = cls(config)
@@ -326,15 +323,24 @@ class CustomLlamaModel(ComposerModel):
     def __init__(
         self,
         tokenizer: PreTrainedTokenizerBase,
-        model_type: str,
+        model_type: str = "smollm2-135m",
         use_train_metrics: bool = True,
         additional_train_metrics: Optional[list] = None,
         additional_eval_metrics: Optional[list] = None,
+        **kwargs: Any,  # Accept additional kwargs to be compatible with LLM Foundry
     ):
         super().__init__()
+        if model_type == "smollm2-135m" and "model_type" in kwargs:
+            model_type = kwargs["model_type"]
+        
+        _ = {k: v for k, v in kwargs.items() 
+             if k not in ['pretrained', 'pretrained_model_name_or_path', 'name', 'model_type']}
         
         self.tokenizer = tokenizer
         self.model = LlamaModel.from_pretrained(model_type)
+        
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = self.model.to(self.device)
         
         # Build metrics
         additional_train_metrics = additional_train_metrics or []
@@ -371,6 +377,10 @@ class CustomLlamaModel(ComposerModel):
         metrics = self.train_metrics if is_train else self.eval_metrics
         for metric in metrics:
             metric.update(outputs, batch['labels'])
+    
+    def update_metric(self, batch: dict[str, Any], outputs: torch.Tensor, metric: Any) -> None:
+        """Update a single metric - required by ComposerModel."""
+        metric.update(outputs, batch['labels'])
 
     def generate(
         self,
