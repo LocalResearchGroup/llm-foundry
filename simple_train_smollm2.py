@@ -47,6 +47,10 @@ def main():
     logger.info(f"Model checkpoints will be saved to: {save_folder}")
     
     # Verify dataset path
+    # Install with:
+    # python scripts/data_prep/convert_dataset_hf.py --dataset allenai/c4 --data_subset en --out_root datasets/c4_small \
+    # --splits train_small val_small --concat_tokens 2048 --tokenizer HuggingFaceTB/SmolLM2-135M \
+    # --eos_text '<|endoftext|>' --compression zstd
     dataset_path = config.variables.data_local
     if not os.path.exists(dataset_path):
         logger.warning(f"Dataset not found at: {dataset_path}")
