@@ -287,7 +287,7 @@ class LlamaModel(nn.Module):
         hidden_states = inputs_embeds
         position_embeddings = self.rotary_emb(hidden_states, torch.arange(hidden_states.shape[1], device=hidden_states.device).unsqueeze(0))
 
-        for decoder_layer in self.layers[: self.config.num_hidden_layers]:
+        for decoder_layer in self.layers[:self.config.num_hidden_layers]:
             hidden_states = decoder_layer(
                 hidden_states,
                 position_embeddings=position_embeddings,
@@ -322,17 +322,24 @@ class CustomLlamaModel(ComposerModel):
         use_train_metrics: bool = True,
         additional_train_metrics: Optional[list] = None,
         additional_eval_metrics: Optional[list] = None,
+        pretrained: bool = True,
         **kwargs: Any,  # Accept additional kwargs to be compatible with LLM Foundry
     ):
         super().__init__()
-        if model_type == "smollm2-135m" and "model_type" in kwargs:
-            model_type = kwargs["model_type"]
+        # if model_type == "smollm2-135m" and "model_type" in kwargs:
+        #     model_type = kwargs["model_type"]
         
-        _ = {k: v for k, v in kwargs.items() 
-             if k not in ['pretrained', 'pretrained_model_name_or_path', 'name', 'model_type']}
+        # _ = {k: v for k, v in kwargs.items() 
+        #      if k not in ['pretrained', 'pretrained_model_name_or_path', 'name', 'model_type']}
         
         self.tokenizer = tokenizer
-        self.model = LlamaModel.from_pretrained(model_type)
+        if pretrained:
+            self.model = LlamaModel.from_pretrained(model_type)
+        else:
+            if model_type == "smollm2-135m":
+                self.model = LlamaModel(SMOLLM2_CONFIG_135M)
+            else:
+                raise NotImplementedError(f"Model type {model_type} not supported")
         
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self.model.to(self.device)
@@ -356,24 +363,17 @@ class CustomLlamaModel(ComposerModel):
         outputs = self.model(input_ids=input_ids)
         return outputs
     
-    # TODO: simplify loss function
     def loss(self, outputs: torch.Tensor, batch: dict[str, Any]) -> torch.Tensor:
-        labels = batch['labels']
-        shift_logits = outputs[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-        return F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+        return F.cross_entropy(
+            outputs.flatten(0, -2),
+            batch['labels'].flatten()
+        )
     
     def get_metrics(self, is_train: bool = False) -> dict[str, Any]:
         metrics = self.train_metrics if is_train else self.eval_metrics
         return {metric.__class__.__name__: metric for metric in metrics}
     
-    def update_metrics(self, batch: dict[str, Any], outputs: torch.Tensor, is_train: bool = False) -> None:
-        metrics = self.train_metrics if is_train else self.eval_metrics
-        for metric in metrics:
-            metric.update(outputs, batch['labels'])
-    
     def update_metric(self, batch: dict[str, Any], outputs: torch.Tensor, metric: Any) -> None:
-        """Update a single metric - required by ComposerModel."""
         metric.update(outputs, batch['labels'])
 
     def generate(
