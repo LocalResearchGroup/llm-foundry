@@ -27,6 +27,7 @@ from transformers import PreTrainedTokenizerBase
 from composer.models import ComposerModel
 from llmfoundry.metrics import DEFAULT_CAUSAL_LM_EVAL_METRICS, DEFAULT_CAUSAL_LM_TRAIN_METRICS
 from llmfoundry.utils.builders import build_metric
+from llmfoundry.data.finetuning.collator import CROSS_ENTROPY_IGNORE_INDEX
 
 from transformers import AutoModelForCausalLM
 
@@ -362,11 +363,14 @@ class CustomLlamaModel(ComposerModel):
         input_ids = batch['input_ids']
         outputs = self.model(input_ids=input_ids)
         return outputs
-    
+
     def loss(self, outputs: torch.Tensor, batch: dict[str, Any]) -> torch.Tensor:
+        targets = torch.roll(batch['labels'], shifts=-1, dims=1)
+        targets[:, -1] = CROSS_ENTROPY_IGNORE_INDEX
         return F.cross_entropy(
             outputs.flatten(0, -2),
-            batch['labels'].flatten()
+            targets.flatten(),
+            ignore_index=CROSS_ENTROPY_IGNORE_INDEX
         )
     
     def get_metrics(self, is_train: bool = False) -> dict[str, Any]:
