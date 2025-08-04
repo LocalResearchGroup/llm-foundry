@@ -284,8 +284,6 @@ class LlamaModel(nn.Module):
             inputs_embeds = self.embed_tokens(input_ids)
 
         hidden_states = inputs_embeds
-        if hidden_states is None:
-            raise ValueError("inputs_embeds cannot be None")
         position_embeddings = self.rotary_emb(hidden_states, torch.arange(hidden_states.shape[1], device=hidden_states.device).unsqueeze(0))
 
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
@@ -301,9 +299,9 @@ class LlamaModel(nn.Module):
         if model_type == "smollm2-135m":
             checkpoint = "HuggingFaceTB/SmolLM2-135M"
             config = SMOLLM2_CONFIG_135M
-        elif model_type == "smollm2-7b":
-            checkpoint = "HuggingFaceTB/SmolLM2-7B"
-            raise NotImplementedError("SmolLM2-7B config not yet implemented")
+        elif model_type == "smollm2-1.7b":
+            checkpoint = "HuggingFaceTB/SmolLM2-1.7B"
+            raise NotImplementedError("SmolLM2-1.7B config not yet implemented")
         else:
             raise ValueError(f"Model type {model_type} not supported")
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -333,8 +331,7 @@ class CustomLlamaModel(ComposerModel):
              if k not in ['pretrained', 'pretrained_model_name_or_path', 'name', 'model_type']}
         
         self.tokenizer = tokenizer
-        # self.model = LlamaModel.from_pretrained(model_type)
-        self.model = LlamaModel(SMOLLM2_CONFIG_135M)
+        self.model = LlamaModel.from_pretrained(model_type)
         
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self.model.to(self.device)
