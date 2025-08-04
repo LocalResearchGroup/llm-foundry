@@ -30,10 +30,9 @@ loggers:
 train_loader:
   name: text
   dataset:
-    streams:
-      local: ${variables.data_local}
-      remote: ${variables.data_remote}
-      split: train_small
+    local: ${variables.data_local}
+    remote: ${variables.data_remote}
+    split: train_small
     shuffle: true
     max_seq_len: ${variables.max_seq_len}
     shuffle_seed: ${variables.global_seed}
@@ -45,10 +44,9 @@ train_loader:
 eval_loader:
   name: text
   dataset:
-    streams:
-      local: ${variables.data_local}
-      remote: ${variables.data_remote}
-      split: val_small
+    local: ${variables.data_local}
+    remote: ${variables.data_remote}
+    split: val_small
     shuffle: false
     max_seq_len: ${variables.max_seq_len}
     shuffle_seed: ${variables.global_seed}
@@ -78,10 +76,12 @@ algorithms:
     clipping_threshold: 1.0
 
 # Training duration and evaluation
-max_duration: 10ba  # Reduced for quick testing
+max_duration: 50ba 
 eval_interval: 100ba
 eval_first: false
-eval_subset_num_batches: -1
+eval_subset_num_batches: 10  # Only evaluate on 10 batches
+save_overwrite: true
+save_interval: 0ba  # Disable checkpointing
 
 # System configuration
 seed: ${variables.global_seed}
