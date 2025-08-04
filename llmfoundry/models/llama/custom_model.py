@@ -20,6 +20,7 @@
 
 from typing import Any, Optional
 import torch
+import torch.nn.functional as F
 from torch import nn
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers import PreTrainedTokenizerBase
@@ -355,13 +356,12 @@ class CustomLlamaModel(ComposerModel):
         outputs = self.model(input_ids=input_ids)
         return outputs
     
+    # TODO: simplify loss function
     def loss(self, outputs: torch.Tensor, batch: dict[str, Any]) -> torch.Tensor:
         labels = batch['labels']
         shift_logits = outputs[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
-        loss_fct = nn.CrossEntropyLoss()
-        loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
-        return loss
+        return F.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
     
     def get_metrics(self, is_train: bool = False) -> dict[str, Any]:
         metrics = self.train_metrics if is_train else self.eval_metrics
