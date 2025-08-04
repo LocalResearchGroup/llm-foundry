@@ -13,6 +13,7 @@ run_name: ${variables.run_name}
 model:
   name: smollm2-135m
   model_type: smollm2-135m
+  pretrained: true
 
 # Tokenizer
 tokenizer:
@@ -76,7 +77,7 @@ algorithms:
     clipping_threshold: 1.0
 
 # Training duration and evaluation
-max_duration: 50ba 
+max_duration: 5ba 
 eval_interval: 100ba
 eval_first: false
 eval_subset_num_batches: 10  # Only evaluate on 10 batches
@@ -109,4 +110,12 @@ callbacks:
     window_size: 10
   lr_monitor: {}
   memory_monitor: {}
-  runtime_estimator: {} 
+  runtime_estimator: {}
+  text_generation:
+    prompts:
+      - "The future of artificial intelligence is"
+      - "In a world where technology"
+      - "The most important thing to remember is"
+      - "When I think about machine learning"
+    max_new_tokens: 50
+    temperature: 0.7 
