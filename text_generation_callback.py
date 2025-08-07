@@ -31,9 +31,6 @@ class TextGenerationCallback(Callback):
         """
         self.prompts = prompts or [
             "The future of artificial intelligence is",
-            "In a world where technology",
-            "The most important thing to remember is",
-            "When I think about machine learning"
         ]
         self.max_new_tokens = max_new_tokens
         self.temperature = temperature

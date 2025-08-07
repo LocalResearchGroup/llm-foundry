@@ -4,19 +4,33 @@ variables:
   tokenizer_name: HuggingFaceTB/SmolLM2-135M
   global_seed: 42
   max_seq_len: 2048
-  run_name: custom_smollm2_135m_training
+  run_name: custom_smollm2_135m_peft_training
 
 max_seq_len: ${variables.max_seq_len}
 run_name: ${variables.run_name}
 
-# Model - Using custom SmolLM2-135M model
 model:
   name: custom-smollm2-135m
-  model_type: smollm2-135m
-  pretrained: false
   pretrained_model_name_or_path: HuggingFaceTB/SmolLM2-135M
+  model_type: smollm2-135m
+  pretrained: true
+  peft_config:
+    peft_type: LORA
+    task_type: CAUSAL_LM
+    r: 64
+    lora_alpha: 128
+    lora_dropout: 0.05
+    target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj
+    use_rslora: false
+    use_dora: false
 
-# Tokenizer
 tokenizer:
   name: ${variables.tokenizer_name}
   kwargs:
@@ -24,11 +38,10 @@ tokenizer:
   
 loggers:
   wandb:
-    project: 'smollm2-135m-training-avelina'
+    project: 'smollm2-135m-peft-training-avelina'
     entity: 'local-research-group'
-    name: 'smollm2-135m-training-avelina-1k'
+    name: 'smollm2-135m-peft-training-avelina-1k'
 
-# Data loaders
 train_loader:
   name: text
   dataset:
@@ -57,7 +70,6 @@ eval_loader:
   drop_last: false
   num_workers: 4
 
-# Training configuration
 scheduler:
   name: cosine_with_warmup
   t_warmup: 100ba
@@ -77,22 +89,19 @@ algorithms:
     clipping_type: norm
     clipping_threshold: 1.0
 
-# Training duration and evaluation
-max_duration: 1000ba
-eval_interval: 100ba
+max_duration: 100ba
+eval_interval: 200ba
 eval_first: false
-eval_subset_num_batches: 5
+eval_subset_num_batches: 50
 save_overwrite: true
-save_interval: 0ba  # Disable checkpointing
+save_interval: 200ba  # Save PEFT checkpoints
 
-# System configuration
 seed: ${variables.global_seed}
 device_eval_batch_size: 2
-device_train_microbatch_size: 4
+device_train_microbatch_size: 2
 global_train_batch_size: 4
 precision: amp_bf16
 
-# FSDP configuration
 fsdp_config:
   sharding_strategy: FULL_SHARD
   mixed_precision: PURE
@@ -101,7 +110,6 @@ fsdp_config:
   activation_cpu_offload: false
   limit_all_gathers: true
 
-# Logging
 progress_bar: true
 log_to_console: true
 console_log_interval: 1ba
@@ -116,7 +124,7 @@ callbacks:
     prompts:
       - "The future of artificial intelligence is"
       - "In a world where technology"
-      - "def main():"
+      - "The most important thing to remember is"
       - "Gravity is"
     max_new_tokens: 50
     temperature: 0.
