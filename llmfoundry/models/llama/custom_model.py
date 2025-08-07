@@ -18,15 +18,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Optional
+from typing import Any, Optional, Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from peft import PeftModel
+from llmfoundry.models.hf.hf_base import BaseHuggingFaceModel
 import torch
 import torch.nn.functional as F
 from torch import nn
 from transformers.models.llama.configuration_llama import LlamaConfig
-from transformers import PreTrainedTokenizerBase
-from composer.models import ComposerModel
-from llmfoundry.metrics import DEFAULT_CAUSAL_LM_EVAL_METRICS, DEFAULT_CAUSAL_LM_TRAIN_METRICS
-from llmfoundry.utils.builders import build_metric
+from transformers import PreTrainedTokenizerBase, PreTrainedModel
 from llmfoundry.data.finetuning.collator import CROSS_ENTROPY_IGNORE_INDEX
 
 from transformers import AutoModelForCausalLM
@@ -273,13 +274,15 @@ class LlamaModel(nn.Module):
         self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
-        if config.tie_word_embeddings:    # weight tying
-            self.embed_tokens.weight = self.lm_head.weight
+        self.can_generate = True
+        self.tie_weights()
             
     def forward(
         self,
         input_ids: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
+        past_key_values: Optional[tuple] = None,
+        use_cache: Optional[bool] = None,
         **kwargs: Any,
     ):
         if inputs_embeds is None:
@@ -295,7 +298,7 @@ class LlamaModel(nn.Module):
                 **kwargs,
             )
         return self.lm_head(self.norm(hidden_states))
-
+ 
     @classmethod
     def from_pretrained(cls, model_type: str, device_map: str = "auto", torch_dtype: torch.dtype = torch.bfloat16):
         if model_type == "smollm2-135m":
@@ -311,58 +314,67 @@ class LlamaModel(nn.Module):
         sd_hf = model_hf.state_dict()
         model = cls(config)
         load_weights_into_smollm2(model, config, sd_hf)
-        return model
+        return model   
 
-class CustomLlamaModel(ComposerModel):
+    # Some functions required for HuggingFace compatibility
+    def prepare_inputs_for_generation(
+        self,
+        input_ids: torch.LongTensor,
+        past_key_values: Optional[tuple] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """
+        Prepare inputs for generation. Required by PEFT and HuggingFace generation utilities.
+        """
+        if past_key_values is not None:
+            input_ids = input_ids[:, -1:]
+
+        if inputs_embeds is not None and past_key_values is None:
+            model_inputs = {"inputs_embeds": inputs_embeds}
+        else:
+            model_inputs = {"input_ids": input_ids}
+
+        model_inputs.update({
+            "past_key_values": past_key_values,
+            "use_cache": kwargs.get("use_cache", True),
+        })
+        
+        return model_inputs
+
+    def get_input_embeddings(self) -> nn.Embedding: return self.embed_tokens
+
+    def get_output_embeddings(self) -> nn.Linear: return self.lm_head
+
+    def tie_weights(self) -> None:
+        if self.config.tie_word_embeddings:
+            self.embed_tokens.weight = self.lm_head.weight
+
+    def get_decoder(self): return self
+
+class CustomLlamaModel(BaseHuggingFaceModel):
     """Custom Llama model wrapper for LLM Foundry compatibility."""
     
     def __init__(
         self,
         tokenizer: PreTrainedTokenizerBase,
         model_type: str = "smollm2-135m",
-        use_train_metrics: bool = True,
-        additional_train_metrics: Optional[list] = None,
-        additional_eval_metrics: Optional[list] = None,
         pretrained: bool = True,
-        **kwargs: Any,  # Accept additional kwargs to be compatible with LLM Foundry
+        peft_config: Optional[dict[str, Any]] = None,
+        pretrained_model_name_or_path: str = "HuggingFaceTB/SmolLM2-135M",
+        **kwargs: Any,
     ):
-        super().__init__()
-        # if model_type == "smollm2-135m" and "model_type" in kwargs:
-        #     model_type = kwargs["model_type"]
-        
-        # _ = {k: v for k, v in kwargs.items() 
-        #      if k not in ['pretrained', 'pretrained_model_name_or_path', 'name', 'model_type']}
-        
-        self.tokenizer = tokenizer
-        if pretrained:
-            self.model = LlamaModel.from_pretrained(model_type)
-        else:
-            if model_type == "smollm2-135m":
-                self.model = LlamaModel(SMOLLM2_CONFIG_135M)
-            else:
-                raise NotImplementedError(f"Model type {model_type} not supported")
-        
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = self.model.to(self.device)
-        
-        # Build metrics
-        additional_train_metrics = additional_train_metrics or []
-        additional_eval_metrics = additional_eval_metrics or []
-        
-        train_metric_names = DEFAULT_CAUSAL_LM_TRAIN_METRICS + additional_train_metrics
-        self.train_metrics = [
-            build_metric(metric, {}) for metric in train_metric_names
-        ] if use_train_metrics else []
-        
-        eval_metric_names = DEFAULT_CAUSAL_LM_EVAL_METRICS + additional_eval_metrics
-        self.eval_metrics = [
-            build_metric(metric, {}) for metric in eval_metric_names
-        ]
+        super().__init__(
+            pretrained_model_name_or_path=pretrained_model_name_or_path,
+            tokenizer=tokenizer,
+            pretrained=pretrained,
+            peft_config=peft_config,
+            shift_labels=True,
+            **kwargs,
+        )    
     
     def forward(self, batch: dict[str, Any]) -> torch.Tensor:
-        input_ids = batch['input_ids']
-        outputs = self.model(input_ids=input_ids)
-        return outputs
+        return self.model(input_ids=batch['input_ids'])
 
     def loss(self, outputs: torch.Tensor, batch: dict[str, Any]) -> torch.Tensor:
         targets = torch.roll(batch['labels'], shifts=-1, dims=1)
@@ -372,13 +384,6 @@ class CustomLlamaModel(ComposerModel):
             targets.flatten(),
             ignore_index=CROSS_ENTROPY_IGNORE_INDEX
         )
-    
-    def get_metrics(self, is_train: bool = False) -> dict[str, Any]:
-        metrics = self.train_metrics if is_train else self.eval_metrics
-        return {metric.__class__.__name__: metric for metric in metrics}
-    
-    def update_metric(self, batch: dict[str, Any], outputs: torch.Tensor, metric: Any) -> None:
-        metric.update(outputs, batch['labels'])
 
     def generate(
         self,
@@ -389,10 +394,10 @@ class CustomLlamaModel(ComposerModel):
         top_k: int = 0,
         eos_id: Optional[int] = None
     ) -> torch.Tensor:
-        self.model.eval()
+        model = self.model.eval()
         for _ in range(max_new_tokens):
             idx_cond = idx[:, -context_size:]
-            logits = self.model(idx_cond)[:, -1, :]
+            logits = model(idx_cond)[:, -1, :]
             if top_k > 0:
                 top_logits, _ = torch.topk(logits, top_k)
                 logits = torch.where(logits < top_logits[:, -1], torch.tensor(float('-inf')).to(logits.device), logits)
@@ -404,3 +409,57 @@ class CustomLlamaModel(ComposerModel):
                 break
             idx = torch.cat((idx, idx_next), dim=1) 
         return idx
+
+    # Below are the methods that are required for PEFT compatibility
+    @property
+    def device(self) -> torch.device: return next(self.model.parameters()).device
+
+    def transform_model(self, model: PreTrainedModel) -> PreTrainedModel: return model
+    
+    # TODO: Use config_overrides to load the model
+    @classmethod
+    def build_inner_model(
+        cls,
+        pretrained_model_name_or_path: str,
+        pretrained_lora_id_or_path: Optional[str] = None,
+        trust_remote_code: bool = True,
+        init_device: str = 'cpu',
+        use_flash_attention_2: bool = True,
+        use_auth_token: bool = False,
+        config_overrides: Optional[dict[str, Any]] = None,
+        load_in_8bit: bool = False,
+        pretrained: bool = True,
+        prepare_for_fsdp: bool = False,
+        **kwargs: Any,
+    ) -> Union[PreTrainedModel, 'PeftModel']:
+        """Build your custom model instead of using AutoModelForCausalLM."""
+        if pretrained:
+            model = LlamaModel.from_pretrained("smollm2-135m")
+        else:
+            model = LlamaModel(SMOLLM2_CONFIG_135M)
+        
+        if pretrained_lora_id_or_path is not None:
+            from composer.models.huggingface import peft_installed
+            if not peft_installed:
+                raise ValueError(
+                    'PEFT is not installed, but lora_id_or_path was passed. Please install LLM Foundry with the peft extra to use lora_id_or_path.',
+                )
+            from peft import PeftModelForCausalLM
+            model = PeftModelForCausalLM.from_pretrained(
+                model,
+                pretrained_lora_id_or_path,
+                is_trainable=True,
+            )
+        
+        if prepare_for_fsdp:
+            cls.prepare_inner_model(model, init_device)
+        return model
+
+    def eval_forward(self, batch: dict[str, Any], outputs: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if outputs is not None:
+            return outputs
+        else:
+            return self.forward(batch)
+
+    def update_metric(self, batch: dict[str, Any], outputs: torch.Tensor, metric: Any) -> None:
+        metric.update(outputs, batch['labels'])

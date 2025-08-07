@@ -9,5 +9,5 @@ def get_custom_llama_model():
 def register_custom_llama_model():
     """Register the custom Llama model with the registry."""
     from llmfoundry import registry
-    registry.models.register("smollm2-135m")(CustomLlamaModel)
-    return CustomLlamaModel 
+    registry.models.register("custom-smollm2-135m")(CustomLlamaModel)
+    return CustomLlamaModel
