@@ -11,6 +11,7 @@ Modal is a cloud platform that enables deployment and execution of Python code i
     - `AIM_CLIENT_REQUEST_HEADERS_SECRET` - See the private wiki.
     - `HUGGING_FACE_HUB_TOKEN` - Token for uploading models to huggingface hub. Needs 'write' (and probably 'read') access to the Local Research Group org repos.
     - `LRG_USER` - Your name/username for tracking who did which training runs.
+    - `WANDB_API_KEY` - api key from weight and bias
 - [Apps](https://modal.com/docs/reference/modal.App) are used to group modal functions together.
 - [Functions](https://modal.com/docs/reference/modal.Function) are the individual units of code that are executed when you run a modal app. Functions specifically designed to run on modal have an `app.function` decorator that specifies the requirements for the function run such as GPU type, memory, timeout, volumes, secrets, etc. A local entrypoint function is required for modal python scripts to be run. It must be decorated with `@app.local_entrypoint()`.
 - [Images](https://modal.com/docs/reference/modal.Image) are used to specify the base image for the container(s) that will be used to run the remote modal decorated functions.
