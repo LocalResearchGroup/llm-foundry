@@ -58,7 +58,7 @@ SMOLLM2_CONFIG_135M = LlamaConfig(
     torch_dtype = "bfloat16",
     transformers_version = "4.55.0.dev0",
     use_cache = True,
-    vocab_size = 49152
+    vocab_size = 49152,
 )
 
 class LlamaRMSNorm(nn.Module):
@@ -215,49 +215,49 @@ def load_weights_into_smollm2(model: 'LlamaModel', param_config: LlamaConfig, pa
         model.layers[l].self_attn.q_proj.weight = assign(
             model.layers[l].self_attn.q_proj.weight,
             params[f"model.layers.{l}.self_attn.q_proj.weight"],
-            f"model.layers[{l}].self_attn.q_proj.weight"
+            f"model.layers[{l}].self_attn.q_proj.weight",
         )
         model.layers[l].self_attn.k_proj.weight = assign(
             model.layers[l].self_attn.k_proj.weight,
             params[f"model.layers.{l}.self_attn.k_proj.weight"],
-            f"model.layers.{l}.self_attn.k_proj.weight"
+            f"model.layers.{l}.self_attn.k_proj.weight",
         )
         model.layers[l].self_attn.v_proj.weight = assign(
             model.layers[l].self_attn.v_proj.weight,
             params[f"model.layers.{l}.self_attn.v_proj.weight"],
-            f"model.layers.{l}.self_attn.v_proj.weight"
+            f"model.layers.{l}.self_attn.v_proj.weight",
         )
         model.layers[l].self_attn.o_proj.weight = assign(
             model.layers[l].self_attn.o_proj.weight,
             params[f"model.layers.{l}.self_attn.o_proj.weight"],
-            f"model.layers.{l}.self_attn.o_proj.weight"
+            f"model.layers.{l}.self_attn.o_proj.weight",
         )
         model.layers[l].input_layernorm.weight = assign(
             model.layers[l].input_layernorm.weight,
             params[f"model.layers.{l}.input_layernorm.weight"],
-            f"model.layers.{l}.input_layernorm.weight"
+            f"model.layers.{l}.input_layernorm.weight",
         )
 
         # Load FeedForward weights
         model.layers[l].mlp.gate_proj.weight = assign(
             model.layers[l].mlp.gate_proj.weight,
             params[f"model.layers.{l}.mlp.gate_proj.weight"],
-            f"model.layers.{l}.mlp.gate_proj.weight"
+            f"model.layers.{l}.mlp.gate_proj.weight",
         )
         model.layers[l].mlp.up_proj.weight = assign(
             model.layers[l].mlp.up_proj.weight,
             params[f"model.layers.{l}.mlp.up_proj.weight"],
-            f"model.layers.{l}.mlp.up_proj.weight"
+            f"model.layers.{l}.mlp.up_proj.weight",
         )
         model.layers[l].mlp.down_proj.weight = assign(
             model.layers[l].mlp.down_proj.weight,
             params[f"model.layers.{l}.mlp.down_proj.weight"],
-            f"model.layers.{l}.mlp.down_proj.weight"
+            f"model.layers.{l}.mlp.down_proj.weight",
         )
         model.layers[l].post_attention_layernorm.weight = assign(
             model.layers[l].post_attention_layernorm.weight,
             params[f"model.layers.{l}.post_attention_layernorm.weight"],
-            f"model.layers.{l}.post_attention_layernorm.weight"
+            f"model.layers.{l}.post_attention_layernorm.weight",
         )
 
     model.norm.weight = assign(model.norm.weight, params["model.norm.weight"], "model.norm.weight")
@@ -324,9 +324,7 @@ class LlamaModel(nn.Module):
         inputs_embeds: Optional[torch.FloatTensor] = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """
-        Prepare inputs for generation. Required by PEFT and HuggingFace generation utilities.
-        """
+        """Prepare inputs for generation. Required by PEFT and HuggingFace generation utilities."""
         if past_key_values is not None:
             input_ids = input_ids[:, -1:]
 
@@ -374,6 +372,16 @@ class CustomLlamaModel(BaseHuggingFaceModel):
         )    
     
     def forward(self, batch: dict[str, Any]) -> torch.Tensor:
+        # input_ids = batch['input_ids']
+        
+        # # Create attention mask if not provided (mark non-padding tokens as 1)
+        # attention_mask = batch.get('attention_mask')
+        # if attention_mask is None:
+        #     # Assume padding token is 0 (EOS token based on your config)
+        #     attention_mask = (input_ids != 0).long()
+        # print('attention_mask:', attention_mask)
+        # print('sum of attention_mask:', attention_mask.sum(dim=1))
+        # return self.model(input_ids=input_ids, attention_mask=attention_mask)
         return self.model(input_ids=batch['input_ids'])
 
     def loss(self, outputs: torch.Tensor, batch: dict[str, Any]) -> torch.Tensor:
@@ -382,7 +390,7 @@ class CustomLlamaModel(BaseHuggingFaceModel):
         return F.cross_entropy(
             outputs.flatten(0, -2),
             targets.flatten(),
-            ignore_index=CROSS_ENTROPY_IGNORE_INDEX
+            ignore_index=CROSS_ENTROPY_IGNORE_INDEX,
         )
 
     def generate(
@@ -392,7 +400,7 @@ class CustomLlamaModel(BaseHuggingFaceModel):
         context_size: int = 8192,
         temperature: float = 0.0,
         top_k: int = 0,
-        eos_id: Optional[int] = None
+        eos_id: Optional[int] = None,
     ) -> torch.Tensor:
         model = self.model.eval()
         for _ in range(max_new_tokens):

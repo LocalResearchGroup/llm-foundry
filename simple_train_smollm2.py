@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Simplified training script for custom SmolLM2-135M model.
-"""
+"""Simplified training script for custom SmolLM2-135M model."""
 
 import os
 import sys
@@ -16,8 +14,9 @@ from llmfoundry.models.llama.register import register_custom_llama_model
 from llmfoundry.command_utils.train import train
 from omegaconf import OmegaConf
 
-# Import the text generation callback to register it
+# Import callbacks to register them
 import text_generation_callback  # type: ignore
+import batch_inspection_callback  # type: ignore
 
 # Set up logging
 logging.basicConfig(
@@ -28,7 +27,6 @@ logger = logging.getLogger(__name__)
 
 def main():
     """Main training function."""
-    
     # Register the custom model
     logger.info("Registering custom SmolLM2-135M model...")
     register_custom_llama_model()

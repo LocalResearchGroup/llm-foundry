@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Simplified PEFT training script for custom SmolLM2-135M model.
-"""
+"""Simplified PEFT training script for custom SmolLM2-135M model."""
 
 import os
 import sys

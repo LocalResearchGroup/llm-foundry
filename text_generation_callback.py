@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Callback for text generation during training.
-"""
+"""Callback for text generation during training."""
 
 import logging
 from typing import Optional
@@ -18,10 +16,9 @@ class TextGenerationCallback(Callback):
         prompts: Optional[list[str]] = None,
         max_new_tokens: int = 50,
         temperature: float = 0.7,
-        log_to_wandb: bool = True
+        log_to_wandb: bool = True,
     ):
-        """
-        Initialize the callback.
+        """Initialize the callback.
         
         Args:
             prompts: List of prompts to generate text from
@@ -57,7 +54,7 @@ class TextGenerationCallback(Callback):
                         idx=input_ids,
                         max_new_tokens=self.max_new_tokens,
                         temperature=self.temperature,
-                        eos_id=model.tokenizer.eos_token_id
+                        eos_id=model.tokenizer.eos_token_id,
                     )
                     generated_text = model.tokenizer.decode(generated_ids[0], skip_special_tokens=True)
                     print(f"\nPrompt {i+1}: {prompt}")
@@ -65,13 +62,13 @@ class TextGenerationCallback(Callback):
                     print("-" * 40)                    
                     generated_texts[f"prompt_{i+1}"] = {
                         "prompt": prompt,
-                        "generated": generated_text
+                        "generated": generated_text,
                     }
-                except Exception as e:
+                except Exception as e:  # noqa: PERF203
                     print(f"Error generating text for prompt {i+1}: {e}")
                     generated_texts[f"prompt_{i+1}"] = {
                         "prompt": prompt,
-                        "error": str(e)
+                        "error": str(e),
                     }
             
             if self.log_to_wandb and hasattr(logger, 'log_metrics'):
@@ -79,7 +76,7 @@ class TextGenerationCallback(Callback):
                     if "error" not in value:
                         logger.log_metrics({
                             f"generation/{event_name}/{key}/prompt": str(value["prompt"]),
-                            f"generation/{event_name}/{key}/text": str(value["generated"])
+                            f"generation/{event_name}/{key}/text": str(value["generated"]),
                         })
                         print(f"WandB Logged: {event_name} - {key}")
                         print(f"  Prompt: {value['prompt']}")
