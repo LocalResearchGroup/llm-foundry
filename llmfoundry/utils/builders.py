@@ -530,6 +530,11 @@ def build_tokenizer(
             f'The tokenizer {tokenizer_name} must have an eos_token.',
         )
 
+    # Ensure a pad token exists for padding collators (e.g., DataCollatorForLanguageModeling)
+    # Many decoder-only tokenizers (GPT-2 style) do not define a pad token by default.
+    if getattr(tokenizer, 'pad_token_id', None) is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
     if dist.is_available() and dist.is_initialized(
     ) and dist.get_world_size() > 1:
         if dist.get_local_rank() == 0:

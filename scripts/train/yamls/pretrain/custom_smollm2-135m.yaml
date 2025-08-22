@@ -1,0 +1,122 @@
+variables:
+  data_local: datasets/tmp # datasets/c4_small
+  data_remote: hf://datasets/LocalResearchGroup/split-avelina-python-edu/tokenized/avelinapythonedu/1k/ # If blank, files must be present in data_local
+  tokenizer_name: HuggingFaceTB/SmolLM2-135M
+  global_seed: 42
+  max_seq_len: 2048
+  run_name: custom_smollm2_135m_training
+
+max_seq_len: ${variables.max_seq_len}
+run_name: ${variables.run_name}
+
+# Model - Using custom SmolLM2-135M model
+model:
+  name: custom-smollm2-135m
+  model_type: smollm2-135m
+  pretrained: false
+  pretrained_model_name_or_path: HuggingFaceTB/SmolLM2-135M
+
+# Tokenizer
+tokenizer:
+  name: ${variables.tokenizer_name}
+  kwargs:
+    model_max_length: ${variables.max_seq_len}
+  
+loggers:
+  wandb:
+    project: 'smollm2-135m-training-avelina'
+    entity: 'local-research-group'
+    name: 'smollm2-135m-training-avelina-1k'
+
+# Data loaders
+train_loader:
+  name: text
+  dataset:
+    local: ${variables.data_local}
+    remote: ${variables.data_remote}
+    split: train
+    shuffle: true
+    max_seq_len: ${variables.max_seq_len}
+    shuffle_seed: ${variables.global_seed}
+    deorder_only_format: true
+    eos_token_id: 0
+  drop_last: true
+  num_workers: 4
+
+eval_loader:
+  name: text
+  dataset:
+    local: ${variables.data_local}
+    remote: ${variables.data_remote}
+    split: test
+    shuffle: false
+    max_seq_len: ${variables.max_seq_len}
+    shuffle_seed: ${variables.global_seed}
+    deorder_only_format: true
+    eos_token_id: 0
+  drop_last: false
+  num_workers: 4
+
+# Training configuration
+scheduler:
+  name: cosine_with_warmup
+  t_warmup: 100ba
+  alpha_f: 0.1
+
+optimizer:
+  name: decoupled_adamw
+  lr: 6.0e-4
+  betas:
+  - 0.9
+  - 0.95
+  eps: 1.0e-08
+  weight_decay: 0.0
+
+algorithms:
+  gradient_clipping:
+    clipping_type: norm
+    clipping_threshold: 1.0
+
+# Training duration and evaluation
+max_duration: 1000ba
+eval_interval: 100ba
+eval_first: false
+eval_subset_num_batches: 5
+save_overwrite: true
+save_interval: 0ba  # Disable checkpointing
+
+# System configuration
+seed: ${variables.global_seed}
+device_eval_batch_size: 2
+device_train_microbatch_size: 4
+global_train_batch_size: 4
+precision: amp_bf16
+
+# FSDP configuration
+fsdp_config:
+  sharding_strategy: FULL_SHARD
+  mixed_precision: PURE
+  activation_checkpointing: false
+  activation_checkpointing_reentrant: false
+  activation_cpu_offload: false
+  limit_all_gathers: true
+
+# Logging
+progress_bar: true
+log_to_console: true
+console_log_interval: 1ba
+
+callbacks:
+  speed_monitor:
+    window_size: 10
+  lr_monitor: {}
+  memory_monitor: {}
+  runtime_estimator: {}
+  text_generation:
+    prompts:
+      - "The future of artificial intelligence is"
+      - "In a world where technology"
+      - "def main():"
+      - "Gravity is"
+    max_new_tokens: 50
+    temperature: 0.
