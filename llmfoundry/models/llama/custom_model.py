@@ -1,4 +1,5 @@
-# TODO: Multiple LlamaEmbeddings in LlamaModel.
+# TODO: Clean up multiple LlamaEmbeddings in LlamaModel.
+# TODO: Implement KV cache.
 
 # coding=utf-8
 # Copyright 2022 EleutherAI and the HuggingFace Inc. team. All rights reserved.
@@ -612,8 +613,6 @@ class LlamaModel(nn.Module):
         cu_seqlens = None
         max_seqlen = None
         indices = None
-        print('attention mask from peft', attention_mask)
-        print('made attention mask', (input_ids != self.config.eos_token_id).long())
         if self.config._attn_implementation == "flash_attention_2":
             if attention_mask is None:
                 attention_mask = (input_ids != self.config.eos_token_id).long()
@@ -636,9 +635,6 @@ class LlamaModel(nn.Module):
             device = hidden_states.device if hidden_states is not None else input_ids.device
             position_embeddings = self.rotary_emb(hidden_states, torch.arange(seq_len, device=device).unsqueeze(0))
 
-        # Filter out attention_mask from kwargs to avoid duplicate parameter error
-        filtered_kwargs = {k: v for k, v in kwargs.items() if k != 'attention_mask'}
-        
         for decoder_layer in self.layers[:self.config.num_hidden_layers]:
             hidden_states = decoder_layer(
                 hidden_states,
@@ -646,7 +642,7 @@ class LlamaModel(nn.Module):
                 attention_mask=attention_mask,
                 cu_seqlens=cu_seqlens,
                 max_seqlen=max_seqlen,
-                **filtered_kwargs,
+                **kwargs,
             )
         hidden_states = self.norm(hidden_states)
         if repad:
