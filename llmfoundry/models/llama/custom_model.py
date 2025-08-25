@@ -1,3 +1,5 @@
+# TODO: Multiple LlamaEmbeddings in LlamaModel.
+
 # coding=utf-8
 # Copyright 2022 EleutherAI and the HuggingFace Inc. team. All rights reserved.
 #
@@ -65,6 +67,7 @@ SMOLLM2_CONFIG_135M = LlamaConfig(
     transformers_version = "4.55.0.dev0",
     use_cache = True,
     vocab_size = 49152,
+    _attn_implementation = "flash_attention_2",
 )
 
 # Modernbert unpadding and repadding
@@ -113,8 +116,7 @@ def _pad_modernbert_output(
     batch: int,
     seqlen: int,
 ) -> torch.Tensor:
-    """
-    Add padding to sequences.
+    """Add padding to sequences.
 
     Args:
         inputs: (total_nnz, ...) or (total_nnz,), where total_nnz = number of tokens selected in attention_mask.
@@ -326,65 +328,102 @@ class LlamaMLP(nn.Module):
         return self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
 
 def flash_attention_forward(
-    module: "ModernBertAttention",
-    q: torch.Tensor,
-    k: torch.Tensor,
-    v: torch.Tensor,
-    rotary_emb: ModernBertUnpaddedRotaryEmbedding,
+    query_states: torch.Tensor, 
+    key_states: torch.Tensor, 
+    value_states: torch.Tensor, 
+    is_causal: bool, 
+    scaling: float, 
+    enable_gqa: bool, 
+    input_shape: tuple[int, int], 
+    hidden_shape: tuple[int, int], 
+    position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]],
     cu_seqlens: torch.Tensor,
     max_seqlen: int,
-    local_attention: tuple[int, int],
-    bs: int,
-    dim: int,
+    rotary_emb: Union[LlamaRotaryEmbedding, ModernBertUnpaddedRotaryEmbedding],
     target_dtype: torch.dtype = torch.bfloat16,
-    **_kwargs,
+    **kwargs: Any,
 ) -> tuple[torch.Tensor]:
-    # (total_seqlen, 3, nheads, headdim)
-    q = rotary_emb(q, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
-    k = rotary_emb(k, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
+    # (total_seqlen, nheads, headdim)
+    query_states = query_states.view(hidden_shape)
+    key_states = key_states.view(hidden_shape)
+    value_states = value_states.view(hidden_shape)
 
-    convert_dtype = qkv.dtype not in (torch.float16, torch.bfloat16)
+    if isinstance(rotary_emb, ModernBertUnpaddedRotaryEmbedding):
+        query_states = rotary_emb(query_states, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
+        key_states = rotary_emb(key_states, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
+    elif position_embeddings is not None:
+        # For standard LlamaRotaryEmbedding, we need to use position_embeddings
+        cos, sin = position_embeddings
+        query_states = query_states.view(hidden_shape).transpose(1, 2)
+        key_states = key_states.view(hidden_shape).transpose(1, 2)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        query_states = query_states.transpose(1, 2).view(hidden_shape)
+        key_states = key_states.transpose(1, 2).view(hidden_shape)
+
+    convert_dtype = query_states.dtype not in (torch.float16, torch.bfloat16)
     if convert_dtype:
         # FA2 implementation only supports fp16 and bf16. If FA2 is supported,
         # bfloat16 must be supported as of FA2 2.5.7. (Turing GPUs not supported)
-        orig_dtype = qkv.dtype
-        qkv = qkv.to(target_dtype)
+        orig_dtype = query_states.dtype
+        query_states = query_states.to(target_dtype)
+        key_states = key_states.to(target_dtype)
+        value_states = value_states.to(target_dtype)
 
         attn = flash_attn_varlen_func(
-            q,
-            k,
-            v,
+            query_states,
+            key_states,
+            value_states,
             cu_seqlens_q=cu_seqlens,
             cu_seqlens_k=cu_seqlens,
             max_seqlen_q=max_seqlen,
             max_seqlen_k=max_seqlen,
-            dropout_p=module.attention_dropout if module.training else 0.0,
+            dropout_p=0.0,
             deterministic=True,
-            causal=True,
+            causal=is_causal,
         )
         attn = attn.to(orig_dtype)  # type: ignore
     else:
         attn = flash_attn_varlen_func(
-            q,
-            k,
-            v,
+            query_states,
+            key_states,
+            value_states,
             cu_seqlens_q=cu_seqlens,
             cu_seqlens_k=cu_seqlens,
             max_seqlen_q=max_seqlen,
             max_seqlen_k=max_seqlen,
-            dropout_p=module.attention_dropout if module.training else 0.0,
+            dropout_p=0.0,
             deterministic=True,
-            causal=True,
+            causal=is_causal,
         )
-    return (attn.view(bs, dim),)
+    total_tokens = attn.shape[0]
+    hidden_size = attn.shape[1] * attn.shape[2]  # num_heads * head_dim
+    return attn.view(total_tokens, hidden_size)
 
-def sdpa_attention_forward(query_states, key_states, value_states, is_causal, scaling, enable_gqa, o_proj, input_shape):
+def sdpa_attention_forward(
+    query_states: torch.Tensor, 
+    key_states: torch.Tensor, 
+    value_states: torch.Tensor, 
+    is_causal: bool, 
+    scaling: float, 
+    enable_gqa: bool, 
+    input_shape: tuple[int, int], 
+    hidden_shape: tuple[int, int], 
+    position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]],
+    **kwargs: Any,
+) -> torch.Tensor:
+    query_states = query_states.view(hidden_shape).transpose(1, 2)
+    key_states = key_states.view(hidden_shape).transpose(1, 2)
+    value_states = value_states.view(hidden_shape).transpose(1, 2)
+
+    if position_embeddings is not None:
+        cos, sin = position_embeddings
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+
     attn_output = nn.functional.scaled_dot_product_attention(
             query_states, key_states, value_states, is_causal=is_causal, 
             scale=scaling, enable_gqa=enable_gqa).transpose(1,2)
 
     attn_output = attn_output.reshape(*input_shape, -1)
-    attn_output = o_proj(attn_output)
     return attn_output
 
 LLAMA_ATTENTION_FUNCTION = {
@@ -415,29 +454,24 @@ class LlamaAttention(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         cu_seqlens: Optional[torch.Tensor] = None,
         max_seqlen: Optional[int] = None,
+        rotary_emb: Optional[Union[LlamaRotaryEmbedding, ModernBertUnpaddedRotaryEmbedding]] = None,
         **kwargs: Any,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
         
-        query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-        key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-        value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-
-        # TODO: add support for other attention implementations
-        attn_output = LLAMA_ATTENTION_FUNCTION[self.config.attn_implementation](
-            query_states, key_states, value_states, self.is_causal, self.scaling, True, self.o_proj, input_shape,
+        query_states = self.q_proj(hidden_states)
+        key_states = self.k_proj(hidden_states)
+        value_states = self.v_proj(hidden_states)
+        attn_output = LLAMA_ATTENTION_FUNCTION[self.config._attn_implementation](
+            query_states, key_states, value_states, self.is_causal, self.scaling, 
+            True, input_shape, hidden_shape, position_embeddings,
+            cu_seqlens=cu_seqlens,
+            max_seqlen=max_seqlen,
+            rotary_emb=rotary_emb,
+            **kwargs,
         )
 
-
-        cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-
-        attn_output = nn.functional.scaled_dot_product_attention(
-            query_states, key_states, value_states, is_causal=self.is_causal, 
-            scale=self.scaling, enable_gqa=True).transpose(1,2)
-
-        attn_output = attn_output.reshape(*input_shape, -1)
         attn_output = self.o_proj(attn_output)
         return attn_output
 
@@ -449,6 +483,12 @@ class LlamaDecoderLayer(nn.Module):
         self.mlp = LlamaMLP(config)
         self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+
+        if config._attn_implementation == "flash_attention_2":
+            head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
+            self.rotary_emb = ModernBertUnpaddedRotaryEmbedding(head_dim, config.max_position_embeddings)
+        else:
+            self.rotary_emb = LlamaRotaryEmbedding(config=config)
 
     def forward(
         self,
@@ -468,6 +508,7 @@ class LlamaDecoderLayer(nn.Module):
             attention_mask=attention_mask,
             cu_seqlens=cu_seqlens,
             max_seqlen=max_seqlen,
+            rotary_emb=self.rotary_emb,
             **kwargs,
         )
         hidden_states = residual + hidden_states
@@ -555,6 +596,7 @@ class LlamaModel(nn.Module):
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
         self.can_generate = True
         self.tie_weights()
+        if not self.config._attn_implementation: self.config._attn_implementation = "flash_attention_2"
             
     def forward(
         self,
@@ -562,12 +604,19 @@ class LlamaModel(nn.Module):
         inputs_embeds: Optional[torch.FloatTensor] = None,
         past_key_values: Optional[tuple] = None,
         use_cache: Optional[bool] = None,
+        attention_mask: Optional[torch.Tensor] = None,
         **kwargs: Any,
     ):
         batch_size, seq_len = input_ids.shape[:2]
         repad = False
-        if self.config.attn_implementation == "flash_attention":
-            attention_mask = (input_ids != self.config.eos_token_id).long()
+        cu_seqlens = None
+        max_seqlen = None
+        indices = None
+        print('attention mask from peft', attention_mask)
+        print('made attention mask', (input_ids != self.config.eos_token_id).long())
+        if self.config._attn_implementation == "flash_attention_2":
+            if attention_mask is None:
+                attention_mask = (input_ids != self.config.eos_token_id).long()
             if inputs_embeds is None:
                 repad = True
                 with torch.no_grad():
@@ -579,8 +628,17 @@ class LlamaModel(nn.Module):
 
         inputs_embeds = self.embed_tokens(input_ids)
         hidden_states = inputs_embeds
-        position_embeddings = self.rotary_emb(hidden_states, torch.arange(hidden_states.shape[1], device=hidden_states.device).unsqueeze(0))
+        
+        # For flash attention, we don't need position_embeddings since ModernBertUnpaddedRotaryEmbedding handles it
+        if self.config._attn_implementation == "flash_attention_2":
+            position_embeddings = None
+        else:
+            device = hidden_states.device if hidden_states is not None else input_ids.device
+            position_embeddings = self.rotary_emb(hidden_states, torch.arange(seq_len, device=device).unsqueeze(0))
 
+        # Filter out attention_mask from kwargs to avoid duplicate parameter error
+        filtered_kwargs = {k: v for k, v in kwargs.items() if k != 'attention_mask'}
+        
         for decoder_layer in self.layers[:self.config.num_hidden_layers]:
             hidden_states = decoder_layer(
                 hidden_states,
@@ -588,7 +646,7 @@ class LlamaModel(nn.Module):
                 attention_mask=attention_mask,
                 cu_seqlens=cu_seqlens,
                 max_seqlen=max_seqlen,
-                **kwargs,
+                **filtered_kwargs,
             )
         hidden_states = self.norm(hidden_states)
         if repad:

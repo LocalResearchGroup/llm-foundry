@@ -26,7 +26,7 @@ loggers:
   wandb:
     project: 'smollm2-135m-training-avelina'
     entity: 'local-research-group'
-    name: 'smollm2-135m-training-avelina-1k'
+    name: 'smollm2-135m-sdpa-training-avelina-1k'
 
 # Data loaders
 train_loader:
@@ -81,15 +81,15 @@ algorithms:
 max_duration: 1000ba
 eval_interval: 100ba
 eval_first: false
-eval_subset_num_batches: 5
+eval_subset_num_batches: 0
 save_overwrite: true
 save_interval: 0ba  # Disable checkpointing
 
 # System configuration
 seed: ${variables.global_seed}
 device_eval_batch_size: 2
-device_train_microbatch_size: 4
-global_train_batch_size: 4
+device_train_microbatch_size: 8
+global_train_batch_size: 8
 precision: amp_bf16
 
 # FSDP configuration
@@ -112,6 +112,11 @@ callbacks:
   lr_monitor: {}
   memory_monitor: {}
   runtime_estimator: {}
+  batch_inspection:
+    log_frequency: 1
+    sample_size: 1
+    log_to_console: true
+    log_to_wandb: true
   text_generation:
     prompts:
       - "The future of artificial intelligence is"
