@@ -289,11 +289,11 @@ def main(args):
         print(f"spliting: {args.source}")
         d = upload_splits(args, datasets)
         print(f"spliting: {args.source} finished.")
-    if args.tokenize:
+    if args.tokenize_local:
         print(f"tokenizing: {args.source}")
         create_pretraining_tokens(args, datasets)
         print(f"tokenizing: {args.source} finished.")
-    if args.upload:
+    if args.upload_tokens:
         print(f"uploading tokens: {args.source}")
         create_tokenized_upload(args, datasets)
         print(f"uploading tokens: {args.source} finished.")
@@ -319,8 +319,8 @@ def parse_args() -> Namespace:
     )
 
     parser.add_argument("--split", action=BooleanOptionalAction, default=True, help="split generation")
-    parser.add_argument("--tokenize", action=BooleanOptionalAction, default=True, help="generate tokenization for splits")
-    parser.add_argument("--upload", action=BooleanOptionalAction, default=True, help="upload tokenization folders")
+    parser.add_argument("--tokenize-local", action=BooleanOptionalAction, default=True, help="generate tokenization for splits")
+    parser.add_argument("--upload-tokens", action=BooleanOptionalAction, default=True, help="upload tokenization folders")
     parser.add_argument("--one-k", action=BooleanOptionalAction, default=False, help="only process 1k")
 
     parsed = parser.parse_args()
