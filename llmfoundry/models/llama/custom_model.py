@@ -205,14 +205,12 @@ def apply_rotary_unpadded(
         out: (total_nnz, dim)
     rotary_dim must be <= headdim
     Apply rotary embedding to the first rotary_dim of x.
-    """
+    """  # noqa: D205
     return ApplyRotaryEmbUnpad.apply(x, cos, sin, cu_seqlens, max_seqlen)
 
 
 class ModernBertUnpaddedRotaryEmbedding(RotaryEmbedding):
-    """
-    The rotary position embeddings applied directly to unpadded sequences.
-    """
+    """The rotary position embeddings applied directly to unpadded sequences."""
 
     def __init__(
         self,
@@ -222,11 +220,10 @@ class ModernBertUnpaddedRotaryEmbedding(RotaryEmbedding):
         device: Optional[torch.device] = None,
         dtype: Optional[torch.dtype] = None,
     ):
-        """
-        max_seqlen: if max_seqlen, device, and dtype are provided, we precompute the cos_sin_cache
-            up to max_seqlen. If the max_seqlen, device, or dtype during training/inference differ,
-            the cos_sin_cache will be recomputed during the forward pass.
-        """
+        """max_seqlen: if max_seqlen, device, and dtype are provided, we precompute the cos_sin_cache
+        up to max_seqlen. If the max_seqlen, device, or dtype during training/inference differ,
+        the cos_sin_cache will be recomputed during the forward pass. 
+        """  # noqa: D205
         super().__init__(dim=dim, base=base, device=device, interleaved=False)
         self.max_seqlen = max_seqlen
 
@@ -239,12 +236,11 @@ class ModernBertUnpaddedRotaryEmbedding(RotaryEmbedding):
         cu_seqlens: torch.Tensor,
         max_seqlen: Optional[int] = None,
     ) -> Union[torch.Tensor, tuple[torch.Tensor, torch.Tensor]]:
-        """
-        Apply rotary embedding *inplace* to x.
+        """Apply rotary embedding *inplace* to x.
         x: (total_nnz, nheads, headdim)
         cu_seqlens: (batch + 1,) cumulative sequence lengths
         max_seqlen: int max seq length in the batch
-        """
+        """  # noqa: D205
         if max_seqlen is not None:
             self._update_cos_sin_cache(max_seqlen, device=x.device, dtype=x.dtype)
 
@@ -349,19 +345,10 @@ def flash_attention_forward(
     key_states = key_states.view(hidden_shape)
     value_states = value_states.view(hidden_shape)
 
-    if isinstance(rotary_emb, ModernBertUnpaddedRotaryEmbedding):
-        query_states = rotary_emb(query_states, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
-        key_states = rotary_emb(key_states, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
-    elif position_embeddings is not None:
-        # For standard LlamaRotaryEmbedding, we need to use position_embeddings
-        cos, sin = position_embeddings
-        query_states = query_states.view(hidden_shape).transpose(1, 2)
-        key_states = key_states.view(hidden_shape).transpose(1, 2)
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-        query_states = query_states.transpose(1, 2).view(hidden_shape)
-        key_states = key_states.transpose(1, 2).view(hidden_shape)
-
+    query_states = rotary_emb(query_states, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
+    key_states = rotary_emb(key_states, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
     convert_dtype = query_states.dtype not in (torch.float16, torch.bfloat16)
+
     if convert_dtype:
         # FA2 implementation only supports fp16 and bf16. If FA2 is supported,
         # bfloat16 must be supported as of FA2 2.5.7. (Turing GPUs not supported)
@@ -379,7 +366,7 @@ def flash_attention_forward(
             max_seqlen_q=max_seqlen,
             max_seqlen_k=max_seqlen,
             dropout_p=0.0,
-            deterministic=True,
+            deterministic=False,
             causal=is_causal,
         )
         attn = attn.to(orig_dtype)  # type: ignore
@@ -393,7 +380,7 @@ def flash_attention_forward(
             max_seqlen_q=max_seqlen,
             max_seqlen_k=max_seqlen,
             dropout_p=0.0,
-            deterministic=True,
+            deterministic=False,
             causal=is_causal,
         )
     total_tokens = attn.shape[0]
@@ -485,12 +472,6 @@ class LlamaDecoderLayer(nn.Module):
         self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-        if config._attn_implementation == "flash_attention_2":
-            head_dim = getattr(config, "head_dim", config.hidden_size // config.num_attention_heads)
-            self.rotary_emb = ModernBertUnpaddedRotaryEmbedding(head_dim, config.max_position_embeddings)
-        else:
-            self.rotary_emb = LlamaRotaryEmbedding(config=config)
-
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -498,6 +479,7 @@ class LlamaDecoderLayer(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         cu_seqlens: Optional[torch.Tensor] = None,
         max_seqlen: Optional[int] = None,
+        rotary_emb: Optional[Union[LlamaRotaryEmbedding, ModernBertUnpaddedRotaryEmbedding]] = None,
         **kwargs: Any,
     ) -> tuple[torch.Tensor]:
         
@@ -509,7 +491,7 @@ class LlamaDecoderLayer(nn.Module):
             attention_mask=attention_mask,
             cu_seqlens=cu_seqlens,
             max_seqlen=max_seqlen,
-            rotary_emb=self.rotary_emb,
+            rotary_emb=rotary_emb,
             **kwargs,
         )
         hidden_states = residual + hidden_states
@@ -594,10 +576,8 @@ class LlamaModel(nn.Module):
         self.layers = nn.ModuleList([LlamaDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)])
         self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        self.rotary_emb = LlamaRotaryEmbedding(config=config)
         self.can_generate = True
         self.tie_weights()
-        if not self.config._attn_implementation: self.config._attn_implementation = "flash_attention_2"
             
     def forward(
         self,
@@ -630,9 +610,17 @@ class LlamaModel(nn.Module):
         
         # For flash attention, we don't need position_embeddings since ModernBertUnpaddedRotaryEmbedding handles it
         if self.config._attn_implementation == "flash_attention_2":
+            device = hidden_states.device if hidden_states is not None else input_ids.device
+            self.rotary_emb = ModernBertUnpaddedRotaryEmbedding(
+                dim=self.config.head_dim, 
+                base=self.config.rope_theta,
+                max_seqlen=self.config.max_position_embeddings,
+                device=device,
+            )
             position_embeddings = None
         else:
             device = hidden_states.device if hidden_states is not None else input_ids.device
+            self.rotary_emb = LlamaRotaryEmbedding(config=self.config)
             position_embeddings = self.rotary_emb(hidden_states, torch.arange(seq_len, device=device).unsqueeze(0))
 
         for decoder_layer in self.layers[:self.config.num_hidden_layers]:
@@ -642,6 +630,7 @@ class LlamaModel(nn.Module):
                 attention_mask=attention_mask,
                 cu_seqlens=cu_seqlens,
                 max_seqlen=max_seqlen,
+                rotary_emb=self.rotary_emb,
                 **kwargs,
             )
         hidden_states = self.norm(hidden_states)
