@@ -302,26 +302,63 @@ def main(args):
 def parse_args() -> Namespace:
     """Parse commandline arguments."""
     parser = ArgumentParser(
-        description=
-        "Split to train/test 1M, 100k, 10k, 1k and tokenize",
+        description="""Tool to help build splits, tokenize and upload tokens.
+
+        1. -split Split `source` dataset to train/test 1M, 100k, 10k, 1k and upload it to `target_repo` (default LRG@hf)
+        2. ---tokenize-local the splits locally to tokenized folder
+        3. --upload-tokens upload local tokens to target repo
+        
+        
+        python data_prep/split_hf_datasets.py --source avelinapythonedu --split --no-tokenize-local --no-upload-tokens
+        python data_prep/split_hf_datasets.py --source avelinapythonedu --no-split --tokenize-local --no-upload-tokens
+        python data_prep/split_hf_datasets.py --source avelinapythonedu --no-split --no-tokenize-local --upload-tokens
+
+        add `--one-k` to target only 1k rows split
+        """,
     )
     parser.add_argument(
         "--source",
         nargs="+",
-        choices=["tulu", "numina", "glaive", "finemath", "avelinapythonedu",],
+        choices=[
+            "tulu",
+            "numina",
+            "glaive",
+            "finemath",
+            "avelinapythonedu",
+        ],
         default=["tulu", "numina", "glaive", "finemath", "avelinapythonedu"],
     )
 
     parser.add_argument(
         "--target_repo",
         default="LocalResearchGroup",
-        help="target repo to upload splits and tokenizations",
+        help="target repo to upload splits and tokenizations default is `LocalResearchGroup`",
     )
 
-    parser.add_argument("--split", action=BooleanOptionalAction, default=True, help="split generation")
-    parser.add_argument("--tokenize-local", action=BooleanOptionalAction, default=True, help="generate tokenization for splits")
-    parser.add_argument("--upload-tokens", action=BooleanOptionalAction, default=True, help="upload tokenization folders")
-    parser.add_argument("--one-k", action=BooleanOptionalAction, default=False, help="only process 1k")
+    parser.add_argument(
+        "--split",
+        action=BooleanOptionalAction,
+        default=True,
+        help="Make splits out of source datasets",
+    )
+    parser.add_argument(
+        "--tokenize-local",
+        action=BooleanOptionalAction,
+        default=True,
+        help="generate local tokenization for splits",
+    )
+    parser.add_argument(
+        "--upload-tokens",
+        action=BooleanOptionalAction,
+        default=True,
+        help="upload local tokenization to target repo",
+    )
+    parser.add_argument(
+        "--one-k",
+        action=BooleanOptionalAction,
+        default=False,
+        help="for testing/checks only process 1k split",
+    )
 
     parsed = parser.parse_args()
     return parsed
