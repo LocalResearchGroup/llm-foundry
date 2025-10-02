@@ -70,17 +70,50 @@ class TextGenerationCallback(Callback):
                         "prompt": prompt,
                         "error": str(e),
                     }
-            
-            if self.log_to_wandb and hasattr(logger, 'log_metrics'):
+            if self.log_to_wandb:
+                # Prepare table data for all successful generations
+                table_data = []
                 for key, value in generated_texts.items():
                     if "error" not in value:
-                        logger.log_metrics({
-                            f"generation/{event_name}/{key}/prompt": str(value["prompt"]),
-                            f"generation/{event_name}/{key}/text": str(value["generated"]),
-                        })
-                        print(f"WandB Logged: {event_name} - {key}")
-                        print(f"  Prompt: {value['prompt']}")
-                        print(f"  Generated: {value['generated']}")
+                        table_data.append([key, value["prompt"], value["generated"]])
+                
+                if table_data:
+                    # Log to W&B directly using proper wandb.Table
+                    import wandb
+                    from composer.loggers import WandBLogger
+                    
+                    # Find the WandBLogger destination
+                    wandb_logger = None
+                    for destination in logger.destinations:
+                        if isinstance(destination, WandBLogger):
+                            wandb_logger = destination
+                            break
+                    
+                    if wandb_logger and hasattr(wandb_logger, '_run') and wandb_logger._run:
+                        # Create proper W&B table
+                        table = wandb.Table(  # pyright: ignore[reportAttributeAccessIssue]
+                            columns=["prompt_id", "prompt", "generated_text"],
+                            data=table_data,
+                        )
+                        # Log the table directly to W&B
+                        wandb_logger._run.log({
+                            f"generation/{event_name}": table,
+                        }, step=state.timestamp.batch.value)
+                        print(f"WandB Logged: {event_name}")
+                        print(f"  Number of generations: {len(table_data)}")
+                        print()
+                    else:
+                        # Fallback to Composer's log_table method
+                        for destination in logger.destinations:
+                            if hasattr(destination, 'log_table'):
+                                destination.log_table(
+                                    columns=["prompt_id", "prompt", "generated_text"],
+                                    rows=table_data,
+                                    name=f"generation/{event_name}",
+                                    step=state.timestamp.batch.value,
+                                )
+                        print(f"WandB Logged (fallback): {event_name}")
+                        print(f"  Number of generations: {len(table_data)}")
                         print()
             
         except Exception as e:
