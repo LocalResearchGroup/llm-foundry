@@ -95,9 +95,9 @@ class TextGenerationCallback(Callback):
                             columns=["prompt_id", "prompt", "generated_text"],
                             data=table_data,
                         )
-                        # Log the table directly to W&B
+                        # Log the table directly to W&B with step-specific name
                         wandb_logger._run.log({
-                            f"generation/{event_name}": table,
+                            f"generation/{event_name}_step_{state.timestamp.batch.value}": table,
                         }, step=state.timestamp.batch.value)
                         print(f"WandB Logged: {event_name}")
                         print(f"  Number of generations: {len(table_data)}")
@@ -109,7 +109,7 @@ class TextGenerationCallback(Callback):
                                 destination.log_table(
                                     columns=["prompt_id", "prompt", "generated_text"],
                                     rows=table_data,
-                                    name=f"generation/{event_name}",
+                                    name=f"generation/{event_name}_step_{state.timestamp.batch.value}",
                                     step=state.timestamp.batch.value,
                                 )
                         print(f"WandB Logged (fallback): {event_name}")
