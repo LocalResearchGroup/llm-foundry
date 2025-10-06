@@ -1,6 +1,6 @@
 variables:
   data_local: datasets/tmp # datasets/c4_small
-  data_remote: hf://datasets/LocalResearchGroup/split-avelina-python-edu/tokenized/avelinapythonedu/1k/ # If blank, files must be present in data_local
+  data_remote: hf://datasets/LocalResearchGroup/split-NuminaMath-CoT/tokenized/numina/full/ # If blank, files must be present in data_local
   tokenizer_name: HuggingFaceTB/SmolLM2-135M
   global_seed: 42
   max_seq_len: 2048
@@ -9,14 +9,12 @@ variables:
 max_seq_len: ${variables.max_seq_len}
 run_name: ${variables.run_name}
 
-# Model - Using custom SmolLM2-135M model
 model:
   name: custom-smollm2-135m
   model_type: smollm2-135m
-  pretrained: false
+  pretrained: true
   pretrained_model_name_or_path: HuggingFaceTB/SmolLM2-135M
 
-# Tokenizer
 tokenizer:
   name: ${variables.tokenizer_name}
   kwargs:
@@ -24,9 +22,9 @@ tokenizer:
   
 loggers:
   wandb:
-    project: 'smollm2-135m-training-avelina'
+    project: 'torch-compile'
     entity: 'local-research-group'
-    name: 'smollm2-135m-sdpa-training-avelina-1k'
+    name: 'numina-dynamic_epilogue_fusion'
 
 # Data loaders
 train_loader:
@@ -40,6 +38,14 @@ train_loader:
     shuffle_seed: ${variables.global_seed}
     deorder_only_format: true
     eos_token_id: 0
+    # Sequence packing configuration
+    # sequence_packing: true
+    # micro_batch_size: 4  # Should match device_train_microbatch_size
+    # packing_buffer_size: 20  # 5 * device_batch_size
+    # packing_prefetch_factor: 5
+    # Optional: batch size warmup
+    # batch_size_warmup_min_size: 2
+    # batch_size_warmup_tokens: 1000ba
   drop_last: true
   num_workers: 4
 
@@ -78,8 +84,8 @@ algorithms:
     clipping_threshold: 1.0
 
 # Training duration and evaluation
-max_duration: 1000ba
-eval_interval: 100ba
+max_duration: 1ba
+eval_interval: 1ba
 eval_first: false
 eval_subset_num_batches: 0
 save_overwrite: true
@@ -88,7 +94,7 @@ save_interval: 0ba  # Disable checkpointing
 # System configuration
 seed: ${variables.global_seed}
 device_eval_batch_size: 2
-device_train_microbatch_size: 8
+device_train_microbatch_size: 4
 global_train_batch_size: 8
 precision: amp_bf16
 
@@ -101,6 +107,14 @@ fsdp_config:
   activation_cpu_offload: false
   limit_all_gathers: true
 
+# Torch compile configuration
+# compile_config:
+#   dynamic: true  # Enable dynamic shapes
+#   options:
+#     epilogue_fusion: true  # Fuses pointwise ops into templates (requires max-autotune)
+#     max_autotune: true  # Enables automatic tuning of fusion patterns
+    # coordinate_descent_tuning: true  # Enables coordinate descent tuning for optimization
+
 # Logging
 progress_bar: true
 log_to_console: true
@@ -112,16 +126,18 @@ callbacks:
   lr_monitor: {}
   memory_monitor: {}
   runtime_estimator: {}
-  batch_inspection:
-    log_frequency: 1
-    sample_size: 1
-    log_to_console: true
-    log_to_wandb: true
-  text_generation:
-    prompts:
-      - "The future of artificial intelligence is"
-      - "In a world where technology"
-      - "def main():"
-      - "Gravity is"
-    max_new_tokens: 50
-    temperature: 0.
+  # batch_inspection:
+  #   log_frequency: 1
+  #   sample_size: 1
+  #   log_to_console: true
+  #   log_to_wandb: true
+  # text_generation:
+  #   prompts:
+  #     - "The future of artificial intelligence is"
+  #     - "In a world where technology"
+  #     - "def main():"
+  #     - "Gravity is"
+  #     - "<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Local Research Group<|im_end|>\n<|im_start|>user\nWhat is 1+1?<|im_end|>\n<|im_start|>assistant\n"
+  #   max_new_tokens: 50
+  #   temperature: 0.7
+  #   log_to_wandb: true
