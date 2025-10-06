@@ -126,6 +126,3 @@ class TextGenerationCallback(Callback):
     def eval_start(self, state: State, logger: Logger) -> None:
         """Generate text before evaluation starts."""
         self._generate_and_log_text(state, logger, "BEFORE_EVAL")
-    
-from llmfoundry.registry import callbacks
-callbacks.register('text_generation', func=TextGenerationCallback) 
