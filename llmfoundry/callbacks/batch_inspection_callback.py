@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Callback for inspecting batch data passed to the model's forward method.
-"""
+"""Callback for inspecting batch data passed to the model's forward method."""
 
 import logging
 import torch
@@ -19,10 +17,9 @@ class BatchInspectionCallback(Callback):
         log_frequency: int = 10,
         sample_size: int = 3,
         log_to_console: bool = True,
-        log_to_wandb: bool = True
+        log_to_wandb: bool = True,
     ):
-        """
-        Initialize the callback.
+        """Initialize the callback.
         
         Args:
             log_frequency: Log batch info every N batches
@@ -37,7 +34,7 @@ class BatchInspectionCallback(Callback):
         self.batch_count = 0
         self.original_forward = None
         
-    def _inspect_tensor(self, tensor: torch.Tensor, name: str) -> Dict[str, Any]:
+    def _inspect_tensor(self, tensor: torch.Tensor, name: str) -> dict[str, Any]:
         """Extract detailed information from a tensor."""
         info = {
             'shape': list(tensor.shape),
@@ -70,7 +67,7 @@ class BatchInspectionCallback(Callback):
         
         return info
     
-    def _inspect_batch(self, batch: Any, prefix: str = "") -> Dict[str, Any]:
+    def _inspect_batch(self, batch: Any, prefix: str = "") -> dict[str, Any]:
         """Recursively inspect batch structure."""
         batch_info = {}
         
@@ -91,12 +88,12 @@ class BatchInspectionCallback(Callback):
         else:
             batch_info = {
                 'type': type(batch).__name__,
-                'value': str(batch)[:100]  # Truncate long strings
+                'value': str(batch)[:100],  # Truncate long strings
             }
         
         return batch_info
     
-    def _log_batch_info(self, batch_info: Dict[str, Any], state: State, logger: Logger):
+    def _log_batch_info(self, batch_info: dict[str, Any], state: State, logger: Logger):
         """Log batch information to console and wandb."""
         if self.log_to_console:
             print(f"\n{'='*80}")
@@ -141,7 +138,7 @@ class BatchInspectionCallback(Callback):
         else:
             print(f"{prefix}{info}")
     
-    def _flatten_batch_info(self, info: Any, prefix: str = "") -> Dict[str, Any]:
+    def _flatten_batch_info(self, info: Any, prefix: str = "") -> dict[str, Any]:
         """Flatten nested batch info for wandb logging."""
         flat = {}
         
