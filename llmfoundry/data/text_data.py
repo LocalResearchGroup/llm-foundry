@@ -27,6 +27,10 @@ from llmfoundry.data.data import (
     SUPPORTED_MDS_ENCODING_TYPES,
     stream_remote_local_validate,
 )
+from llmfoundry.data.sequence_packing import (
+    BufferedIterable,
+    GreedyBestFitSequencePacker,
+)
 from llmfoundry.utils.registry_utils import construct_from_registry
 
 __all__ = [
@@ -314,6 +318,21 @@ def build_text_dataloader(
 
     dataset_cfg = dataset
 
+    # Check if sequence packing is enabled
+    sequence_packing = dataset_cfg.get('sequence_packing', False)
+    if sequence_packing:
+        return _build_sequence_packing_dataloader(
+            tokenizer=tokenizer,
+            device_batch_size=device_batch_size,
+            dataset=dataset,
+            drop_last=drop_last,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            prefetch_factor=prefetch_factor,
+            persistent_workers=persistent_workers,
+            timeout=timeout,
+        )
+
     # get kwargs
     dataset_cfg['replication'], dataset_batch_size = construct_from_registry(
         name='dataset_replication_validator',
@@ -392,6 +411,104 @@ def build_text_dataloader(
         partial_function=False,
         kwargs={
             'dl': dl,
+            'dataset_cfg': dataset_cfg,
+        },
+    )
+
+
+def _build_sequence_packing_dataloader(
+    tokenizer: PreTrainedTokenizerBase,
+    device_batch_size: Union[int, float],
+    dataset: dict[str, Any],
+    drop_last: bool,
+    num_workers: int,
+    pin_memory: bool = True,
+    prefetch_factor: int = 2,
+    persistent_workers: bool = True,
+    timeout: int = 0,
+) -> DataSpec:
+    """Build a dataloader with sequence packing for decoder models."""
+    from composer.utils import dist
+    
+    dataset_cfg = dataset
+    
+    micro_batch_size = dataset_cfg.get('micro_batch_size', device_batch_size)
+    max_seq_len = dataset_cfg.get('max_seq_len', 2048)
+    packing_buffer_size = dataset_cfg.get('packing_buffer_size', 5 * device_batch_size)
+    batch_size_warmup_min_size = dataset_cfg.get('batch_size_warmup_min_size', None)
+    batch_size_warmup_tokens = dataset_cfg.get('batch_size_warmup_tokens', None)
+    packing_prefetch_factor = dataset_cfg.get('packing_prefetch_factor', 5)
+    
+    dataset_cfg['replication'], dataset_batch_size = construct_from_registry(
+        name='dataset_replication_validator',
+        registry=registry.dataset_replication_validators,
+        partial_function=False,
+        kwargs={
+            'dataset_cfg': dataset_cfg,
+            'tokenizer': tokenizer,
+            'device_batch_size': device_batch_size,
+        },
+    )
+
+    streams = build_streams(
+        streams=dataset_cfg.pop('streams')
+        if 'streams' in dataset_cfg else None,
+    )
+
+    valid_streaming_text_dataset_parameters = inspect.signature(
+        StreamingTextDataset,
+    ).parameters
+
+    valid_base_dataset_params = inspect.signature(StreamingDataset,).parameters
+
+    dataset_config_subset_for_streaming_text_dataset = {
+        k: v
+        for k, v in dataset_cfg.items()
+        if k in valid_streaming_text_dataset_parameters or
+        k in valid_base_dataset_params
+    }
+
+    text_dataset = StreamingTextDataset(
+        tokenizer=tokenizer,
+        streams=streams,
+        batch_size=dataset_batch_size,
+        **dataset_config_subset_for_streaming_text_dataset,
+    )
+
+    dataloader = DataLoader(
+        text_dataset,
+        collate_fn=lambda x: x,  # No collation, just pass through
+        batch_size=dataset_batch_size,
+        drop_last=False,  # Don't drop last for sequence packing
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        prefetch_factor=prefetch_factor,
+        persistent_workers=persistent_workers,
+        timeout=timeout,
+    )
+
+    sequence_packer = GreedyBestFitSequencePacker.from_composer(
+        src_iterable=dataloader,
+        batch_size=dataset_batch_size,
+        micro_batch_size=micro_batch_size,
+        max_seq_len=max_seq_len,
+        buffer_size=packing_buffer_size,
+        pad_token_id=tokenizer.pad_token_id,
+        ignore_token_id=-100,  # Standard ignore index for cross entropy
+        seed=dataset_cfg.get('shuffle_seed', 42),
+        batch_size_warmup_min_size=batch_size_warmup_min_size,
+        batch_size_warmup_tokens=batch_size_warmup_tokens,
+        world_size=dist.get_world_size() if dist.is_available() and dist.is_initialized() else 1,
+    )
+
+    buffered_packer = BufferedIterable(sequence_packer, buffer_size=packing_prefetch_factor)
+
+    return construct_from_registry(
+        name='data_spec',
+        registry=registry.data_specs,
+        partial_function=False,
+        kwargs={
+            'dl': buffered_packer,
             'dataset_cfg': dataset_cfg,
         },
     )
