@@ -53,6 +53,9 @@ class BatchInspectionCallback(Callback):
                 last_10 = flattened[-10:].tolist() if flattened.numel() >= 10 else []
                 info['first_10'] = first_10
                 info['last_10'] = last_10
+            elif name in ['attention_mask']:
+                info['sum'] = tensor.sum().item()
+                info['numel'] = tensor.numel()
             else:
                 # For other tensors, use original sampling method
                 sample_indices = torch.linspace(0, flattened.numel()-1, min(self.sample_size, flattened.numel()), dtype=torch.long)
@@ -97,7 +100,11 @@ class BatchInspectionCallback(Callback):
         """Log batch information to console and wandb."""
         if self.log_to_console:
             print(f"\n{'='*80}")
-            print(f"BATCH INSPECTION - Step {state.timestamp.batch}")
+            if state and state.timestamp:
+                step_info = f"Step {state.timestamp.batch}"
+            else:
+                step_info = "Evaluation"
+            print(f"BATCH INSPECTION - {step_info}")
             print(f"{'='*80}")
             self._print_batch_info(batch_info)
             print(f"{'='*80}\n")
