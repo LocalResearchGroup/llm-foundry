@@ -1,6 +1,3 @@
-# TODO: Clean up multiple LlamaEmbeddings in LlamaModel.
-# TODO: Implement KV cache.
-
 # coding=utf-8
 # Copyright 2022 EleutherAI and the HuggingFace Inc. team. All rights reserved.
 #
@@ -20,6 +17,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+# Copyright 2024 onwards Answer.AI, LightOn, and contributors
+# License: Apache-2.0
 
 from typing import Any, Optional, Union, TYPE_CHECKING
 
@@ -68,7 +68,7 @@ SMOLLM2_CONFIG_135M = LlamaConfig(
     transformers_version = "4.55.0.dev0",
     use_cache = True,
     vocab_size = 49152,
-    _attn_implementation = "flash_attention_2",
+    _attn_implementation = "sdpa",
 )
 
 # Modernbert unpadding and repadding
