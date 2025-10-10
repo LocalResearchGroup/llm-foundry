@@ -41,6 +41,7 @@ from llmfoundry.callbacks.run_timeout_callback import RunTimeoutCallback
 from llmfoundry.callbacks.scheduled_gc_callback import ScheduledGarbageCollector
 from llmfoundry.callbacks.text_generation_callback import TextGenerationCallback
 from llmfoundry.callbacks.batch_inspection_callback import BatchInspectionCallback
+from llmfoundry.callbacks.packing_efficiency_callback import PackingEfficiency
 from llmfoundry.registry import callbacks, callbacks_with_config
 
 callbacks.register('system_metrics_monitor', func=SystemMetricsMonitor)
@@ -69,6 +70,7 @@ callbacks.register('kill_loss_spike', func=KillLossSpike)
 callbacks.register('load_checkpoint', func=LoadCheckpoint)
 callbacks.register('text_generation', func=TextGenerationCallback)
 callbacks.register('batch_inspection', func=BatchInspectionCallback)
+callbacks.register('packing_efficiency', func=PackingEfficiency)
 
 callbacks_with_config.register('async_eval', func=AsyncEval)
 callbacks_with_config.register('curriculum_learning', func=CurriculumLearning)
@@ -89,4 +91,5 @@ __all__ = [
     'KillLossSpike',
     'TextGenerationCallback',
     'BatchInspectionCallback',
+    'PackingEfficiency',
 ]
