@@ -13,8 +13,6 @@ from llmfoundry.models.llama.register import register_custom_llama_model
 from llmfoundry.command_utils.train import train
 from omegaconf import OmegaConf
 
-import text_generation_callback  # type: ignore
-
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',

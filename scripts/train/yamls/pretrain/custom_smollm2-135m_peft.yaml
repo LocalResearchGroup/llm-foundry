@@ -1,9 +1,9 @@
 variables:
   data_local: datasets/tmp # datasets/c4_small
-  data_remote: hf://datasets/LocalResearchGroup/split-avelina-python-edu/tokenized/avelinapythonedu/1k/ # If blank, files must be present in data_local
+  data_remote: hf://datasets/LocalResearchGroup/split-NuminaMath-CoT/tokenized/numina/full/ # If blank, files must be present in data_local
   tokenizer_name: HuggingFaceTB/SmolLM2-135M
   global_seed: 42
-  max_seq_len: 2048
+  max_seq_len: 1024 # 8192+4096
   run_name: custom_smollm2_135m_peft_training
 
 max_seq_len: ${variables.max_seq_len}
@@ -17,9 +17,9 @@ model:
   peft_config:
     peft_type: LORA
     task_type: CAUSAL_LM
-    r: 64
-    lora_alpha: 128
-    lora_dropout: 0.05
+    r: 1
+    lora_alpha: 2
+    lora_dropout: 0.0
     target_modules:
       - q_proj
       - k_proj
@@ -38,9 +38,9 @@ tokenizer:
   
 loggers:
   wandb:
-    project: 'smollm2-135m-peft-training-avelina'
+    project: 'sequence-packing'
     entity: 'local-research-group'
-    name: 'smollm2-135m-peft-training-avelina-1k'
+    name: 'numina-lora-sequence-packing-100ba-max-seq-len-1024'
 
 train_loader:
   name: text
@@ -53,6 +53,14 @@ train_loader:
     shuffle_seed: ${variables.global_seed}
     deorder_only_format: true
     eos_token_id: 0
+    # Sequence packing configuration
+    sequence_packing: true
+    micro_batch_size: 2  # Should match device_train_microbatch_size
+    packing_buffer_size: 512  # 5 * device_batch_size
+    packing_prefetch_factor: 512
+    # Optional: batch size warmup
+    # batch_size_warmup_min_size: 2
+    # batch_size_warmup_tokens: 1000ba
   drop_last: true
   num_workers: 4
 
@@ -67,12 +75,20 @@ eval_loader:
     shuffle_seed: ${variables.global_seed}
     deorder_only_format: true
     eos_token_id: 0
+    # Sequence packing configuration
+    sequence_packing: true
+    micro_batch_size: 2  # Should match device_train_microbatch_size
+    packing_buffer_size: 512  # 5 * device_batch_size
+    packing_prefetch_factor: 512
+    # Optional: batch size warmup
+    # batch_size_warmup_min_size: 2
+    # batch_size_warmup_tokens: 1000ba
   drop_last: false
   num_workers: 4
 
 scheduler:
   name: cosine_with_warmup
-  t_warmup: 100ba
+  t_warmup: 100ba # 8192tok 
   alpha_f: 0.1
 
 optimizer:
@@ -89,26 +105,35 @@ algorithms:
     clipping_type: norm
     clipping_threshold: 1.0
 
-max_duration: 100ba
-eval_interval: 200ba
+max_duration: 100ba # 16384tok 
+eval_interval: 100ba # 16384tok 
 eval_first: false
-eval_subset_num_batches: 50
+eval_subset_num_batches: 10
 save_overwrite: true
-save_interval: 200ba  # Save PEFT checkpoints
+save_interval: 0ba  # Disable checkpointing
 
 seed: ${variables.global_seed}
-device_eval_batch_size: 2
+device_eval_batch_size: 4
 device_train_microbatch_size: 2
-global_train_batch_size: 4
+global_train_batch_size: 8
 precision: amp_bf16
 
 fsdp_config:
   sharding_strategy: FULL_SHARD
   mixed_precision: PURE
-  activation_checkpointing: false
+  activation_checkpointing: false  # Disable for PEFT compatibility
   activation_checkpointing_reentrant: false
   activation_cpu_offload: false
   limit_all_gathers: true
+  # use_orig_params: true  # Required for PEFT + FSDP
+
+# Torch compile configuration
+# compile_config:
+#   dynamic: true  # Enable dynamic shapes
+#   options:
+#     epilogue_fusion: true  # Fuses pointwise ops into templates (requires max-autotune)
+#     max_autotune: true  # Enables automatic tuning of fusion patterns
+#     coordinate_descent_tuning: true  # Enables coordinate descent tuning for optimization
 
 progress_bar: true
 log_to_console: true
@@ -120,11 +145,20 @@ callbacks:
   lr_monitor: {}
   memory_monitor: {}
   runtime_estimator: {}
-  text_generation:
-    prompts:
-      - "The future of artificial intelligence is"
-      - "In a world where technology"
-      - "The most important thing to remember is"
-      - "Gravity is"
-    max_new_tokens: 50
-    temperature: 0.
+  # batch_inspection:
+  #   log_frequency: 1
+  #   sample_size: 1
+  #   log_to_console: true
+  #   log_to_wandb: false
+  packing_efficiency:
+    log_interval: 1
+  # text_generation:
+  #   prompts:
+  #     - "The future of artificial intelligence is"
+  #     - "In a world where technology"
+  #     - "def main():"
+  #     - "Gravity is"
+  #     - "<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Local Research Group<|im_end|>\n<|im_start|>user\nWhat is 1+1?<|im_end|>\n<|im_start|>assistant\n"
+  #   max_new_tokens: 50
+  #   temperature: 0.7
+  #   log_to_wandb: true
