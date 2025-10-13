@@ -1,4 +1,5 @@
 version = 1
+revision = 1
 requires-python = ">=3.12.0"
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu'",
@@ -1539,6 +1540,19 @@ wheels = [
 ]
 
 [[package]]
+name = "latex2sympy2-extended"
+version = "1.10.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "antlr4-python3-runtime" },
+    { name = "sympy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f4/de/472f9115c14c6f6d8a5889cabe3418283d708bde62ce00402c29441deed4/latex2sympy2_extended-1.10.2.tar.gz", hash = "sha256:41a517ffcc5a140e910a7d1646ce6ff440817e5f9d48fc8279d88bd0925bc389", size = 206188 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ab/60/dfbbf40e3a371388c0e03ff65b01319b7d4023e883df6d7261125772ffdc/latex2sympy2_extended-1.10.2-py3-none-any.whl", hash = "sha256:f910442c5b02a466c1046f47d05cc5285181068b882399281f30102715337fb7", size = 207855 },
+]
+
+[[package]]
 name = "lightning-utilities"
 version = "0.12.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1566,9 +1580,11 @@ dependencies = [
     { name = "fsspec" },
     { name = "gitpython" },
     { name = "huggingface-hub" },
+    { name = "math-verify" },
     { name = "mosaicml", extra = ["mlflow", "peft", "wandb"] },
     { name = "mosaicml-cli" },
     { name = "mosaicml-streaming" },
+    { name = "numba" },
     { name = "omegaconf" },
     { name = "onnx" },
     { name = "onnxruntime" },
@@ -1582,8 +1598,8 @@ dependencies = [
 
 [package.optional-dependencies]
 cpu = [
-    { name = "torch", version = "2.5.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "torch", version = "2.5.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 'aarch64' and sys_platform == 'linux') or (sys_platform != 'darwin' and sys_platform != 'linux')" },
+    { name = "torch", version = "2.5.1", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-11-llm-foundry-cpu') or (platform_machine != 'aarch64' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform == 'darwin' and extra == 'extra-11-llm-foundry-cpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
+    { name = "torch", version = "2.5.1+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-11-llm-foundry-cpu') or (sys_platform != 'darwin' and sys_platform != 'linux' and extra == 'extra-11-llm-foundry-cpu') or (sys_platform == 'darwin' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform == 'linux' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
 ]
 flash = [
     { name = "flash-attn" },
@@ -1591,8 +1607,8 @@ flash = [
 gpu = [
     { name = "packaging" },
     { name = "setuptools" },
-    { name = "torch", version = "2.5.1", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "platform_machine == 'aarch64' and sys_platform == 'linux'" },
-    { name = "torch", version = "2.5.1+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "platform_machine != 'aarch64' or sys_platform != 'linux'" },
+    { name = "torch", version = "2.5.1", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "(platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'extra-11-llm-foundry-gpu') or (platform_machine != 'aarch64' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
+    { name = "torch", version = "2.5.1+cu124", source = { registry = "https://download.pytorch.org/whl/cu124" }, marker = "(platform_machine != 'aarch64' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-gpu') or (extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
 ]
 openai = [
     { name = "openai" },
@@ -1625,9 +1641,11 @@ requires-dist = [
     { name = "fsspec", specifier = ">=2023.6.0,<2024.12.0" },
     { name = "gitpython", specifier = "==3.1.44" },
     { name = "huggingface-hub", specifier = ">=0.19.0,<0.29" },
+    { name = "math-verify", specifier = ">=0.6.0" },
     { name = "mosaicml", extras = ["mlflow", "peft", "wandb"], specifier = ">=0.28.0,<0.29" },
     { name = "mosaicml-cli", specifier = ">=0.6.10,<1" },
     { name = "mosaicml-streaming", specifier = ">=0.11.0,<0.12" },
+    { name = "numba", specifier = ">=0.62.1" },
     { name = "omegaconf", specifier = ">=2.2.3,<3" },
     { name = "onnx", specifier = "==1.17.0" },
     { name = "onnxruntime", specifier = ">=1.19.2,<1.20.2" },
@@ -1644,6 +1662,7 @@ requires-dist = [
     { name = "typer", specifier = "<1" },
     { name = "zstd", specifier = ">=1.5.6.1,!=1.5.6.2" },
 ]
+provides-extras = ["gpu", "cpu", "flash", "openai"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1656,6 +1675,24 @@ dev = [
     { name = "pytest-codeblocks", specifier = ">=0.16.1,<0.18" },
     { name = "pytest-cov", specifier = ">=4,<7" },
     { name = "toml", specifier = ">=0.10.2,<0.11" },
+]
+
+[[package]]
+name = "llvmlite"
+version = "0.45.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/99/8d/5baf1cef7f9c084fb35a8afbde88074f0d6a727bc63ef764fe0e7543ba40/llvmlite-0.45.1.tar.gz", hash = "sha256:09430bb9d0bb58fc45a45a57c7eae912850bedc095cd0810a57de109c69e1c32", size = 185600 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e2/7c/82cbd5c656e8991bcc110c69d05913be2229302a92acb96109e166ae31fb/llvmlite-0.45.1-cp312-cp312-macosx_10_15_x86_64.whl", hash = "sha256:28e763aba92fe9c72296911e040231d486447c01d4f90027c8e893d89d49b20e", size = 43043524 },
+    { url = "https://files.pythonhosted.org/packages/9d/bc/5314005bb2c7ee9f33102c6456c18cc81745d7055155d1218f1624463774/llvmlite-0.45.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:1a53f4b74ee9fd30cb3d27d904dadece67a7575198bd80e687ee76474620735f", size = 37253123 },
+    { url = "https://files.pythonhosted.org/packages/96/76/0f7154952f037cb320b83e1c952ec4a19d5d689cf7d27cb8a26887d7bbc1/llvmlite-0.45.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:5b3796b1b1e1c14dcae34285d2f4ea488402fbd2c400ccf7137603ca3800864f", size = 56288211 },
+    { url = "https://files.pythonhosted.org/packages/00/b1/0b581942be2683ceb6862d558979e87387e14ad65a1e4db0e7dd671fa315/llvmlite-0.45.1-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:779e2f2ceefef0f4368548685f0b4adde34e5f4b457e90391f570a10b348d433", size = 55140958 },
+    { url = "https://files.pythonhosted.org/packages/33/94/9ba4ebcf4d541a325fd8098ddc073b663af75cc8b065b6059848f7d4dce7/llvmlite-0.45.1-cp312-cp312-win_amd64.whl", hash = "sha256:9e6c9949baf25d9aa9cd7cf0f6d011b9ca660dd17f5ba2b23bdbdb77cc86b116", size = 38132231 },
+    { url = "https://files.pythonhosted.org/packages/1d/e2/c185bb7e88514d5025f93c6c4092f6120c6cea8fe938974ec9860fb03bbb/llvmlite-0.45.1-cp313-cp313-macosx_10_15_x86_64.whl", hash = "sha256:d9ea9e6f17569a4253515cc01dade70aba536476e3d750b2e18d81d7e670eb15", size = 43043524 },
+    { url = "https://files.pythonhosted.org/packages/09/b8/b5437b9ecb2064e89ccf67dccae0d02cd38911705112dd0dcbfa9cd9a9de/llvmlite-0.45.1-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:c9f3cadee1630ce4ac18ea38adebf2a4f57a89bd2740ce83746876797f6e0bfb", size = 37253121 },
+    { url = "https://files.pythonhosted.org/packages/f7/97/ad1a907c0173a90dd4df7228f24a3ec61058bc1a9ff8a0caec20a0cc622e/llvmlite-0.45.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:57c48bf2e1083eedbc9406fb83c4e6483017879714916fe8be8a72a9672c995a", size = 56288210 },
+    { url = "https://files.pythonhosted.org/packages/32/d8/c99c8ac7a326e9735401ead3116f7685a7ec652691aeb2615aa732b1fc4a/llvmlite-0.45.1-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:3aa3dfceda4219ae39cf18806c60eeb518c1680ff834b8b311bd784160b9ce40", size = 55140957 },
+    { url = "https://files.pythonhosted.org/packages/09/56/ed35668130e32dbfad2eb37356793b0a95f23494ab5be7d9bf5cb75850ee/llvmlite-0.45.1-cp313-cp313-win_amd64.whl", hash = "sha256:080e6f8d0778a8239cd47686d402cb66eb165e421efa9391366a9b7e5810a38b", size = 38132232 },
 ]
 
 [[package]]
@@ -1727,6 +1764,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0d/80/0985960e4b89922cb5a0bac0ed39c5b96cbc1a536a99f30e8c220a996ed9/MarkupSafe-3.0.2-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:131a3c7689c85f5ad20f9f6fb1b866f402c445b220c19fe4308c0b147ccd2ad9", size = 24098 },
     { url = "https://files.pythonhosted.org/packages/82/78/fedb03c7d5380df2427038ec8d973587e90561b2d90cd472ce9254cf348b/MarkupSafe-3.0.2-cp313-cp313t-win32.whl", hash = "sha256:ba8062ed2cf21c07a9e295d5b8a2a5ce678b913b45fdf68c32d95d6c1291e0b6", size = 15208 },
     { url = "https://files.pythonhosted.org/packages/4f/65/6079a46068dfceaeabb5dcad6d674f5f5c61a6fa5673746f42a9f4c233b3/MarkupSafe-3.0.2-cp313-cp313t-win_amd64.whl", hash = "sha256:e444a31f8db13eb18ada366ab3cf45fd4b31e4db1236a4448f68778c1d1a5a2f", size = 15739 },
+]
+
+[[package]]
+name = "math-verify"
+version = "0.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "latex2sympy2-extended" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/35/b5/b1db6fa6b6c28ebbe1889ee11a4703a72a2ca7750ec415f4559c758cf01a/math_verify-0.8.0.tar.gz", hash = "sha256:3295e0adb94bfe553ff6e3189c44f1916a85aa24ab5d1900f2086a706e28f7c4", size = 60191 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/9f/59979f699b5c97334298f1295bc9fcdc9904d98d2276479bffff863d23b1/math_verify-0.8.0-py3-none-any.whl", hash = "sha256:31ca651296d817a9bb3fd58ca1fd0d192dcea709b1e5ecf2d0a4514c16f89087", size = 29994 },
 ]
 
 [[package]]
@@ -2041,6 +2090,28 @@ wheels = [
 ]
 
 [[package]]
+name = "numba"
+version = "0.62.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "llvmlite" },
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a3/20/33dbdbfe60e5fd8e3dbfde299d106279a33d9f8308346022316781368591/numba-0.62.1.tar.gz", hash = "sha256:7b774242aa890e34c21200a1fc62e5b5757d5286267e71103257f4e2af0d5161", size = 2749817 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/fa/30fa6873e9f821c0ae755915a3ca444e6ff8d6a7b6860b669a3d33377ac7/numba-0.62.1-cp312-cp312-macosx_10_15_x86_64.whl", hash = "sha256:1b743b32f8fa5fff22e19c2e906db2f0a340782caf024477b97801b918cf0494", size = 2685346 },
+    { url = "https://files.pythonhosted.org/packages/a9/d5/504ce8dc46e0dba2790c77e6b878ee65b60fe3e7d6d0006483ef6fde5a97/numba-0.62.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:90fa21b0142bcf08ad8e32a97d25d0b84b1e921bc9423f8dda07d3652860eef6", size = 2688139 },
+    { url = "https://files.pythonhosted.org/packages/50/5f/6a802741176c93f2ebe97ad90751894c7b0c922b52ba99a4395e79492205/numba-0.62.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:6ef84d0ac19f1bf80431347b6f4ce3c39b7ec13f48f233a48c01e2ec06ecbc59", size = 3796453 },
+    { url = "https://files.pythonhosted.org/packages/7e/df/efd21527d25150c4544eccc9d0b7260a5dec4b7e98b5a581990e05a133c0/numba-0.62.1-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:9315cc5e441300e0ca07c828a627d92a6802bcbf27c5487f31ae73783c58da53", size = 3496451 },
+    { url = "https://files.pythonhosted.org/packages/80/44/79bfdab12a02796bf4f1841630355c82b5a69933b1d50eb15c7fa37dabe8/numba-0.62.1-cp312-cp312-win_amd64.whl", hash = "sha256:44e3aa6228039992f058f5ebfcfd372c83798e9464297bdad8cc79febcf7891e", size = 2745552 },
+    { url = "https://files.pythonhosted.org/packages/22/76/501ea2c07c089ef1386868f33dff2978f43f51b854e34397b20fc55e0a58/numba-0.62.1-cp313-cp313-macosx_10_15_x86_64.whl", hash = "sha256:b72489ba8411cc9fdcaa2458d8f7677751e94f0109eeb53e5becfdc818c64afb", size = 2685766 },
+    { url = "https://files.pythonhosted.org/packages/80/68/444986ed95350c0611d5c7b46828411c222ce41a0c76707c36425d27ce29/numba-0.62.1-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:44a1412095534a26fb5da2717bc755b57da5f3053965128fe3dc286652cc6a92", size = 2688741 },
+    { url = "https://files.pythonhosted.org/packages/78/7e/bf2e3634993d57f95305c7cee4c9c6cb3c9c78404ee7b49569a0dfecfe33/numba-0.62.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:8c9460b9e936c5bd2f0570e20a0a5909ee6e8b694fd958b210e3bde3a6dba2d7", size = 3804576 },
+    { url = "https://files.pythonhosted.org/packages/e8/b6/8a1723fff71f63bbb1354bdc60a1513a068acc0f5322f58da6f022d20247/numba-0.62.1-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:728f91a874192df22d74e3fd42c12900b7ce7190b1aad3574c6c61b08313e4c5", size = 3503367 },
+    { url = "https://files.pythonhosted.org/packages/9c/ec/9d414e7a80d6d1dc4af0e07c6bfe293ce0b04ea4d0ed6c45dad9bd6e72eb/numba-0.62.1-cp313-cp313-win_amd64.whl", hash = "sha256:bbf3f88b461514287df66bc8d0307e949b09f2b6f67da92265094e8fa1282dd8", size = 2745529 },
+]
+
+[[package]]
 name = "numpy"
 version = "2.1.3"
 source = { registry = "https://pypi.org/simple" }
@@ -2123,7 +2194,7 @@ name = "nvidia-cudnn-cu12"
 version = "9.1.0.70"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "(platform_machine != 'aarch64' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-gpu') or (extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
+    { name = "nvidia-cublas-cu12", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-11-llm-foundry-gpu') or (platform_machine == 'aarch64' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9f/fd/713452cd72343f682b1c7b9321e23829f00b842ceaedcda96e742ea0b0b3/nvidia_cudnn_cu12-9.1.0.70-py3-none-manylinux2014_x86_64.whl", hash = "sha256:165764f44ef8c61fcdfdfdbe769d687e06374059fbb388b6c89ecb0e28793a6f", size = 664752741 },
@@ -2135,7 +2206,7 @@ name = "nvidia-cufft-cu12"
 version = "11.2.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine != 'aarch64' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-gpu') or (extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-11-llm-foundry-gpu') or (platform_machine == 'aarch64' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7a/8a/0e728f749baca3fbeffad762738276e5df60851958be7783af121a7221e7/nvidia_cufft_cu12-11.2.1.3-py3-none-manylinux2014_aarch64.whl", hash = "sha256:5dad8008fc7f92f5ddfa2101430917ce2ffacd86824914c82e28990ad7f00399", size = 211422548 },
@@ -2158,9 +2229,9 @@ name = "nvidia-cusolver-cu12"
 version = "11.6.1.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "(platform_machine != 'aarch64' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-gpu') or (extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
-    { name = "nvidia-cusparse-cu12", marker = "(platform_machine != 'aarch64' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-gpu') or (extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
-    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine != 'aarch64' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-gpu') or (extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
+    { name = "nvidia-cublas-cu12", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-11-llm-foundry-gpu') or (platform_machine == 'aarch64' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
+    { name = "nvidia-cusparse-cu12", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-11-llm-foundry-gpu') or (platform_machine == 'aarch64' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-11-llm-foundry-gpu') or (platform_machine == 'aarch64' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/46/6b/a5c33cf16af09166845345275c34ad2190944bcc6026797a39f8e0a282e0/nvidia_cusolver_cu12-11.6.1.9-py3-none-manylinux2014_aarch64.whl", hash = "sha256:d338f155f174f90724bbde3758b7ac375a70ce8e706d70b018dd3375545fc84e", size = 127634111 },
@@ -2173,7 +2244,7 @@ name = "nvidia-cusparse-cu12"
 version = "12.3.1.170"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine != 'aarch64' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-gpu') or (extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-11-llm-foundry-gpu') or (platform_machine == 'aarch64' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/96/a9/c0d2f83a53d40a4a41be14cea6a0bf9e668ffcf8b004bd65633f433050c0/nvidia_cusparse_cu12-12.3.1.170-py3-none-manylinux2014_aarch64.whl", hash = "sha256:9d32f62896231ebe0480efd8a7f702e143c98cfaa0e8a76df3386c1ba2b54df3", size = 207381987 },
@@ -3691,7 +3762,7 @@ name = "triton"
 version = "3.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "filelock", marker = "(platform_machine != 'aarch64' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-gpu') or (extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
+    { name = "filelock", marker = "(python_full_version < '3.13' and platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-11-llm-foundry-gpu') or (python_full_version >= '3.13' and platform_machine != 'aarch64' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu') or (platform_machine == 'aarch64' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu') or (sys_platform != 'linux' and extra == 'extra-11-llm-foundry-cpu' and extra == 'extra-11-llm-foundry-gpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/78/eb/65f5ba83c2a123f6498a3097746607e5b2f16add29e36765305e4ac7fdd8/triton-3.1.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c8182f42fd8080a7d39d666814fa36c5e30cc00ea7eeeb1a2983dbb4c99a0fdc", size = 209551444 },
