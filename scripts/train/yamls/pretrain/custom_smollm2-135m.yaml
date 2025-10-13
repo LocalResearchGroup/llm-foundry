@@ -1,11 +1,12 @@
 variables:
   data_local: datasets/tmp # datasets/c4_small
-  data_remote: hf://datasets/LocalResearchGroup/split-NuminaMath-CoT/tokenized/numina/full/ # If blank, files must be present in data_local
+  data_remote: hf://datasets/LocalResearchGroup/split-avelina-python-edu/tokenized/avelinapythonedu/full/
   tokenizer_name: HuggingFaceTB/SmolLM2-135M
   global_seed: 42
-  max_seq_len: 1024 # 8192+4096
+  max_seq_len: 1024
   run_name: custom_smollm2_135m_training
   device_microbatch_size: 4
+  global_train_batch_size: 8
 
 max_seq_len: ${variables.max_seq_len}
 run_name: ${variables.run_name}
@@ -13,7 +14,7 @@ run_name: ${variables.run_name}
 model:
   name: custom-smollm2-135m
   model_type: smollm2-135m
-  pretrained: true
+  pretrained: false
   pretrained_model_name_or_path: HuggingFaceTB/SmolLM2-135M
 
 tokenizer:
@@ -25,7 +26,7 @@ loggers:
   wandb:
     project: 'sequence-packing'
     entity: 'local-research-group'
-    name: 'numina-sequence-packing-100ba-max-seq-len-1024_with-eval'
+    name: 'avelina-sequence-packing-2000ba-max-seq-len-1024_with-eval'
 
 # Data loaders
 train_loader:
@@ -104,7 +105,7 @@ save_interval: 0ba  # Disable checkpointing
 seed: ${variables.global_seed}
 device_eval_batch_size: 4
 device_train_microbatch_size: ${variables.device_microbatch_size}
-global_train_batch_size: 16
+global_train_batch_size: ${variables.global_train_batch_size}
 precision: amp_bf16
 
 # FSDP configuration
@@ -117,12 +118,12 @@ fsdp_config:
   limit_all_gathers: true
 
 # Torch compile configuration
-# compile_config:
-#   dynamic: true  # Enable dynamic shapes
-#   options:
-#     epilogue_fusion: true  # Fuses pointwise ops into templates (requires max-autotune)
-#     max_autotune: true  # Enables automatic tuning of fusion patterns
-#     coordinate_descent_tuning: true  # Enables coordinate descent tuning for optimization
+compile_config:
+  dynamic: true  # Enable dynamic shapes
+  options:
+    epilogue_fusion: true  # Fuses pointwise ops into templates (requires max-autotune)
+    max_autotune: true  # Enables automatic tuning of fusion patterns
+    coordinate_descent_tuning: true  # Enables coordinate descent tuning for optimization
 
 # Logging
 progress_bar: true
@@ -141,7 +142,7 @@ callbacks:
   #   log_to_console: true
   #   log_to_wandb: false
   packing_efficiency:
-    log_interval: 1
+    log_interval: 100
   # text_generation:
   #   prompts:
   #     - "The future of artificial intelligence is"

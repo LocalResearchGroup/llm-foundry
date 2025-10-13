@@ -1,11 +1,12 @@
 variables:
   data_local: datasets/tmp # datasets/c4_small
-  data_remote: hf://datasets/LocalResearchGroup/split-NuminaMath-CoT/tokenized/numina/full/ # If blank, files must be present in data_local
+  data_remote: hf://datasets/LocalResearchGroup/split-avelina-python-edu/tokenized/avelinapythonedu/full/ # If blank, files must be present in data_local
   tokenizer_name: HuggingFaceTB/SmolLM2-135M
   global_seed: 42
-  max_seq_len: 1024 # 8192+4096
+  max_seq_len: 1024 
   run_name: custom_smollm2_135m_peft_training
   device_microbatch_size: 2
+  global_train_batch_size: 8
 
 max_seq_len: ${variables.max_seq_len}
 run_name: ${variables.run_name}
@@ -41,7 +42,7 @@ loggers:
   wandb:
     project: 'sequence-packing'
     entity: 'local-research-group'
-    name: 'numina-lora-sequence-packing-100ba-max-seq-len-1024'
+    name: 'avelina-python-edu-lora-sequence-packing-100ba-max-seq-len-1024'
 
 train_loader:
   name: text
@@ -106,8 +107,8 @@ algorithms:
     clipping_type: norm
     clipping_threshold: 1.0
 
-max_duration: 100ba # 16384tok 
-eval_interval: 100ba # 16384tok 
+max_duration: 1ba # 16384tok 
+eval_interval: 1ba # 16384tok 
 eval_first: false
 eval_subset_num_batches: 10
 save_overwrite: true
@@ -116,7 +117,7 @@ save_interval: 0ba  # Disable checkpointing
 seed: ${variables.global_seed}
 device_eval_batch_size: 4
 device_train_microbatch_size: ${variables.device_microbatch_size}
-global_train_batch_size: 8
+global_train_batch_size: ${variables.global_train_batch_size}
 precision: amp_bf16
 
 fsdp_config:
