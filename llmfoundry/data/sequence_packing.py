@@ -102,6 +102,8 @@ class SequencePacker(ABC):
 
             ignore_token_id: The token ID used to ignore tokens in labels.
 
+            seed: Random seed for internal buffering and shuffling to ensure reproducibility.
+
             batch_size_warmup_min_size: If not None, the sequence packer will gradually increase the batch size from batch_size_warmup_min_size to out_batch_size over the course of the warmup_tokens.
 
             batch_size_warmup_tokens: If not None, the sequence packer will gradually increase the batch size from batch_size_warmup_min_size to out_batch_size over the course of the warmup_tokens.
@@ -164,7 +166,7 @@ class SequencePacker(ABC):
     def __len__(self):
         # rather than estimate the packed length of the dataset, we rely on Composer's ability
         # to schedule training the using the number of batches or tokens instead of epochs.
-        return None
+        return None  # noqa: PLE0303
 
     def _fill_buffer(self, max_items_to_add=float("inf")) -> int:
         """Refills the internal buffer.
@@ -375,7 +377,7 @@ class BufferedIterable(Generic[T]):
     def __init__(self, iterable: Iterable[T], buffer_size: int):
         """Args:
         - iterable: an object which generates a fresh iterator on iter() and which implements len()
-        """
+        """  # noqa: D205
         self.iterable = iterable
         self.buffer_size = buffer_size
 
@@ -469,7 +471,7 @@ def split_packed_batch(
         }
         result.append(microbatch)
 
-    assert all([x["input_ids"].shape[-1] == y["cu_seqlens"][-1] for x, y in zip(result, result)])
+    assert all([x["input_ids"].shape[-1] == y["cu_seqlens"][-1] for x, y in zip(result, result)])  # noqa: C419
     return result
 
 

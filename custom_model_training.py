@@ -30,7 +30,7 @@ image = image.add_local_file(TRAIN_YAML, f"/llm-foundry/scripts/train/yamls/pret
 # image = image.add_local_file("train.py", "/llm-foundry/llmfoundry/command_utils/train.py")
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, secrets=[Secret.from_name("LRG")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=12*3600, secrets=[Secret.from_name("LRG")],  # pyright: ignore[reportUntypedFunctionDecorator]
               volumes={MODEL_CHECKPOINT_VOLUME_MOUNT_PATH: MODEL_CHECKPOINT_VOLUME,
                       DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
               max_containers=1)
@@ -51,7 +51,7 @@ def _train(yaml_path):
 
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
+        format='%(asctime)s - %(levelname)s - %(message)s',
     )
     logger = logging.getLogger(__name__)
 
