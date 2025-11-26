@@ -434,11 +434,14 @@ def main():
     from pathlib import Path
     import time
     run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    print(run_ts)
+    preprocess_datasets.remote() if True else None
 
-    get_stats.remote()
-    time.sleep(1)
-    pull_hf_to_folder.remote() # run once to download the datasets
-    time.sleep(1)
+
+    #get_stats.remote()
+    #time.sleep(1)
+    #pull_hf_to_folder.remote() # run once to download the datasets
+    #time.sleep(1)
 
     # uncomment the next three lines to train the model
     # model_path = train_with_aim.remote(run_ts, yaml_path=f"train/yamls/finetune/{TRAIN_YAML}")
