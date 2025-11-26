@@ -405,6 +405,7 @@ def convert_dataset_hf(
             columns=columns,
             out=os.path.join(out_root, folder_split),
             compression=compression,
+            size_limit="128mb",
         ) as out:
             if denominator is not None:
                 for sample in tqdm(

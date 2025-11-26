@@ -211,6 +211,7 @@ def convert_finetuning_dataset(
             out=out,
             compression=compression,
             keep_local=keep_local,
+            size_limit="128mb",
         ) as out:
             examples_removed = 0
             for sample in tqdm(samples, desc=split_name):
