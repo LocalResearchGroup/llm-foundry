@@ -18,8 +18,9 @@ WORKDIR /llm-foundry
 run git status
 
 RUN micromamba create -n llm-foundry python=3.12 uv cuda -c nvidia/label/12.4.1 -c conda-forge
-RUN micromamba shell init -s bash
-RUN . ~/.bashrc
+# Initialize conda in bash and activate environment by default
+RUN echo "eval \"\$(micromamba shell hook --shell bash)\"" >> ~/.bashrc && \
+    echo "micromamba activate llm-foundry" >> ~/.bashrc
 RUN micromamba activate llm-foundry && \
     uv python pin 3.12 && \
     uv sync --dev --extra gpu && \
@@ -29,9 +30,6 @@ RUN micromamba activate llm-foundry && \
     uv sync --dev --extra gpu --extra flash --no-cache
 
 
-# Initialize conda in bash and activate environment by default
-RUN echo "eval \"\$(micromamba shell hook --shell bash)\"" >> ~/.bashrc && \
-    echo "micromamba activate llm-foundry" >> ~/.bashrc
 
 RUN cat ~/.bashrc
 
