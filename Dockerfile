@@ -5,11 +5,11 @@ USER root
 # Install git and other dependencies
 RUN apt-get update && apt-get install -y git nano curl wget && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+RUN export UV_PROJECT_ENVIRONMENT=/opt/conda/envs/llm-foundry
 # Clone llm-foundry repo and set up environment
 RUN git clone -b tokenize-datasets-process-datasets https://github.com/LocalResearchGroup/llm-foundry.git /llm-foundry && \
     cd /llm-foundry && \
     micromamba create -n llm-foundry python=3.12 uv cuda -c nvidia/label/12.4.1 -c conda-forge && \
-    export UV_PROJECT_ENVIRONMENT=/opt/conda/envs/llm-foundry && \
     micromamba run -n llm-foundry uv python pin 3.12 && \
     micromamba run -n llm-foundry uv sync --dev --extra gpu && \
     micromamba run -n llm-foundry uv sync --dev --extra gpu --extra flash --no-cache
@@ -19,6 +19,7 @@ ENV CONDA_DEFAULT_ENV=llm-foundry
 ENV PATH=/opt/conda/envs/llm-foundry/bin:$PATH
 
 WORKDIR /llm-foundry
+run git status
 
 # Initialize conda in bash and activate environment by default
 RUN echo "eval \"\$(micromamba shell hook --shell bash)\"" >> ~/.bashrc && \
