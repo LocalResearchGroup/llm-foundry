@@ -13,7 +13,7 @@ WORKDIR /llm-foundry
 run git status
 
 RUN micromamba create -n llm-foundry python=3.12 uv cuda -c nvidia/label/12.4.1 -c conda-forge
-RUN micromamba shell init
+RUN micromamba shell init -s bash
 RUN micromamba activate llm-foundry && \
     uv python pin 3.12 && \
     uv sync --dev --extra gpu && \
