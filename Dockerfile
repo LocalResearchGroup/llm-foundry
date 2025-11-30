@@ -3,7 +3,8 @@ FROM mambaorg/micromamba:latest
 USER root
 
 # Install git and other dependencies
-RUN apt-get update && apt-get install -y git nano curl wget && apt-get clean && rm -rf /var/lib/apt/lists/*
+#RUN apt-get update
+RUN apt-get install -y git nano curl wget && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN export UV_PROJECT_ENVIRONMENT=/opt/conda/envs/llm-foundry
 ENV UV_PROJECT_ENVIRONMENT=/opt/conda/envs/llm-foundry
@@ -18,7 +19,7 @@ run git status
 
 RUN micromamba create -n llm-foundry python=3.12 uv cuda -c nvidia/label/12.4.1 -c conda-forge
 RUN micromamba shell init -s bash
-RUN source /root/.bashrc
+RUN source ~/.bashrc
 RUN micromamba activate llm-foundry && \
     uv python pin 3.12 && \
     uv sync --dev --extra gpu && \
@@ -31,6 +32,8 @@ RUN micromamba activate llm-foundry && \
 # Initialize conda in bash and activate environment by default
 RUN echo "eval \"\$(micromamba shell hook --shell bash)\"" >> ~/.bashrc && \
     echo "micromamba activate llm-foundry" >> ~/.bashrc
+
+RUN cat ~/.bashrc
 
 # Open port to view Aim dashboard live from the container (optional) - Not related to aim remote upload server.
 EXPOSE 43800
