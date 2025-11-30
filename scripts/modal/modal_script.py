@@ -367,7 +367,7 @@ def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: s
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def pull_hf_to_folder():
     import subprocess
     import os
@@ -391,7 +391,7 @@ def pull_hf_to_folder():
     DATASETS_VOLUME.commit()
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
-              concurrency_limit=1)
+              max_containers=1)
 def preprocess_datasets():
     import subprocess
     import os
