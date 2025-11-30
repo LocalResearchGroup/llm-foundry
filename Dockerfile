@@ -3,7 +3,7 @@ FROM mambaorg/micromamba:latest
 USER root
 
 # Install git and other dependencies
-#RUN apt-get update
+RUN apt-get update
 RUN apt-get install -y git nano curl wget && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN export UV_PROJECT_ENVIRONMENT=/opt/conda/envs/llm-foundry
