@@ -403,6 +403,7 @@ def preprocess_datasets():
     data_prep_cmd = [
         PYTHON_PATH,
         "data_prep/text_dataset_preproc.py",
+        "--decontaminated"
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -410,7 +411,7 @@ def preprocess_datasets():
         print("Process dataset  errors:", result.stderr)
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+@app.function(cpu=8, image=image, timeout=6*3600, secrets=[Secret.from_name("LRG")],
               concurrency_limit=1)
 def tokenize_datasets():
     import subprocess
@@ -423,6 +424,7 @@ def tokenize_datasets():
     data_prep_cmd = [
         PYTHON_PATH,
         "data_prep/text_dataset_tokenize.py",
+        "--decontaminated"
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -436,7 +438,7 @@ def main():
     run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     print(run_ts)
     preprocess_datasets.remote() if True else None
-    tokenize_datasets.remote() if True else None
+    tokenize_datasets.remote() if False else None
 
 
     #get_stats.remote()
