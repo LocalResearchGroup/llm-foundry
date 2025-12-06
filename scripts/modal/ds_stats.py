@@ -29,8 +29,8 @@ def pull_hf_to_folder():
 
 
     print(f"Working directory 1: {os.getcwd()}")
-    print(f"Working tree root 1: {os.system('tree -d /root/')}")
-    print(f"Working tree / 1: {os.system('tree -d /')}")
+    print(f"Working tree root 1: {os.system('ls /root/')}")
+    print(f"Working tree / 1: {os.system('ls /')}")
     # Change to llm-foundry/scripts directory at the start
     os.chdir("/llm-foundry/scripts")
     print(f"Working directory: {os.getcwd()}")
