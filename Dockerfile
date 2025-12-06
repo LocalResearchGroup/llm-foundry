@@ -37,7 +37,7 @@ FROM mambaorg/micromamba:latest
 USER root
 
 # Install git and other dependencies
-RUN apt-get update && apt-get install -y git nano curl wget && apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y git nano curl wget tree && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Clone llm-foundry repo and set up environment
 RUN git clone -b tokenize-datasets-process-datasets hhttps://github.com/LocalResearchGroup/llm-foundry.git -b tokenize-datasets /llm-foundry && \
@@ -53,6 +53,8 @@ ENV CONDA_DEFAULT_ENV=llm-foundry
 ENV PATH=/opt/conda/envs/llm-foundry/bin:$PATH
 
 WORKDIR /llm-foundry
+
+run tree -d
 
 # Initialize conda in bash and activate environment by default
 RUN echo "eval \"\$(micromamba shell hook --shell bash)\"" >> ~/.bashrc && \

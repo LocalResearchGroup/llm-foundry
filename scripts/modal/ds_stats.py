@@ -26,6 +26,7 @@ def pull_hf_to_folder():
     import subprocess
     import os
 
+    print(f"Working directory 1: {os.getcwd()}")
     # Change to llm-foundry/scripts directory at the start
     os.chdir("/llm-foundry/scripts")
     print(f"Working directory: {os.getcwd()}")
