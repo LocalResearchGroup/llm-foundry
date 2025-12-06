@@ -5,6 +5,8 @@ import os
 from data_lib.utils import get_datasets, rel_path
 
 
+TRAINING_GPU = os.environ.get("MODAL_GPU", "L4") 
+
 def main(args):
     api = HfApi()
     
