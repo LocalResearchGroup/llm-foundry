@@ -14,6 +14,9 @@ RUN git clone -b tokenize-datasets-process-datasets https://github.com/LocalRese
 
 WORKDIR /llm-foundry
 run git status && ls -la
+run echo "###########################################"
+run ls /
+run echo "###########################################"
 
 run micromamba create -n llm-foundry python=3.12 uv cuda -c nvidia/label/12.4.1 -c conda-forge && \
     micromamba run -n llm-foundry uv python pin 3.12 && \
