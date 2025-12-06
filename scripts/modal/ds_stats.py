@@ -2,8 +2,9 @@
 import os
 import pathlib
 import numpy as np
-from modal import Image, App, Volume
+from modal import Image, App, Volume, Secret
 
+TRAINING_GPU = os.environ.get("MODAL_GPU", "L4") 
 app = App("ds-stats")
 image = Image.debian_slim().pip_install("mosaicml-streaming", "transformers", "numpy", "tqdm")
 
@@ -17,6 +18,33 @@ DATASET_PATHS = {
     "finemath": "/datasets/finemath-tokens",
     "pythonedu": "/datasets/pythonedu-tokens",
 }
+
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+              volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
+              max_containers=1)
+def pull_hf_to_folder():
+    import subprocess
+    import os
+
+    # Change to llm-foundry/scripts directory at the start
+    os.chdir("/llm-foundry/scripts")
+    print(f"Working directory: {os.getcwd()}")
+
+    # Step 1: pull all tokens
+    print(f"Downloading repos to {DATASETS_VOLUME_MOUNT_PATH}/")
+    data_prep_cmd = [
+        PYTHON_PATH,  # Use the correct Python interpreter
+        "data_prep/download_tokens.py",
+        "--decontaminated",
+        "--out", f"{DATASETS_VOLUME_MOUNT_PATH}/",
+    ]
+    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Download data errors:", result.stderr)
+
+    DATASETS_VOLUME.commit()
+
 
 SPLITS = ["train", "test"]
 MAX_SEQ_LEN = 8192
@@ -136,6 +164,9 @@ def save_results(all_results):
 
 @app.local_entrypoint()
 def main():
+    if True:
+        pull_hf_to_folder.remote()
+
     all_results = []
     for dataset_name in DATASET_PATHS.keys():
         results = compute_stats.remote(dataset_name)
