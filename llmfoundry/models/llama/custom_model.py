@@ -41,6 +41,8 @@ if is_flash_attn_2_available():
     from flash_attn.layers.rotary import RotaryEmbedding
     from flash_attn.ops.triton.rotary import apply_rotary
 
+from liger_kernel.transformers.rms_norm import LigerRMSNorm
+
 SMOLLM2_CONFIG_135M = LlamaConfig(
     attention_bias = False,
     attention_dropout = 0.0,
@@ -69,6 +71,7 @@ SMOLLM2_CONFIG_135M = LlamaConfig(
     use_cache = True,
     vocab_size = 49152,
     _attn_implementation = "sdpa",
+    _use_liger_rms_norm = False,
 )
 
 # Modernbert unpadding and repadding
@@ -469,8 +472,10 @@ class LlamaDecoderLayer(nn.Module):
         self.hidden_size = config.hidden_size
         self.self_attn = LlamaAttention(config=config, layer_idx=layer_idx)
         self.mlp = LlamaMLP(config)
-        self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.post_attention_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        use_liger_rms_norm = getattr(config, '_use_liger_rms_norm', False)
+        norm_cls = LigerRMSNorm if use_liger_rms_norm else LlamaRMSNorm
+        self.input_layernorm = norm_cls(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = norm_cls(config.hidden_size, eps=config.rms_norm_eps)
 
     def forward(
         self,
@@ -572,9 +577,11 @@ class LlamaModel(nn.Module):
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
         self.config = config
+        use_liger_rms_norm = getattr(config, '_use_liger_rms_norm', False)
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx)
         self.layers = nn.ModuleList([LlamaDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)])
-        self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        norm_cls = LigerRMSNorm if use_liger_rms_norm else LlamaRMSNorm
+        self.norm = norm_cls(config.hidden_size, eps=config.rms_norm_eps)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.can_generate = True
         self.tie_weights()
@@ -641,7 +648,7 @@ class LlamaModel(nn.Module):
         return self.lm_head(hidden_states)
  
     @classmethod
-    def from_pretrained(cls, model_type: str, device_map: str = "auto", torch_dtype: torch.dtype = torch.bfloat16):
+    def from_pretrained(cls, model_type: str, device_map: str = "auto", torch_dtype: torch.dtype = torch.bfloat16, use_liger_rms_norm: bool = False):
         if model_type == "smollm2-135m":
             checkpoint = "HuggingFaceTB/SmolLM2-135M"
             config = SMOLLM2_CONFIG_135M
@@ -650,6 +657,7 @@ class LlamaModel(nn.Module):
             raise NotImplementedError("SmolLM2-1.7B config not yet implemented")
         else:
             raise ValueError(f"Model type {model_type} not supported")
+        config._use_liger_rms_norm = use_liger_rms_norm
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model_hf = AutoModelForCausalLM.from_pretrained(checkpoint, device_map=device_map, torch_dtype=torch_dtype).to(device)
         sd_hf = model_hf.state_dict()
@@ -694,15 +702,19 @@ class LlamaModel(nn.Module):
 class CustomLlamaModel(BaseHuggingFaceModel):
     """Custom Llama model wrapper for LLM Foundry compatibility."""
     
+    _use_liger_rms_norm: bool = False
+    
     def __init__(
         self,
         tokenizer: PreTrainedTokenizerBase,
         model_type: str = "smollm2-135m",
         pretrained: bool = True,
+        use_liger_rms_norm: bool = False,
         peft_config: Optional[dict[str, Any]] = None,
         pretrained_model_name_or_path: str = "HuggingFaceTB/SmolLM2-135M",
         **kwargs: Any,
     ):
+        CustomLlamaModel._use_liger_rms_norm = use_liger_rms_norm
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
             tokenizer=tokenizer,
@@ -772,10 +784,17 @@ class CustomLlamaModel(BaseHuggingFaceModel):
         **kwargs: Any,
     ) -> Union[PreTrainedModel, 'PeftModel']:
         """Build your custom model instead of using AutoModelForCausalLM."""
+        use_liger_rms_norm = cls._use_liger_rms_norm
         if pretrained:
-            model = LlamaModel.from_pretrained("smollm2-135m")
+            model = LlamaModel.from_pretrained("smollm2-135m", use_liger_rms_norm=use_liger_rms_norm)
         else:
-            model = LlamaModel(SMOLLM2_CONFIG_135M)
+            from copy import deepcopy
+            config = deepcopy(SMOLLM2_CONFIG_135M)
+            config._use_liger_rms_norm = use_liger_rms_norm
+            if config_overrides:
+                for key, value in config_overrides.items():
+                    setattr(config, key, value)
+            model = LlamaModel(config)
         
         if pretrained_lora_id_or_path is not None:
             from composer.models.huggingface import peft_installed
