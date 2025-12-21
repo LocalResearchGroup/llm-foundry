@@ -17,6 +17,7 @@ model:
   pretrained: false
   pretrained_model_name_or_path: HuggingFaceTB/SmolLM2-135M
   use_liger_rms_norm: true
+  use_liger_fused_crossentropy: true
 
 tokenizer:
   name: ${variables.tokenizer_name}
@@ -27,7 +28,7 @@ loggers:
   wandb:
     project: 'liger-kernel'
     entity: 'local-research-group'
-    name: 'liger-rms-compile(dynamic_f)'
+    name: 'liger-rms_fusedcross-compile(dynamic_f)'
 
 # Data loaders
 train_loader:

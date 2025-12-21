@@ -42,6 +42,7 @@ if is_flash_attn_2_available():
     from flash_attn.ops.triton.rotary import apply_rotary
 
 from liger_kernel.transformers.rms_norm import LigerRMSNorm
+from liger_kernel.transformers.fused_linear_cross_entropy import LigerFusedLinearCrossEntropyLoss
 
 SMOLLM2_CONFIG_135M = LlamaConfig(
     attention_bias = False,
@@ -72,6 +73,7 @@ SMOLLM2_CONFIG_135M = LlamaConfig(
     vocab_size = 49152,
     _attn_implementation = "sdpa",
     _use_liger_rms_norm = False,
+    _use_liger_fused_crossentropy = False,
 )
 
 # Modernbert unpadding and repadding
@@ -583,6 +585,7 @@ class LlamaModel(nn.Module):
         norm_cls = LigerRMSNorm if use_liger_rms_norm else LlamaRMSNorm
         self.norm = norm_cls(config.hidden_size, eps=config.rms_norm_eps)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        self._use_liger_fused_crossentropy = getattr(config, '_use_liger_fused_crossentropy', False)
         self.can_generate = True
         self.tie_weights()
             
@@ -645,10 +648,11 @@ class LlamaModel(nn.Module):
             hidden_states = _pad_modernbert_output(
                 inputs=hidden_states, indices=indices, batch=batch_size, seqlen=seq_len,
             )
-        return self.lm_head(hidden_states)
+        if self._use_liger_fused_crossentropy: return hidden_states
+        else: return self.lm_head(hidden_states)
  
     @classmethod
-    def from_pretrained(cls, model_type: str, device_map: str = "auto", torch_dtype: torch.dtype = torch.bfloat16, use_liger_rms_norm: bool = False):
+    def from_pretrained(cls, model_type: str, device_map: str = "auto", torch_dtype: torch.dtype = torch.bfloat16, use_liger_rms_norm: bool = False, use_liger_fused_crossentropy: bool = False):
         if model_type == "smollm2-135m":
             checkpoint = "HuggingFaceTB/SmolLM2-135M"
             config = SMOLLM2_CONFIG_135M
@@ -658,6 +662,7 @@ class LlamaModel(nn.Module):
         else:
             raise ValueError(f"Model type {model_type} not supported")
         config._use_liger_rms_norm = use_liger_rms_norm
+        config._use_liger_fused_crossentropy = use_liger_fused_crossentropy
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model_hf = AutoModelForCausalLM.from_pretrained(checkpoint, device_map=device_map, torch_dtype=torch_dtype).to(device)
         sd_hf = model_hf.state_dict()
@@ -703,6 +708,7 @@ class CustomLlamaModel(BaseHuggingFaceModel):
     """Custom Llama model wrapper for LLM Foundry compatibility."""
     
     _use_liger_rms_norm: bool = False
+    _use_liger_fused_crossentropy: bool = False
     
     def __init__(
         self,
@@ -710,11 +716,14 @@ class CustomLlamaModel(BaseHuggingFaceModel):
         model_type: str = "smollm2-135m",
         pretrained: bool = True,
         use_liger_rms_norm: bool = False,
+        use_liger_fused_crossentropy: bool = False,
         peft_config: Optional[dict[str, Any]] = None,
         pretrained_model_name_or_path: str = "HuggingFaceTB/SmolLM2-135M",
         **kwargs: Any,
     ):
         CustomLlamaModel._use_liger_rms_norm = use_liger_rms_norm
+        CustomLlamaModel._use_liger_fused_crossentropy = use_liger_fused_crossentropy
+        self._use_liger_fused_crossentropy = use_liger_fused_crossentropy
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
             tokenizer=tokenizer,
@@ -722,7 +731,8 @@ class CustomLlamaModel(BaseHuggingFaceModel):
             peft_config=peft_config,
             shift_labels=True,
             **kwargs,
-        )    
+        )
+        if use_liger_fused_crossentropy: self.liger_loss_fn = LigerFusedLinearCrossEntropyLoss(ignore_index=CROSS_ENTROPY_IGNORE_INDEX, reduction='mean')
     
     def forward(self, batch: dict[str, Any]) -> torch.Tensor:
         return self.model(input_ids=batch['input_ids'])
@@ -730,11 +740,13 @@ class CustomLlamaModel(BaseHuggingFaceModel):
     def loss(self, outputs: torch.Tensor, batch: dict[str, Any]) -> torch.Tensor:
         targets = torch.roll(batch['labels'], shifts=-1, dims=1)
         targets[:, -1] = CROSS_ENTROPY_IGNORE_INDEX
-        return F.cross_entropy(
-            outputs.flatten(0, -2),
-            targets.flatten(),
-            ignore_index=CROSS_ENTROPY_IGNORE_INDEX,
-        )
+        targets_flat = targets.flatten()
+        outputs_flat = outputs.flatten(0, -2)
+        
+        if self._use_liger_fused_crossentropy:
+            return self.liger_loss_fn(self.model.lm_head.weight, outputs_flat, targets_flat)
+        else:
+            return F.cross_entropy(outputs_flat, targets_flat, ignore_index=CROSS_ENTROPY_IGNORE_INDEX)
 
     def generate(
         self,
@@ -785,12 +797,15 @@ class CustomLlamaModel(BaseHuggingFaceModel):
     ) -> Union[PreTrainedModel, 'PeftModel']:
         """Build your custom model instead of using AutoModelForCausalLM."""
         use_liger_rms_norm = cls._use_liger_rms_norm
+        use_liger_fused_crossentropy = cls._use_liger_fused_crossentropy
         if pretrained:
-            model = LlamaModel.from_pretrained("smollm2-135m", use_liger_rms_norm=use_liger_rms_norm)
+            model = LlamaModel.from_pretrained("smollm2-135m", use_liger_rms_norm=use_liger_rms_norm, use_liger_fused_crossentropy=use_liger_fused_crossentropy)
+            model.config._use_liger_fused_crossentropy = use_liger_fused_crossentropy
         else:
             from copy import deepcopy
             config = deepcopy(SMOLLM2_CONFIG_135M)
             config._use_liger_rms_norm = use_liger_rms_norm
+            config._use_liger_fused_crossentropy = use_liger_fused_crossentropy
             if config_overrides:
                 for key, value in config_overrides.items():
                     setattr(config, key, value)
