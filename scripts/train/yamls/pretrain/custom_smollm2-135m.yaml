@@ -5,7 +5,7 @@ variables:
   global_seed: 42
   max_seq_len: 8192
   run_name: custom_smollm2_135m_training
-  device_microbatch_size: 1
+  device_microbatch_size: 2
   global_train_batch_size: 4
 
 max_seq_len: ${variables.max_seq_len}
@@ -18,6 +18,7 @@ model:
   pretrained_model_name_or_path: HuggingFaceTB/SmolLM2-135M
   use_liger_rms_norm: true
   use_liger_fused_crossentropy: true
+  use_liger_mlp: true
 
 tokenizer:
   name: ${variables.tokenizer_name}
@@ -28,7 +29,7 @@ loggers:
   wandb:
     project: 'liger-kernel'
     entity: 'local-research-group'
-    name: 'liger-rms_fusedcross-compile(dynamic_f)'
+    name: 'liger-all-compile(dynamic_f)_bs-2'
 
 # Data loaders
 train_loader:

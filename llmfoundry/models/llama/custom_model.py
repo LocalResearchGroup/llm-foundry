@@ -43,6 +43,7 @@ if is_flash_attn_2_available():
 
 from liger_kernel.transformers.rms_norm import LigerRMSNorm
 from liger_kernel.transformers.fused_linear_cross_entropy import LigerFusedLinearCrossEntropyLoss
+from liger_kernel.transformers.swiglu import LigerSwiGLUMLP
 
 SMOLLM2_CONFIG_135M = LlamaConfig(
     attention_bias = False,
@@ -74,6 +75,7 @@ SMOLLM2_CONFIG_135M = LlamaConfig(
     _attn_implementation = "sdpa",
     _use_liger_rms_norm = False,
     _use_liger_fused_crossentropy = False,
+    _use_liger_mlp = False,
 )
 
 # Modernbert unpadding and repadding
@@ -473,9 +475,8 @@ class LlamaDecoderLayer(nn.Module):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.self_attn = LlamaAttention(config=config, layer_idx=layer_idx)
-        self.mlp = LlamaMLP(config)
-        use_liger_rms_norm = getattr(config, '_use_liger_rms_norm', False)
-        norm_cls = LigerRMSNorm if use_liger_rms_norm else LlamaRMSNorm
+        norm_cls = LigerRMSNorm if config._use_liger_rms_norm else LlamaRMSNorm
+        self.mlp = LigerSwiGLUMLP(config) if config._use_liger_mlp else LlamaMLP(config)
         self.input_layernorm = norm_cls(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = norm_cls(config.hidden_size, eps=config.rms_norm_eps)
 
@@ -652,7 +653,7 @@ class LlamaModel(nn.Module):
         else: return self.lm_head(hidden_states)
  
     @classmethod
-    def from_pretrained(cls, model_type: str, device_map: str = "auto", torch_dtype: torch.dtype = torch.bfloat16, use_liger_rms_norm: bool = False, use_liger_fused_crossentropy: bool = False):
+    def from_pretrained(cls, model_type: str, device_map: str = "auto", torch_dtype: torch.dtype = torch.bfloat16, use_liger_rms_norm: bool = False, use_liger_fused_crossentropy: bool = False, use_liger_mlp: bool = False):
         if model_type == "smollm2-135m":
             checkpoint = "HuggingFaceTB/SmolLM2-135M"
             config = SMOLLM2_CONFIG_135M
@@ -663,6 +664,7 @@ class LlamaModel(nn.Module):
             raise ValueError(f"Model type {model_type} not supported")
         config._use_liger_rms_norm = use_liger_rms_norm
         config._use_liger_fused_crossentropy = use_liger_fused_crossentropy
+        config._use_liger_mlp = use_liger_mlp
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model_hf = AutoModelForCausalLM.from_pretrained(checkpoint, device_map=device_map, torch_dtype=torch_dtype).to(device)
         sd_hf = model_hf.state_dict()
@@ -709,6 +711,7 @@ class CustomLlamaModel(BaseHuggingFaceModel):
     
     _use_liger_rms_norm: bool = False
     _use_liger_fused_crossentropy: bool = False
+    _use_liger_mlp: bool = False
     
     def __init__(
         self,
@@ -717,12 +720,14 @@ class CustomLlamaModel(BaseHuggingFaceModel):
         pretrained: bool = True,
         use_liger_rms_norm: bool = False,
         use_liger_fused_crossentropy: bool = False,
+        use_liger_mlp: bool = False,
         peft_config: Optional[dict[str, Any]] = None,
         pretrained_model_name_or_path: str = "HuggingFaceTB/SmolLM2-135M",
         **kwargs: Any,
     ):
         CustomLlamaModel._use_liger_rms_norm = use_liger_rms_norm
         CustomLlamaModel._use_liger_fused_crossentropy = use_liger_fused_crossentropy
+        CustomLlamaModel._use_liger_mlp = use_liger_mlp
         self._use_liger_fused_crossentropy = use_liger_fused_crossentropy
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
@@ -798,14 +803,17 @@ class CustomLlamaModel(BaseHuggingFaceModel):
         """Build your custom model instead of using AutoModelForCausalLM."""
         use_liger_rms_norm = cls._use_liger_rms_norm
         use_liger_fused_crossentropy = cls._use_liger_fused_crossentropy
+        use_liger_mlp = cls._use_liger_mlp
         if pretrained:
-            model = LlamaModel.from_pretrained("smollm2-135m", use_liger_rms_norm=use_liger_rms_norm, use_liger_fused_crossentropy=use_liger_fused_crossentropy)
+            model = LlamaModel.from_pretrained("smollm2-135m", use_liger_rms_norm=use_liger_rms_norm, use_liger_fused_crossentropy=use_liger_fused_crossentropy, use_liger_mlp=use_liger_mlp)
             model.config._use_liger_fused_crossentropy = use_liger_fused_crossentropy
+            model.config._use_liger_mlp = use_liger_mlp
         else:
             from copy import deepcopy
             config = deepcopy(SMOLLM2_CONFIG_135M)
             config._use_liger_rms_norm = use_liger_rms_norm
             config._use_liger_fused_crossentropy = use_liger_fused_crossentropy
+            config._use_liger_mlp = use_liger_mlp
             if config_overrides:
                 for key, value in config_overrides.items():
                     setattr(config, key, value)
