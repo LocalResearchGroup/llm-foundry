@@ -161,8 +161,8 @@ class ConcatTokensDataset(AbstractConcatTokensDataset):
             )
             iids = encoded['input_ids']
             buffer = buffer + self.bos_tokens + iids + self.eos_tokens
-            while len(buffer) >= self.max_length:
-                concat_sample = buffer[:self.max_length]
+            if True:
+                concat_sample = buffer
                 buffer = buffer[self.max_length:] if self.should_wrap else []
                 yield {
                     # convert to ndarray to store in MDS format
