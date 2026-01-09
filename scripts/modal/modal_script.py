@@ -403,7 +403,8 @@ def preprocess_datasets():
     data_prep_cmd = [
         PYTHON_PATH,
         "data_prep/text_dataset_preproc.py",
-        "--decontaminated"
+        "--decontaminated",
+        "--user_org", "tyoc213",
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
     print(result.stdout)
@@ -425,7 +426,6 @@ def tokenize_datasets():
         PYTHON_PATH,
         "data_prep/text_dataset_tokenize.py",
         "--decontaminated",
-        "--upload-tokens",
         "--user_org", "tyoc213",
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
@@ -439,7 +439,7 @@ def main():
     import time
     run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     print(run_ts)
-    preprocess_datasets.remote() if False else None
+    preprocess_datasets.remote() if True else None
     tokenize_datasets.remote() if True else None
 
     get_stats.remote()
