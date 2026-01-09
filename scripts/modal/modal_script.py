@@ -425,7 +425,7 @@ def tokenize_datasets():
         PYTHON_PATH,
         "data_prep/text_dataset_tokenize.py",
         "--decontaminated",
-        #"--no-upload-tokens",
+        "--upload-tokens",
         "--user_org", "tyoc213",
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
@@ -440,7 +440,7 @@ def main():
     run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     print(run_ts)
     preprocess_datasets.remote() if False else None
-    tokenize_datasets.remote() if False else None
+    tokenize_datasets.remote() if True else None
 
     get_stats.remote()
     time.sleep(1)
