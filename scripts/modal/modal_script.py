@@ -424,7 +424,9 @@ def tokenize_datasets():
     data_prep_cmd = [
         PYTHON_PATH,
         "data_prep/text_dataset_tokenize.py",
-        "--decontaminated"
+        "--decontaminated",
+        #"--no-upload-tokens",
+        "--user_org", "tyoc213",
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
     print(result.stdout)
