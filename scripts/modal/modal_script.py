@@ -438,7 +438,7 @@ def main():
     run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     print(run_ts)
     preprocess_datasets.remote() if False else None
-    tokenize_datasets.remote() if True else None
+    tokenize_datasets.remote() if False else None
 
     get_stats.remote()
     time.sleep(1)

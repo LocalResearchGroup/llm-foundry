@@ -22,7 +22,7 @@ TRAINING_GPU = os.environ.get("MODAL_GPU", "L4")
 app = App("ds-stats")
 
 
-DATASETS_VOLUME = Volume.from_name("lrg-datasets")
+DATASETS_VOLUME = Volume.from_name("lrg-datasets", create_if_missing=True)
 DATASETS_VOLUME_MOUNT_PATH = pathlib.Path("/datasets")
 
 DATASET_PATHS = {
