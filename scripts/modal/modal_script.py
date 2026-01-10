@@ -381,6 +381,8 @@ def pull_hf_to_folder():
     data_prep_cmd = [
         PYTHON_PATH,  # Use the correct Python interpreter
         "data_prep/download_tokens.py",
+        "--decontaminated",
+        "--user_org", "tyoc213",
         "--out", f"{DATASETS_VOLUME_MOUNT_PATH}/",
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
