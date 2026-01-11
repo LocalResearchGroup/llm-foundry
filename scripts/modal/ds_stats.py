@@ -26,11 +26,11 @@ DATASETS_VOLUME = Volume.from_name("lrg-datasets", create_if_missing=True)
 DATASETS_VOLUME_MOUNT_PATH = pathlib.Path("/datasets")
 
 DATASET_PATHS = {
-    "tulu": "/datasets/cleaned/tulu-tokens",
-    "numina": "/datasets/cleaned/numina-tokens",
-    "glaive": "/datasets/cleaned/glaive-tokens",
-    "finemath": "/datasets/cleaned/finemath-tokens",
-    "pythonedu": "/datasets/cleaned/pythonedu-tokens",
+    "tulu": "/datasets/cleaned/tulu",
+    "numina": "/datasets/cleaned/numina",
+    "glaive": "/datasets/cleaned/glaive",
+    "finemath": "/datasets/cleaned/finemath",
+    "pythonedu": "/datasets/cleaned/pythonedu",
 }
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3*3600, secrets=[Secret.from_name("LRG")],
