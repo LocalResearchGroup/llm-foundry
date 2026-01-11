@@ -230,7 +230,7 @@ def save_results(all_results):
 @app.local_entrypoint()
 def main():
     print("---+++---\n"*27)
-    if True:
+    if False:
         pull_hf_to_folder.remote()
         return
 
