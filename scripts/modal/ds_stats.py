@@ -26,11 +26,11 @@ DATASETS_VOLUME = Volume.from_name("lrg-datasets", create_if_missing=True)
 DATASETS_VOLUME_MOUNT_PATH = pathlib.Path("/datasets")
 
 DATASET_PATHS = {
-    "tulu": "/datasets/tulu",
-    "numina": "/datasets/numina",
-    "glaive": "/datasets/glaive",
-    "finemath": "/datasets/finemath",
-    "pythonedu": "/datasets/pythonedu",
+    "tulu": "/datasets/cleaned/tulu-tokens",
+    "numina": "/datasets/cleaned/numina-tokens",
+    "glaive": "/datasets/cleaned/glaive-tokens",
+    "finemath": "/datasets/cleaned/finemath-tokens",
+    "pythonedu": "/datasets/cleaned/pythonedu-tokens",
 }
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3*3600, secrets=[Secret.from_name("LRG")],
@@ -69,7 +69,7 @@ def pull_hf_to_folder():
 SPLITS = ["train", "test"]
 MAX_SEQ_LEN = 8192
 
-@app.function(image=image, timeout=3600, volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME})
+@app.function(image=image, timeout=3*3600, volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME})
 def compute_stats(dataset_name: str):
     os.system("uv pip list | grep num")
     print("---###+++ ! +++###---\n"*3)
@@ -189,7 +189,7 @@ def compute_stats(dataset_name: str):
 
     return results
 
-@app.function(image=image, timeout=3600, volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME})
+@app.function(image=image, timeout=3*3600, volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME})
 def save_results(all_results):
     print(f"\n\n\nsave_results")
     print(len(all_results))
@@ -230,7 +230,7 @@ def save_results(all_results):
 @app.local_entrypoint()
 def main():
     print("---+++---\n"*27)
-    if False:
+    if True:
         pull_hf_to_folder.remote()
         return
 
