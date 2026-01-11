@@ -26,17 +26,18 @@ DATASETS_VOLUME = Volume.from_name("lrg-datasets", create_if_missing=True)
 DATASETS_VOLUME_MOUNT_PATH = pathlib.Path("/datasets")
 
 DATASET_PATHS = {
-    "tulu": "/datasets/cleaned/tulu-tokens",
-    "numina": "/datasets/cleaned/numina-tokens",
-    "glaive": "/datasets/cleaned/glaive-tokens",
-    "finemath": "/datasets/cleaned/finemath-tokens",
-    "pythonedu": "/datasets/cleaned/pythonedu-tokens",
+    "tulu": "/datasets/tulu",
+    "numina": "/datasets/numina",
+    "glaive": "/datasets/glaive",
+    "finemath": "/datasets/finemath",
+    "pythonedu": "/datasets/pythonedu",
 }
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3*3600, secrets=[Secret.from_name("LRG")],
               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
               max_containers=1)
 def pull_hf_to_folder():
+    print("---------------------------------------------------------\n"*77)
     import subprocess
     import os
 
