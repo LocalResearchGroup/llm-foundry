@@ -3,10 +3,10 @@ variables:
   data_remote: hf://datasets/LocalResearchGroup/split-avelina-python-edu/tokenized/avelinapythonedu/full/
   tokenizer_name: HuggingFaceTB/SmolLM2-135M
   global_seed: 42
-  max_seq_len: 1024
+  max_seq_len: 8192
   run_name: custom_smollm2_135m_training
-  device_microbatch_size: 4
-  global_train_batch_size: 8
+  device_microbatch_size: 2
+  global_train_batch_size: 4
 
 max_seq_len: ${variables.max_seq_len}
 run_name: ${variables.run_name}
@@ -16,6 +16,9 @@ model:
   model_type: smollm2-135m
   pretrained: false
   pretrained_model_name_or_path: HuggingFaceTB/SmolLM2-135M
+  use_liger_rms_norm: true
+  use_liger_fused_crossentropy: true
+  use_liger_mlp: true
 
 tokenizer:
   name: ${variables.tokenizer_name}
@@ -24,9 +27,9 @@ tokenizer:
   
 loggers:
   wandb:
-    project: 'sequence-packing'
+    project: 'liger-kernel'
     entity: 'local-research-group'
-    name: 'avelina-sequence-packing-2000ba-max-seq-len-1024_with-eval'
+    name: 'liger-all-compile(dynamic_f)_bs-2'
 
 # Data loaders
 train_loader:
@@ -119,11 +122,11 @@ fsdp_config:
 
 # Torch compile configuration
 compile_config:
-  dynamic: true  # Enable dynamic shapes
-  options:
-    epilogue_fusion: true  # Fuses pointwise ops into templates (requires max-autotune)
-    max_autotune: true  # Enables automatic tuning of fusion patterns
-    coordinate_descent_tuning: true  # Enables coordinate descent tuning for optimization
+  dynamic: false  # Disable dynamic shapes (required for Triton kernels with liger_kernel)
+  # options:
+  #   epilogue_fusion: true  # Fuses pointwise ops into templates (requires max-autotune)
+  #   max_autotune: true  # Enables automatic tuning of fusion patterns
+  #   coordinate_descent_tuning: true  # Enables coordinate descent tuning for optimization
 
 # Logging
 progress_bar: true
