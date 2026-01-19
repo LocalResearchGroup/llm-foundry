@@ -421,7 +421,7 @@ def tokenize_datasets():
     os.chdir("/llm-foundry/scripts")
     print(f"Working directory: {os.getcwd()}")
 
-    print(f"Tokenizing datasets...")
+    print(f"Tokenizing datasets... pythonedu")
     data_prep_cmd = [
         PYTHON_PATH,
         "data_prep/text_dataset_tokenize.py",
