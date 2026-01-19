@@ -61,7 +61,7 @@ def create_tokens(name, user_org, decontaminated):
             bos_text=None,
             eos_text="<|endoftext|>",
             no_wrap=True,
-            num_workers=8,
+            num_workers=None,
         )
     elif dataset["kind"] == "instruct":
         print(f"\nconvert_finetuning_dataset_from_args for", data_subset)
