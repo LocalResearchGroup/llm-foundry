@@ -431,8 +431,7 @@ def tokenize_datasets():
         "--user_org", "tyoc213",
         "--datasets", "pythonedu"
     ]
-    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
-    print(result.stdout)
+    result = subprocess.run(data_prep_cmd, capture_output=False, text=True)
     if result.stderr:
         print("Process dataset  errors:", result.stderr)
     print(f"Tokenizing datasets... finemath")
@@ -443,8 +442,7 @@ def tokenize_datasets():
         "--user_org", "tyoc213",
         "--datasets", "finemath"
     ]
-    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
-    print(result.stdout)
+    result = subprocess.run(data_prep_cmd, capture_output=False, text=True)
     if result.stderr:
         print("Process dataset  errors:", result.stderr)
 
