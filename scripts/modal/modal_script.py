@@ -414,7 +414,7 @@ def preprocess_datasets():
         print("Process dataset  errors:", result.stderr)
 
 
-@app.function(cpu=8, image=image, timeout=6*3600, secrets=[Secret.from_name("LRG")],
+@app.function(cpu=8, image=image, timeout=24*3600, secrets=[Secret.from_name("LRG")],
               concurrency_limit=1)
 def tokenize_datasets():
     import subprocess
@@ -423,13 +423,25 @@ def tokenize_datasets():
     os.chdir("/llm-foundry/scripts")
     print(f"Working directory: {os.getcwd()}")
 
-    print(f"Tokenizing datasets...")
+    print(f"Tokenizing datasets... pythonedu")
     data_prep_cmd = [
         PYTHON_PATH,
         "data_prep/text_dataset_tokenize.py",
         "--decontaminated",
         "--user_org", "tyoc213",
-        "--datasets", "finemath", "pythonedu"
+        "--datasets", "pythonedu"
+    ]
+    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print("Process dataset  errors:", result.stderr)
+    print(f"Tokenizing datasets... finemath")
+    data_prep_cmd = [
+        PYTHON_PATH,
+        "data_prep/text_dataset_tokenize.py",
+        "--decontaminated",
+        "--user_org", "tyoc213",
+        "--datasets", "finemath"
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
     print(result.stdout)
