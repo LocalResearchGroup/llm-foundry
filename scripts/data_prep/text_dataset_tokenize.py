@@ -57,7 +57,7 @@ def create_tokens(name, user_org, decontaminated):
             compression="zstd",
             concat_tokens=max_seq_len,
             tokenizer=tokenizer,
-            tokenizer_kwargs=f'{{"model_max_length": {max_seq_len} }}',
+            tokenizer_kwargs=f'{{"device_map":"auto"}}',
             bos_text=None,
             eos_text="<|endoftext|>",
             no_wrap=True,
