@@ -165,6 +165,7 @@ class ConcatTokensDataset(AbstractConcatTokensDataset):
                 # convert to ndarray to store in MDS format
                 'tokens': np.asarray(buffer, dtype=np.int32),
             }
+            buffer = []
 
 
 def stream_remote_local_validate(
