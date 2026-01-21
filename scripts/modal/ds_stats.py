@@ -56,6 +56,7 @@ def pull_hf_to_folder():
         PYTHON_PATH,  # Use the correct Python interpreter
         "data_prep/download_tokens.py",
         "--decontaminated",
+        "--datasets", "finemath", "pythonedu",
         "--out", f"{DATASETS_VOLUME_MOUNT_PATH}/cleaned/",
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
@@ -230,7 +231,7 @@ def save_results(all_results):
 @app.local_entrypoint()
 def main():
     print("---+++---\n"*27)
-    if False:
+    if True:
         pull_hf_to_folder.remote()
         return
 
