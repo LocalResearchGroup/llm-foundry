@@ -6,3 +6,7 @@ It seems like the most impactful hyperparameters to change are:
 - LoRa adapter  config
 - optimizers
 - batch size
+- dataset mixes
+
+
+Look at the LRG meeting notes for the recommendations that Benjamin made about hyperparameter sweeps. I think he said we should use like 5% or 10% of the training data size and tokens to run the sweeps. 
