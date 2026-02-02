@@ -1,1 +1,8 @@
 In this folder, please add YAML files for different hyperparameter sweeps that you want us to run. In this README file, put down ideas for different hyperparameters we should change and why. If it works, then we should try something else that's intuitive, and through that process something will be uncovered as a good set of hyperparameters. 
+
+
+It seems like the most impactful hyperparameters to change are:
+- learning rate
+- LoRa adapter  config
+- optimizers
+- batch size
