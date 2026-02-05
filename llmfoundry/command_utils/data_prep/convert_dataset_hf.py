@@ -377,7 +377,7 @@ def convert_dataset_hf(
         )
         loader = build_dataloader(
             dataset=hf_dataset,
-            batch_size=512,
+            batch_size=1,
             num_workers=num_workers,
         )
         samples = generate_samples(
@@ -405,6 +405,7 @@ def convert_dataset_hf(
             columns=columns,
             out=os.path.join(out_root, folder_split),
             compression=compression,
+            size_limit="128mb",
         ) as out:
             if denominator is not None:
                 for sample in tqdm(

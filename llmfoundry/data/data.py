@@ -161,13 +161,11 @@ class ConcatTokensDataset(AbstractConcatTokensDataset):
             )
             iids = encoded['input_ids']
             buffer = buffer + self.bos_tokens + iids + self.eos_tokens
-            while len(buffer) >= self.max_length:
-                concat_sample = buffer[:self.max_length]
-                buffer = buffer[self.max_length:] if self.should_wrap else []
-                yield {
-                    # convert to ndarray to store in MDS format
-                    'tokens': np.asarray(concat_sample, dtype=np.int32),
-                }
+            yield {
+                # convert to ndarray to store in MDS format
+                'tokens': np.asarray(buffer, dtype=np.int32),
+            }
+            buffer = []
 
 
 def stream_remote_local_validate(
