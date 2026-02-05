@@ -57,11 +57,11 @@ def create_tokens(name, user_org, decontaminated):
             compression="zstd",
             concat_tokens=max_seq_len,
             tokenizer=tokenizer,
-            tokenizer_kwargs=f'{{"model_max_length": {max_seq_len} }}',
+            tokenizer_kwargs=f'{{"device_map":"auto"}}',
             bos_text=None,
             eos_text="<|endoftext|>",
             no_wrap=True,
-            num_workers=8,
+            num_workers=None,
         )
     elif dataset["kind"] == "instruct":
         print(f"\nconvert_finetuning_dataset_from_args for", data_subset)

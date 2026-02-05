@@ -377,7 +377,7 @@ def convert_dataset_hf(
         )
         loader = build_dataloader(
             dataset=hf_dataset,
-            batch_size=512,
+            batch_size=1,
             num_workers=num_workers,
         )
         samples = generate_samples(

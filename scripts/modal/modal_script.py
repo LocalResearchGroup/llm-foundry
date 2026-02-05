@@ -365,9 +365,9 @@ def push_folder_to_hf(folder_path: str, repo_id: str | None = None, repo_type: s
     api.upload_folder(folder_path=folder_path, repo_id=repo_id, use_auth_token=True, repo_type=repo_type)
     print(f'Folder "{folder_path}" uploaded to: "{repo_id}" successfully.')
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+@app.function(gpu=TRAINING_GPU, image=image, timeout=3*3600, secrets=[Secret.from_name("LRG")],
               volumes={DATASETS_VOLUME_MOUNT_PATH: DATASETS_VOLUME},
-              concurrency_limit=1)
+              max_containers=1)
 def pull_hf_to_folder():
     import subprocess
     import os
@@ -381,6 +381,7 @@ def pull_hf_to_folder():
     data_prep_cmd = [
         PYTHON_PATH,  # Use the correct Python interpreter
         "data_prep/download_tokens.py",
+        "--decontaminated",
         "--out", f"{DATASETS_VOLUME_MOUNT_PATH}/",
     ]
     result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
@@ -391,7 +392,7 @@ def pull_hf_to_folder():
     DATASETS_VOLUME.commit()
 
 @app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
-              concurrency_limit=1)
+              max_containers=1)
 def preprocess_datasets():
     import subprocess
     import os
@@ -411,7 +412,7 @@ def preprocess_datasets():
         print("Process dataset  errors:", result.stderr)
 
 
-@app.function(gpu=TRAINING_GPU, image=image, timeout=3600, secrets=[Secret.from_name("LRG")],
+@app.function(cpu=8, image=image, timeout=24*3600, secrets=[Secret.from_name("LRG")],
               concurrency_limit=1)
 def tokenize_datasets():
     import subprocess
@@ -426,8 +427,7 @@ def tokenize_datasets():
         "data_prep/text_dataset_tokenize.py",
         "--decontaminated",
     ]
-    result = subprocess.run(data_prep_cmd, capture_output=True, text=True)
-    print(result.stdout)
+    result = subprocess.run(data_prep_cmd, capture_output=False, text=True)
     if result.stderr:
         print("Process dataset  errors:", result.stderr)
 
@@ -436,11 +436,14 @@ def main():
     from pathlib import Path
     import time
     run_ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    print(run_ts)
+    preprocess_datasets.remote() if False else None
+    tokenize_datasets.remote() if False else None
 
     get_stats.remote()
     time.sleep(1)
-    pull_hf_to_folder.remote() # run once to download the datasets
-    time.sleep(1)
+    #pull_hf_to_folder.remote() # run once to download the datasets
+    #time.sleep(1)
 
     # uncomment the next three lines to train the model
     # model_path = train_with_aim.remote(run_ts, yaml_path=f"train/yamls/finetune/{TRAIN_YAML}")
@@ -460,4 +463,3 @@ def main():
     # time.sleep(1)
 
     # generate_responses.remote(model_path)
-
