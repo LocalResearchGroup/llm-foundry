@@ -1,0 +1,174 @@
+variables:
+  data_local: /datasets/glaive-tokens-1pct 
+  data_remote: # If blank, files must be present in data_local
+  tokenizer_name: HuggingFaceTB/SmolLM2-135M
+  global_seed: 42
+  max_seq_len: 8192
+  run_name: initial-1pct-smoke-test-glaive
+  device_microbatch_size: 2
+  global_train_batch_size: 16
+  # checkpoint_interval: 5_000tok
+
+max_seq_len: ${variables.max_seq_len}
+run_name: ${variables.run_name}
+
+model:
+  name: custom-smollm2-135m
+  pretrained_model_name_or_path: HuggingFaceTB/SmolLM2-135M
+  model_type: smollm2-135m
+  pretrained: true
+  peft_config:
+    peft_type: LORA
+    task_type: CAUSAL_LM
+    r: 128
+    lora_alpha: 256   # 2 * r
+    lora_dropout: 0.05
+    target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj
+    use_rslora: false
+    use_dora: false
+
+tokenizer:
+  name: ${variables.tokenizer_name}
+  kwargs:
+    model_max_length: ${variables.max_seq_len}
+  
+loggers:
+  wandb:
+    project: 'hyperparameter-sweeps'
+    entity: 'local-research-group'
+    name: ${variables.run_name}
+
+train_loader:
+  name: finetuning
+  dataset:
+    local: ${variables.data_local}
+    remote: ${variables.data_remote}
+    split: train
+    shuffle: true
+    max_seq_len: ${variables.max_seq_len}
+    shuffle_seed: ${variables.global_seed}
+    deorder_only_format: true
+    eos_token_id: 0
+    # Sequence packing configuration
+    sequence_packing: true
+    micro_batch_size: ${variables.device_microbatch_size}  # Should match device_train_microbatch_size
+    packing_buffer_size: 512  # 5 * device_batch_size
+    packing_prefetch_factor: 512
+    # Optional: batch size warmup
+    # batch_size_warmup_min_size: 2
+    # batch_size_warmup_tokens: 1000ba
+  drop_last: true
+  num_workers: 4
+  persistent_workers: true
+
+eval_loader:
+  name: finetuning
+  dataset:
+    local: ${variables.data_local}
+    remote: ${variables.data_remote}
+    split: test
+    shuffle: false
+    max_seq_len: ${variables.max_seq_len}
+    shuffle_seed: ${variables.global_seed}
+    deorder_only_format: true
+    eos_token_id: 0
+    # Sequence packing configuration
+    sequence_packing: true
+    micro_batch_size: ${variables.device_microbatch_size}  # Should match device_train_microbatch_size
+    packing_buffer_size: 512  # 5 * device_batch_size
+    packing_prefetch_factor: 512
+    # Optional: batch size warmup
+    # batch_size_warmup_min_size: 2
+    # batch_size_warmup_tokens: 1000ba
+  drop_last: false
+  num_workers: 4
+  persistent_workers: true
+
+scheduler:
+  # name: cosine_with_warmup
+  # t_warmup: 8192tok 
+  # alpha_f: 0.1
+  name: constant_with_warmup
+  t_warmup: 1000tok
+
+optimizer:
+  name: decoupled_adamw
+  lr: 1.0e-2
+  betas:
+  - 0.9
+  - 0.95
+  eps: 1.0e-08
+  weight_decay: 0.0
+
+algorithms:
+  gradient_clipping:
+    clipping_type: norm
+    clipping_threshold: 1.0
+
+max_duration: 1ep
+eval_interval: 0.5ep
+eval_first: false
+eval_subset_num_batches: 10
+save_overwrite: true
+save_interval: 0.5ep
+save_latest_filename: latest-rank{rank}.pt  
+
+seed: ${variables.global_seed}
+device_eval_batch_size: 4
+device_train_microbatch_size: ${variables.device_microbatch_size}
+global_train_batch_size: ${variables.global_train_batch_size}
+precision: amp_bf16
+
+fsdp_config:
+  sharding_strategy: FULL_SHARD
+  mixed_precision: PURE
+  activation_checkpointing: false  # Disable for PEFT compatibility
+  activation_checkpointing_reentrant: false
+  activation_cpu_offload: false
+  limit_all_gathers: true
+  # use_orig_params: true  # Required for PEFT + FSDP
+
+# Torch compile configuration
+# suppress_errors is automatically enabled for PEFT models in validate_config
+# Quantization pattern matching is disabled in custom_model_training.py
+# compile_config:
+#   dynamic: true  # Enable dynamic shapes for variable sequence lengths
+  # Disabled aggressive optimizations that conflict with PEFT:
+  # - max_autotune: triggers problematic quantization pass
+  # - coordinate_descent_tuning: also triggers quantization
+  # - epilogue_fusion: requires max_autotune
+
+progress_bar: true
+log_to_console: true
+console_log_interval: 1ba
+
+callbacks:
+  speed_monitor:
+    window_size: 10
+  lr_monitor: {}
+  memory_monitor: {}
+  runtime_estimator: {}
+  # batch_inspection:
+  #   log_frequency: 1
+  #   sample_size: 1
+  #   log_to_console: true
+  #   log_to_wandb: false
+  packing_efficiency:
+    log_interval: 1
+  text_generation:
+    prompts:
+      - "The future of artificial intelligence is"
+      - "How many days in a year 2024?"
+      - "def main():"
+      - "Gravity is"
+      - "<|im_start|>system\nYou are a helpful AI assistant named SmolLM, trained by Local Research Group<|im_end|>\n<|im_start|>user\nWhat is 1+1?<|im_end|>\n<|im_start|>assistant\n"
+    max_new_tokens: 50
+    temperature: 0.7
+    log_to_wandb: true
